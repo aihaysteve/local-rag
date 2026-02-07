@@ -1,13 +1,22 @@
 """Click CLI entry point for local-rag."""
 
-import json
 import logging
+import signal
 import sys
 from pathlib import Path
 
 import click
 
 from local_rag.config import load_config
+
+
+def _handle_sigint(_sig: int, _frame: object) -> None:
+    """Handle Ctrl+C gracefully."""
+    click.echo("\nInterrupted. Shutting down...", err=True)
+    sys.exit(130)
+
+
+signal.signal(signal.SIGINT, _handle_sigint)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +29,9 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # Silence noisy HTTP request logging from httpx/httpcore
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def _get_db(config):
