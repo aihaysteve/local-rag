@@ -75,7 +75,7 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     def rag_list_collections() -> list[dict[str, Any]]:
-        """List all available collections with document counts and metadata."""
+        """List all available collections with source file counts, chunk counts, and metadata."""
         config = load_config()
         conn = get_connection(config)
         init_db(conn, config)
@@ -83,12 +83,10 @@ def create_server() -> FastMCP:
         try:
             rows = conn.execute("""
                 SELECT c.name, c.collection_type, c.description, c.created_at,
-                       COUNT(d.id) as doc_count,
-                       MAX(s.last_indexed_at) as last_indexed
+                       (SELECT COUNT(*) FROM sources s WHERE s.collection_id = c.id) as source_count,
+                       (SELECT COUNT(*) FROM documents d WHERE d.collection_id = c.id) as chunk_count,
+                       (SELECT MAX(s.last_indexed_at) FROM sources s WHERE s.collection_id = c.id) as last_indexed
                 FROM collections c
-                LEFT JOIN documents d ON d.collection_id = c.id
-                LEFT JOIN sources s ON s.collection_id = c.id
-                GROUP BY c.id
                 ORDER BY c.name
             """).fetchall()
 
@@ -97,7 +95,8 @@ def create_server() -> FastMCP:
                     "name": row["name"],
                     "type": row["collection_type"],
                     "description": row["description"],
-                    "document_count": row["doc_count"],
+                    "source_count": row["source_count"],
+                    "chunk_count": row["chunk_count"],
                     "last_indexed": row["last_indexed"],
                     "created_at": row["created_at"],
                 }
@@ -200,7 +199,7 @@ def create_server() -> FastMCP:
                 "description": row["description"],
                 "created_at": row["created_at"],
                 "source_count": source_count,
-                "document_count": doc_count,
+                "chunk_count": doc_count,
                 "last_indexed": last_indexed,
                 "source_types": {tb["source_type"]: tb["cnt"] for tb in type_breakdown},
                 "sample_titles": [st["title"] for st in sample_titles],
