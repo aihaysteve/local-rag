@@ -447,7 +447,6 @@ Create a `config.example.json` in the repo root with placeholder paths and comme
 ## Key Constraints & Rules
 
 - **Everything runs locally.** No cloud APIs, no API keys, no data leaves the machine.
-- **Never open eM Client's live database.** Always copy `mail_data.dat` (+ WAL/SHM files) while eM Client is closed.
 - **Embedding model must be configurable.** Default to `bge-m3` (1024) but support switching to `mxbai-embed-large` (1024d) or others. If the model changes, all existing embeddings must be regenerated (warn the user).
 - **Incremental indexing by default.** Use file hashes (SHA256) for document files and message IDs for email. Provide `--force` flag to re-index everything.
 - **Collection isolation.** Project collections are independent. Deleting a collection removes all its sources, documents, and embeddings cleanly (CASCADE).

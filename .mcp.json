@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "local-rag": {
+      "command": "uv",
+      "args": ["run", "--directory", "/Users/sebastianhutter/Repository/private/local-rag", "local-rag", "serve"],
+      "env": {}
+    }
+  }
+}
