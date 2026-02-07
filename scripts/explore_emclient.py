@@ -1,143 +1,255 @@
 #!/usr/bin/env python3
 """Explore the eM Client SQLite database schema.
 
-Standalone script to discover the eM Client mail_data.dat schema.
-Opens the database in read-only mode to prevent any accidental writes.
+Discovers eM Client account directories and explores the per-account
+database files (mail_index.dat, mail_fti.dat, folders.dat, mail_data.dat).
+Opens all databases in read-only mode to prevent any accidental writes.
 
 Usage:
-    python scripts/explore_emclient.py [/path/to/mail_data.dat]
+    python scripts/explore_emclient.py [/path/to/eM Client dir]
 
 If no path is given, looks in ~/Library/Application Support/eM Client/.
 """
 
+import re
 import sqlite3
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
+# .NET ticks epoch: 0001-01-01
+_DOTNET_EPOCH = datetime(1, 1, 1)
 
-def find_db_path(custom_path: str | None = None) -> Path:
-    """Locate the eM Client database file."""
-    if custom_path:
-        p = Path(custom_path).expanduser()
-        if p.is_file():
-            return p
-        # Maybe they gave the directory
-        candidate = p / "mail_data.dat"
-        if candidate.is_file():
-            return candidate
-        print(f"ERROR: Cannot find database at {p}")
-        sys.exit(1)
+# UUID4 pattern for account/sub directories
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
-    default_dir = Path.home() / "Library" / "Application Support" / "eM Client"
-    candidate = default_dir / "mail_data.dat"
-    if candidate.is_file():
-        return candidate
-
-    print(f"ERROR: Cannot find eM Client database at {candidate}")
-    print("Provide the path as an argument: python scripts/explore_emclient.py /path/to/mail_data.dat")
-    sys.exit(1)
+# Database files we care about, in order of importance
+_DAT_FILES = ["mail_index.dat", "mail_fti.dat", "folders.dat", "mail_data.dat"]
 
 
-def explore(db_path: Path) -> None:
-    """Open the database and print schema information."""
+def _ticks_to_datetime(ticks: int) -> str:
+    """Convert .NET ticks to an ISO datetime string."""
+    try:
+        dt = _DOTNET_EPOCH + timedelta(microseconds=ticks / 10)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, ValueError, OSError):
+        return f"<ticks:{ticks}>"
+
+
+def find_account_dirs(base_path: Path) -> list[Path]:
+    """Find eM Client account directories containing mail databases.
+
+    eM Client stores data in nested UUID directories:
+      <base>/<account-uuid>/<sub-uuid>/mail_index.dat
+
+    Returns list of directories that contain at least mail_index.dat.
+    """
+    account_dirs: list[Path] = []
+
+    if not base_path.is_dir():
+        return account_dirs
+
+    for child in sorted(base_path.iterdir()):
+        if not child.is_dir() or not _UUID_RE.match(child.name):
+            continue
+        for subdir in sorted(child.iterdir()):
+            if not subdir.is_dir() or not _UUID_RE.match(subdir.name):
+                continue
+            if (subdir / "mail_index.dat").is_file():
+                account_dirs.append(subdir)
+
+    return account_dirs
+
+
+def _open_ro(db_path: Path) -> sqlite3.Connection | None:
+    """Open a SQLite database in read-only mode."""
     uri = f"file:{db_path}?mode=ro"
-    print(f"Opening database: {db_path}")
-    print(f"URI: {uri}")
-    print()
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        print(f"  WARNING: Cannot open {db_path.name}: {e}")
+        return None
 
-    conn = sqlite3.connect(uri, uri=True)
-    conn.row_factory = sqlite3.Row
 
-    # List all tables
+def _print_schema(conn: sqlite3.Connection, db_name: str) -> None:
+    """Print table schemas and row counts for a database."""
     tables = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     ).fetchall()
 
-    print(f"=== TABLES ({len(tables)}) ===")
-    for t in tables:
-        print(f"  {t['name']}")
-    print()
-
-    # For each table, print schema
+    print(f"  === {db_name}: {len(tables)} tables ===")
     for t in tables:
         table_name = t["name"]
-        print(f"--- TABLE: {table_name} ---")
-
         columns = conn.execute(f"PRAGMA table_info([{table_name}])").fetchall()
-        for col in columns:
-            nullable = "NULL" if not col["notnull"] else "NOT NULL"
-            pk = " PRIMARY KEY" if col["pk"] else ""
-            default = f" DEFAULT {col['dflt_value']}" if col["dflt_value"] else ""
-            print(f"  {col['name']}: {col['type']} {nullable}{pk}{default}")
-
-        # Count rows
         try:
-            count = conn.execute(f"SELECT COUNT(*) as cnt FROM [{table_name}]").fetchone()
-            print(f"  Row count: {count['cnt']}")
-        except sqlite3.OperationalError as e:
-            print(f"  Could not count rows: {e}")
+            count = conn.execute(
+                f"SELECT COUNT(*) as cnt FROM [{table_name}]"
+            ).fetchone()
+            row_count = count["cnt"]
+        except sqlite3.OperationalError:
+            row_count = "?"
 
+        col_list = ", ".join(col["name"] for col in columns)
+        print(f"    {table_name} ({row_count} rows): [{col_list}]")
+
+    print()
+
+
+def _explore_mail_index(conn: sqlite3.Connection) -> None:
+    """Print sample data from mail_index.dat."""
+    # Sample MailItems
+    print("  --- MailItems (sample) ---")
+    rows = conn.execute(
+        "SELECT id, folder, date, subject, messageId, preview "
+        "FROM MailItems ORDER BY date DESC LIMIT 5"
+    ).fetchall()
+    for r in rows:
+        date_str = _ticks_to_datetime(r["date"]) if r["date"] else "?"
+        subject = (r["subject"] or "")[:80]
+        preview = (r["preview"] or "")[:100]
+        print(f"    id={r['id']}, folder={r['folder']}, date={date_str}")
+        print(f"      subject: {subject}")
+        print(f"      preview: {preview}")
         print()
 
-    # Print sample rows from tables that look mail-related
-    mail_keywords = ["mail", "message", "folder", "contact", "header", "body", "account"]
-    mail_tables = [
-        t["name"]
-        for t in tables
-        if any(kw in t["name"].lower() for kw in mail_keywords)
-    ]
+    # Address type distribution
+    print("  --- MailAddresses type distribution ---")
+    rows = conn.execute(
+        "SELECT type, COUNT(*) as cnt FROM MailAddresses "
+        "GROUP BY type ORDER BY type"
+    ).fetchall()
+    type_labels = {1: "From", 2: "Sender", 3: "Reply-To", 4: "To", 5: "CC", 6: "BCC"}
+    for r in rows:
+        label = type_labels.get(r["type"], "Unknown")
+        print(f"    type={r['type']} ({label}): {r['cnt']} entries")
 
-    if mail_tables:
-        print("=== SAMPLE DATA FROM MAIL-RELATED TABLES ===")
-        for table_name in mail_tables:
-            print(f"\n--- SAMPLES FROM: {table_name} (LIMIT 3) ---")
-            try:
-                rows = conn.execute(f"SELECT * FROM [{table_name}] LIMIT 3").fetchall()
-                if not rows:
-                    print("  (empty table)")
-                    continue
+    # Sample addresses for one email
+    print()
+    print("  --- MailAddresses sample (first email) ---")
+    first = conn.execute("SELECT id FROM MailItems LIMIT 1").fetchone()
+    if first:
+        addrs = conn.execute(
+            "SELECT type, displayName, address FROM MailAddresses "
+            "WHERE parentId=? ORDER BY type, position",
+            (first["id"],),
+        ).fetchall()
+        for a in addrs:
+            label = type_labels.get(a["type"], "?")
+            print(f"    {label}: {a['displayName']} <{a['address']}>")
 
-                col_names = rows[0].keys()
-                for i, row in enumerate(rows):
-                    print(f"  Row {i + 1}:")
-                    for col in col_names:
-                        value = row[col]
-                        # Truncate long values
-                        if isinstance(value, str) and len(value) > 200:
-                            value = value[:200] + "..."
-                        elif isinstance(value, bytes) and len(value) > 100:
-                            value = f"<BLOB {len(value)} bytes>"
-                        print(f"    {col}: {value}")
-                    print()
-            except sqlite3.OperationalError as e:
-                print(f"  Error reading table: {e}")
-    else:
-        print("No obvious mail-related tables found.")
+    print()
 
-    conn.close()
-    print("Done.")
+
+def _explore_fti(conn: sqlite3.Connection) -> None:
+    """Print sample data from mail_fti.dat."""
+    print("  --- LocalMailsIndex3 (sample) ---")
+    rows = conn.execute(
+        "SELECT id, partName, length(content) as content_len, "
+        "substr(content, 1, 150) as preview "
+        "FROM LocalMailsIndex3 LIMIT 6"
+    ).fetchall()
+    for r in rows:
+        print(
+            f"    id={r['id']}, partName={r['partName']}, "
+            f"len={r['content_len']}"
+        )
+        print(f"      {(r['preview'] or '')[:120]}")
+        print()
+
+
+def _explore_folders(conn: sqlite3.Connection) -> None:
+    """Print folder tree from folders.dat."""
+    print("  --- Folders ---")
+    rows = conn.execute(
+        "SELECT id, name, path FROM Folders ORDER BY id"
+    ).fetchall()
+    for r in rows:
+        print(f"    id={r['id']}: {r['path'] or '/'} ({r['name']})")
+    print()
+
+
+def explore_account(account_dir: Path) -> None:
+    """Explore all database files in a single account directory."""
+    print(f"\n{'='*70}")
+    print(f"Account directory: {account_dir}")
+    print(f"{'='*70}")
+
+    # List which .dat files exist and their sizes
+    print("\n  Database files:")
+    for name in _DAT_FILES:
+        p = account_dir / name
+        if p.is_file():
+            size = p.stat().st_size
+            print(f"    {name}: {size:,} bytes")
+        else:
+            print(f"    {name}: NOT FOUND")
+    print()
+
+    # Explore each database
+    for db_name in _DAT_FILES:
+        db_path = account_dir / db_name
+        if not db_path.is_file():
+            continue
+
+        conn = _open_ro(db_path)
+        if not conn:
+            continue
+
+        try:
+            _print_schema(conn, db_name)
+
+            if db_name == "mail_index.dat":
+                _explore_mail_index(conn)
+            elif db_name == "mail_fti.dat":
+                _explore_fti(conn)
+            elif db_name == "folders.dat":
+                _explore_folders(conn)
+        except sqlite3.OperationalError as e:
+            print(f"  ERROR reading {db_name}: {e}")
+        finally:
+            conn.close()
 
 
 def main() -> None:
     """Entry point."""
     custom_path = sys.argv[1] if len(sys.argv) > 1 else None
 
-    try:
-        db_path = find_db_path(custom_path)
-        explore(db_path)
-    except sqlite3.OperationalError as e:
-        err_str = str(e).lower()
-        if "locked" in err_str or "busy" in err_str:
-            print(f"ERROR: Database is locked (eM Client may have an exclusive lock): {e}")
-            print("Try closing eM Client and running again.")
-        elif "unable to open" in err_str or "no such file" in err_str:
-            print(f"ERROR: Cannot open database: {e}")
-        else:
-            print(f"ERROR: SQLite error: {e}")
+    if custom_path:
+        base = Path(custom_path).expanduser()
+    else:
+        base = Path.home() / "Library" / "Application Support" / "eM Client"
+
+    if not base.is_dir():
+        print(f"ERROR: Directory not found: {base}")
         sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: Unexpected error: {e}")
+
+    print(f"eM Client data directory: {base}")
+
+    account_dirs = find_account_dirs(base)
+
+    if not account_dirs:
+        print("No account directories with mail databases found.")
+        print("Expected structure: <base>/<uuid>/<uuid>/mail_index.dat")
         sys.exit(1)
+
+    print(f"Found {len(account_dirs)} account(s)")
+
+    for account_dir in account_dirs:
+        try:
+            explore_account(account_dir)
+        except sqlite3.OperationalError as e:
+            err_str = str(e).lower()
+            if "locked" in err_str or "busy" in err_str:
+                print(f"  ERROR: Database locked (eM Client may be running): {e}")
+            else:
+                print(f"  ERROR: SQLite error: {e}")
+        except Exception as e:
+            print(f"  ERROR: {e}")
 
 
 if __name__ == "__main__":

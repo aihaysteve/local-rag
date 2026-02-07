@@ -1,8 +1,8 @@
 """Email indexer for eM Client.
 
-Indexes emails from the eM Client SQLite database into the "email" system
-collection. Opens the eM Client database in read-only mode with retry logic
-for handling lock contention.
+Indexes emails from the eM Client SQLite databases into the "email" system
+collection. Discovers account directories automatically and opens all
+databases in read-only mode with retry logic for handling lock contention.
 """
 
 import json
@@ -17,7 +17,7 @@ from local_rag.config import Config
 from local_rag.db import get_or_create_collection
 from local_rag.embeddings import get_embeddings, serialize_float32
 from local_rag.indexers.base import BaseIndexer, IndexResult
-from local_rag.parsers.email import EmailMessage, parse_emails
+from local_rag.parsers.email import EmailMessage, find_account_dirs, parse_emails
 
 logger = logging.getLogger(__name__)
 
@@ -25,32 +25,23 @@ MAX_LOCK_RETRIES = 3
 LOCK_RETRY_DELAY = 2.0  # seconds
 
 
-def _find_emclient_db(config: Config) -> Path | None:
-    """Locate the eM Client mail_data.dat file.
+def _find_account_dirs(config: Config) -> list[Path]:
+    """Locate eM Client account directories.
 
     Args:
         config: Application configuration.
 
     Returns:
-        Path to mail_data.dat, or None if not found.
+        List of account directories containing mail databases.
     """
     base = config.emclient_db_path
 
-    # Direct file path
-    if base.is_file():
-        return base
+    # If the configured path points directly to an account dir
+    # (contains mail_index.dat), use it as-is
+    if (base / "mail_index.dat").is_file():
+        return [base]
 
-    # Directory containing mail_data.dat
-    candidate = base / "mail_data.dat"
-    if candidate.is_file():
-        return candidate
-
-    # Search subdirectories (eM Client may use account-specific subdirs)
-    if base.is_dir():
-        for dat in base.rglob("mail_data.dat"):
-            return dat
-
-    return None
+    return find_account_dirs(base)
 
 
 class EmailIndexer(BaseIndexer):
@@ -60,8 +51,9 @@ class EmailIndexer(BaseIndexer):
         """Initialize the email indexer.
 
         Args:
-            db_path: Optional explicit path to the eM Client database.
-                If not provided, will be determined from config.
+            db_path: Optional explicit path to the eM Client data directory
+                or a specific account directory. If not provided, will be
+                determined from config.
         """
         self._explicit_db_path = db_path
 
@@ -69,6 +61,8 @@ class EmailIndexer(BaseIndexer):
         self, conn: sqlite3.Connection, config: Config, force: bool = False
     ) -> IndexResult:
         """Index emails from eM Client into the "email" collection.
+
+        Discovers all account directories and indexes emails from each.
 
         Args:
             conn: SQLite connection to the RAG database.
@@ -80,20 +74,26 @@ class EmailIndexer(BaseIndexer):
         """
         result = IndexResult()
 
-        # Locate eM Client database
+        # Locate eM Client account directories
         if self._explicit_db_path:
-            emclient_path = Path(self._explicit_db_path).expanduser()
-            if not emclient_path.is_file():
-                msg = f"eM Client database not found at {emclient_path}"
+            explicit_path = Path(self._explicit_db_path).expanduser()
+            if (explicit_path / "mail_index.dat").is_file():
+                account_dirs = [explicit_path]
+            else:
+                account_dirs = find_account_dirs(explicit_path)
+
+            if not account_dirs:
+                msg = f"No eM Client mail databases found at {explicit_path}"
                 logger.error(msg)
                 result.errors = 1
                 result.error_messages.append(msg)
                 return result
         else:
-            emclient_path = _find_emclient_db(config)
-            if not emclient_path:
+            account_dirs = _find_account_dirs(config)
+            if not account_dirs:
                 msg = (
-                    f"Cannot find eM Client database. Checked: {config.emclient_db_path}. "
+                    f"Cannot find eM Client account directories. "
+                    f"Checked: {config.emclient_db_path}. "
                     "Set emclient_db_path in config or pass the path explicitly."
                 )
                 logger.error(msg)
@@ -101,7 +101,7 @@ class EmailIndexer(BaseIndexer):
                 result.error_messages.append(msg)
                 return result
 
-        logger.info("Using eM Client database: %s", emclient_path)
+        logger.info("Found %d eM Client account(s)", len(account_dirs))
 
         # Get/create the email system collection
         collection_id = get_or_create_collection(
@@ -115,16 +115,53 @@ class EmailIndexer(BaseIndexer):
             if since_date:
                 logger.info("Incremental index: fetching emails since %s", since_date)
 
-        # Parse emails with retry on lock
-        emails = self._parse_with_retry(str(emclient_path), since_date)
+        latest_date = since_date or ""
+
+        # Index each account
+        for account_dir in account_dirs:
+            logger.info("Indexing account: %s", account_dir.name)
+            account_result = self._index_account(
+                conn, config, collection_id, account_dir, since_date, force
+            )
+
+            result.total_found += account_result.total_found
+            result.indexed += account_result.indexed
+            result.skipped += account_result.skipped
+            result.errors += account_result.errors
+            result.error_messages.extend(account_result.error_messages)
+
+            if account_result.latest_date and account_result.latest_date > latest_date:
+                latest_date = account_result.latest_date
+
+        # Update watermark
+        if latest_date:
+            self._set_watermark(conn, collection_id, latest_date)
+
+        logger.info("Email indexing complete: %s", result)
+        return result
+
+    def _index_account(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        collection_id: int,
+        account_dir: Path,
+        since_date: str | None,
+        force: bool,
+    ) -> "AccountIndexResult":
+        """Index emails from a single account directory."""
+        result = AccountIndexResult()
+
+        emails = self._parse_with_retry(account_dir, since_date)
         if emails is None:
-            msg = "Failed to open eM Client database after retries"
+            msg = f"Failed to open eM Client database in {account_dir.name} after retries"
             logger.error(msg)
             result.errors = 1
             result.error_messages.append(msg)
             return result
 
-        latest_date = since_date or ""
+        total_emails = len(emails)
+        logger.info("Found %d emails to process in %s", total_emails, account_dir.name)
 
         for email_msg in emails:
             result.total_found += 1
@@ -135,12 +172,20 @@ class EmailIndexer(BaseIndexer):
                 continue
 
             try:
-                self._index_email(conn, config, collection_id, email_msg)
+                chunks_count = self._index_email(conn, config, collection_id, email_msg)
                 result.indexed += 1
 
+                logger.info(
+                    "Indexed email [%d/%d]: %s (%d chunks)",
+                    result.total_found,
+                    total_emails,
+                    (email_msg.subject or "(no subject)")[:60],
+                    chunks_count,
+                )
+
                 # Track latest date for watermark
-                if email_msg.date and email_msg.date > latest_date:
-                    latest_date = email_msg.date
+                if email_msg.date and email_msg.date > result.latest_date:
+                    result.latest_date = email_msg.date
 
             except Exception as e:
                 result.errors += 1
@@ -151,15 +196,30 @@ class EmailIndexer(BaseIndexer):
                 elif result.errors == 11:
                     logger.warning("Suppressing further indexing errors...")
 
-        # Update watermark
-        if latest_date:
-            self._set_watermark(conn, collection_id, latest_date)
+            # Periodic progress summary
+            if result.total_found % 500 == 0:
+                logger.info(
+                    "Progress: %d/%d processed (%d indexed, %d skipped, %d errors)",
+                    result.total_found,
+                    total_emails,
+                    result.indexed,
+                    result.skipped,
+                    result.errors,
+                )
 
-        logger.info("Email indexing complete: %s", result)
+        logger.info(
+            "Account %s complete: %d found, %d indexed, %d skipped, %d errors",
+            account_dir.name,
+            result.total_found,
+            result.indexed,
+            result.skipped,
+            result.errors,
+        )
+
         return result
 
     def _parse_with_retry(
-        self, db_path: str, since_date: str | None
+        self, account_dir: Path, since_date: str | None
     ) -> list[EmailMessage] | None:
         """Try to parse emails with retry on database lock.
 
@@ -167,8 +227,7 @@ class EmailIndexer(BaseIndexer):
         """
         for attempt in range(1, MAX_LOCK_RETRIES + 1):
             try:
-                # Materialize the iterator to detect lock errors early
-                emails = list(parse_emails(db_path, since_date))
+                emails = list(parse_emails(account_dir, since_date))
                 return emails
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
@@ -210,8 +269,12 @@ class EmailIndexer(BaseIndexer):
         config: Config,
         collection_id: int,
         email_msg: EmailMessage,
-    ) -> None:
-        """Index a single email: chunk, embed, and insert."""
+    ) -> int:
+        """Index a single email: chunk, embed, and insert.
+
+        Returns:
+            Number of chunks indexed.
+        """
         # Chunk the email
         chunks = chunk_email(
             subject=email_msg.subject,
@@ -221,7 +284,7 @@ class EmailIndexer(BaseIndexer):
         )
 
         if not chunks:
-            return
+            return 0
 
         # Embed all chunks
         chunk_texts = [c.text for c in chunks]
@@ -279,6 +342,7 @@ class EmailIndexer(BaseIndexer):
             )
 
         conn.commit()
+        return len(chunks)
 
     def _get_watermark(
         self, conn: sqlite3.Connection, collection_id: int
@@ -306,3 +370,15 @@ class EmailIndexer(BaseIndexer):
             (f"Emails from eM Client (indexed through {date})", collection_id),
         )
         conn.commit()
+
+
+class AccountIndexResult:
+    """Tracks indexing results for a single account."""
+
+    def __init__(self) -> None:
+        self.total_found: int = 0
+        self.indexed: int = 0
+        self.skipped: int = 0
+        self.errors: int = 0
+        self.error_messages: list[str] = []
+        self.latest_date: str = ""

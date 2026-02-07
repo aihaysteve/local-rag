@@ -1,20 +1,61 @@
 """eM Client email parser.
 
-Reads emails from the eM Client SQLite database (mail_data.dat) in read-only
+Reads emails from the eM Client per-account SQLite databases in read-only
 mode and yields structured EmailMessage objects.
+
+eM Client stores data across multiple .dat files per account, in nested
+UUID directories:
+
+    <eM Client dir>/<account-uuid>/<sub-uuid>/
+        mail_index.dat   — MailItems table (subject, date, messageId, etc.)
+                           MailAddresses table (From, To, CC, BCC)
+        mail_fti.dat     — LocalMailsIndex3 table (pre-extracted body text)
+        folders.dat      — Folders table (folder id → name/path)
+        mail_data.dat    — LocalMailContents (raw MIME parts, fallback)
+
+Dates in MailItems are stored as .NET ticks (100-nanosecond intervals
+since 0001-01-01).
 """
 
-import email.utils
-import hashlib
 import logging
 import re
 import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-
-from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# .NET ticks epoch: 0001-01-01
+_DOTNET_EPOCH = datetime(1, 1, 1)
+
+# UUID4 directory pattern
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+# eM Client address type codes
+_ADDR_TYPE_FROM = 1
+_ADDR_TYPE_TO = 4
+_ADDR_TYPE_CC = 5
+
+# Patterns for stripping quoted reply chains
+_QUOTED_LINE_RE = re.compile(r"^>.*$", re.MULTILINE)
+_ON_WROTE_RE = re.compile(
+    r"^On\s+.{10,80}\s+wrote:\s*$", re.MULTILINE | re.IGNORECASE
+)
+# Signature delimiter: "-- " on its own line (RFC 3676)
+_SIG_DELIMITER_RE = re.compile(r"^-- $", re.MULTILINE)
+# Common signature patterns
+_SIG_PATTERNS = [
+    re.compile(
+        r"^Sent from my (?:iPhone|iPad|Android|Galaxy).*$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
+    re.compile(r"^Get Outlook for .*$", re.MULTILINE | re.IGNORECASE),
+]
 
 
 @dataclass
@@ -30,43 +71,37 @@ class EmailMessage:
     message_id: str = ""
 
 
-# Patterns for stripping quoted reply chains
-_QUOTED_LINE_RE = re.compile(r"^>.*$", re.MULTILINE)
-_ON_WROTE_RE = re.compile(
-    r"^On\s+.{10,80}\s+wrote:\s*$", re.MULTILINE | re.IGNORECASE
-)
-# Signature delimiter: "-- " on its own line (RFC 3676)
-_SIG_DELIMITER_RE = re.compile(r"^-- $", re.MULTILINE)
-# Common signature patterns
-_SIG_PATTERNS = [
-    re.compile(r"^Sent from my (?:iPhone|iPad|Android|Galaxy).*$", re.MULTILINE | re.IGNORECASE),
-    re.compile(r"^Get Outlook for .*$", re.MULTILINE | re.IGNORECASE),
-]
+def _ticks_to_iso(ticks: int | None) -> str:
+    """Convert .NET ticks to an ISO datetime string.
+
+    Returns empty string if ticks is None or conversion fails.
+    """
+    if not ticks:
+        return ""
+    try:
+        dt = _DOTNET_EPOCH + timedelta(microseconds=ticks / 10)
+        return dt.isoformat()
+    except (OverflowError, ValueError, OSError):
+        return ""
 
 
 def _strip_quoted_replies(text: str) -> str:
     """Remove quoted reply chains from email body text."""
-    # Find "On ... wrote:" blocks and remove everything after
     match = _ON_WROTE_RE.search(text)
     if match:
         text = text[: match.start()].rstrip()
 
-    # Remove individual quoted lines (> prefix)
     text = _QUOTED_LINE_RE.sub("", text)
-
-    # Clean up resulting blank lines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
 def _strip_signature(text: str) -> str:
     """Remove email signature from body text."""
-    # RFC 3676 signature delimiter
     match = _SIG_DELIMITER_RE.search(text)
     if match:
         text = text[: match.start()].rstrip()
 
-    # Common mobile/app signatures
     for pattern in _SIG_PATTERNS:
         match = pattern.search(text)
         if match:
@@ -75,318 +110,261 @@ def _strip_signature(text: str) -> str:
     return text
 
 
-def _html_to_text(html: str) -> str:
-    """Convert HTML email body to plain text."""
-    soup = BeautifulSoup(html, "html.parser")
-
-    # Remove script and style elements
-    for tag in soup(["script", "style"]):
-        tag.decompose()
-
-    text = soup.get_text(separator="\n")
-    # Collapse multiple blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+def _open_ro(db_path: Path) -> sqlite3.Connection | None:
+    """Open a SQLite database in read-only mode."""
+    uri = f"file:{db_path}?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        logger.warning("Cannot open %s: %s", db_path, e)
+        return None
 
 
-def _parse_header_blob(header_data: bytes | str) -> dict[str, str]:
-    """Parse email headers from raw header data.
+def find_account_dirs(base_path: Path) -> list[Path]:
+    """Find eM Client account directories containing mail databases.
 
-    eM Client stores headers in various formats. This function tries to
-    parse them as RFC 2822 headers.
+    eM Client stores data in nested UUID directories:
+      <base>/<account-uuid>/<sub-uuid>/mail_index.dat
 
     Args:
-        header_data: Raw header bytes or string.
+        base_path: The eM Client data directory.
 
     Returns:
-        Dictionary of lowercase header name -> value.
+        List of directories that contain at least mail_index.dat.
     """
-    headers: dict[str, str] = {}
+    account_dirs: list[Path] = []
 
-    if isinstance(header_data, bytes):
-        try:
-            header_str = header_data.decode("utf-8", errors="replace")
-        except Exception:
-            return headers
-    else:
-        header_str = header_data
+    if not base_path.is_dir():
+        return account_dirs
 
-    if not header_str:
-        return headers
-
-    # Parse RFC 2822 style headers
-    current_key: str | None = None
-    current_value = ""
-
-    for line in header_str.split("\n"):
-        line = line.rstrip("\r")
-
-        # Continuation line (starts with whitespace)
-        if line and line[0] in (" ", "\t") and current_key:
-            current_value += " " + line.strip()
+    for child in sorted(base_path.iterdir()):
+        if not child.is_dir() or not _UUID_RE.match(child.name):
             continue
+        for subdir in sorted(child.iterdir()):
+            if not subdir.is_dir() or not _UUID_RE.match(subdir.name):
+                continue
+            if (subdir / "mail_index.dat").is_file():
+                account_dirs.append(subdir)
 
-        # Save previous header
-        if current_key:
-            headers[current_key.lower()] = current_value
-
-        # New header line
-        if ":" in line:
-            key, _, value = line.partition(":")
-            current_key = key.strip()
-            current_value = value.strip()
-        else:
-            current_key = None
-            current_value = ""
-
-    # Save last header
-    if current_key:
-        headers[current_key.lower()] = current_value
-
-    return headers
+    return account_dirs
 
 
-def _discover_schema(conn: sqlite3.Connection) -> dict[str, list[str]]:
-    """Discover tables and their columns in the eM Client database.
+def _load_folders(account_dir: Path) -> dict[int, str]:
+    """Load folder ID → path mapping from folders.dat.
 
     Returns:
-        Dict mapping table name to list of column names.
+        Dict mapping folder ID to folder path string.
     """
-    tables = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
+    folders_path = account_dir / "folders.dat"
+    conn = _open_ro(folders_path)
+    if not conn:
+        return {}
+
+    try:
+        rows = conn.execute("SELECT id, path, name FROM Folders").fetchall()
+        return {
+            row["id"]: row["path"] or row["name"] or ""
+            for row in rows
+        }
+    except sqlite3.OperationalError as e:
+        logger.warning("Cannot read folders.dat: %s", e)
+        return {}
+    finally:
+        conn.close()
+
+
+def _load_fti_content(account_dir: Path) -> dict[int, str]:
+    """Load pre-extracted text content from mail_fti.dat.
+
+    Prefers partName='1' (plain text) over partName='2' (HTML-extracted).
+
+    Returns:
+        Dict mapping email ID to body text.
+    """
+    fti_path = account_dir / "mail_fti.dat"
+    conn = _open_ro(fti_path)
+    if not conn:
+        return {}
+
+    try:
+        # Fetch all content, ordered so partName=1 comes first per id
+        rows = conn.execute(
+            "SELECT id, partName, content FROM LocalMailsIndex3 "
+            "ORDER BY id, partName"
+        ).fetchall()
+    except sqlite3.OperationalError as e:
+        logger.warning("Cannot read mail_fti.dat: %s", e)
+        return {}
+    finally:
+        conn.close()
+
+    content: dict[int, str] = {}
+    for row in rows:
+        mail_id = row["id"]
+        text = row["content"] or ""
+        if not text.strip():
+            continue
+        # Keep the first non-empty content per id (partName=1 preferred)
+        if mail_id not in content:
+            content[mail_id] = text
+
+    return content
+
+
+def _load_addresses(
+    conn: sqlite3.Connection,
+) -> dict[int, dict[str, list[str]]]:
+    """Load all addresses grouped by email ID.
+
+    Returns:
+        Dict mapping email ID to {"from": [...], "to": [...], "cc": [...]}.
+    """
+    rows = conn.execute(
+        "SELECT parentId, type, displayName, address "
+        "FROM MailAddresses ORDER BY parentId, type, position"
     ).fetchall()
 
-    schema: dict[str, list[str]] = {}
-    for table_row in tables:
-        name = table_row[0] if isinstance(table_row, tuple) else table_row["name"]
-        try:
-            cols = conn.execute(f"PRAGMA table_info([{name}])").fetchall()
-            col_names = []
-            for col in cols:
-                col_name = col[1] if isinstance(col, tuple) else col["name"]
-                col_names.append(col_name)
-            schema[name] = col_names
-        except sqlite3.OperationalError:
+    addresses: dict[int, dict[str, list[str]]] = {}
+    for row in rows:
+        mail_id = row["parentId"]
+        if mail_id not in addresses:
+            addresses[mail_id] = {"from": [], "to": [], "cc": []}
+
+        name = row["displayName"] or ""
+        addr = row["address"] or ""
+        if not addr:
             continue
 
-    return schema
+        formatted = f"{name} <{addr}>" if name else addr
 
+        addr_type = row["type"]
+        if addr_type == _ADDR_TYPE_FROM:
+            addresses[mail_id]["from"].append(formatted)
+        elif addr_type == _ADDR_TYPE_TO:
+            addresses[mail_id]["to"].append(formatted)
+        elif addr_type == _ADDR_TYPE_CC:
+            addresses[mail_id]["cc"].append(formatted)
 
-def _find_mail_table(schema: dict[str, list[str]]) -> str | None:
-    """Identify the primary mail/message table from the schema.
-
-    Returns the table name or None if not found.
-    """
-    # Known table names used by eM Client
-    candidates = [
-        "MailItem",
-        "mail_item",
-        "MailItems",
-        "Messages",
-        "mail_basicstrings",
-    ]
-
-    for name in candidates:
-        if name in schema:
-            return name
-
-    # Fallback: look for tables with mail-related columns
-    for table_name, columns in schema.items():
-        col_lower = [c.lower() for c in columns]
-        if "subject" in col_lower and ("body" in col_lower or "partheader" in col_lower):
-            return table_name
-
-    # Another fallback: tables with "mail" in the name
-    for table_name in schema:
-        if "mail" in table_name.lower():
-            return table_name
-
-    return None
+    return addresses
 
 
 def parse_emails(
-    db_path: str, since_date: str | None = None
+    account_dir: str | Path, since_date: str | None = None
 ) -> Iterator[EmailMessage]:
-    """Parse emails from the eM Client SQLite database.
+    """Parse emails from an eM Client account directory.
 
-    Opens the database in read-only mode to prevent any accidental writes.
+    Opens databases in read-only mode to prevent any accidental writes.
 
     Args:
-        db_path: Path to the eM Client mail_data.dat file.
-        since_date: Only return emails after this ISO date string (YYYY-MM-DD).
+        account_dir: Path to the account directory containing .dat files.
+        since_date: Only return emails after this ISO date string.
             If None, returns all emails.
 
     Yields:
         EmailMessage objects for each parsed email.
     """
-    uri = f"file:{db_path}?mode=ro"
-    try:
-        conn = sqlite3.connect(uri, uri=True)
-        conn.row_factory = sqlite3.Row
-    except sqlite3.OperationalError as e:
-        logger.error("Cannot open eM Client database at %s: %s", db_path, e)
+    account_dir = Path(account_dir)
+    mail_index_path = account_dir / "mail_index.dat"
+
+    if not mail_index_path.is_file():
+        logger.error("mail_index.dat not found in %s", account_dir)
+        return
+
+    conn = _open_ro(mail_index_path)
+    if not conn:
         return
 
     try:
-        schema = _discover_schema(conn)
-        if not schema:
-            logger.error("eM Client database has no tables. Is %s the correct file?", db_path)
-            return
+        # Load supporting data
+        folders = _load_folders(account_dir)
+        fti_content = _load_fti_content(account_dir)
+        addresses = _load_addresses(conn)
 
-        mail_table = _find_mail_table(schema)
-        if not mail_table:
-            logger.error(
-                "Could not find a mail table in eM Client database. "
-                "Tables found: %s. Run scripts/explore_emclient.py to inspect the schema.",
-                list(schema.keys()),
-            )
-            return
+        logger.info(
+            "Loaded %d folders, %d body texts, %d address sets",
+            len(folders),
+            len(fti_content),
+            len(addresses),
+        )
 
-        columns = schema[mail_table]
-        col_lower = {c.lower(): c for c in columns}
+        # Build query
+        query = "SELECT id, folder, date, subject, messageId, preview FROM MailItems"
+        params: list[str] = []
 
-        logger.info("Using mail table: %s (columns: %s)", mail_table, columns)
+        if since_date:
+            # Convert ISO date to .NET ticks for comparison
+            since_ticks = _iso_to_ticks(since_date)
+            if since_ticks:
+                query += " WHERE date > ?"
+                params.append(str(since_ticks))
 
-        yield from _parse_from_table(conn, mail_table, col_lower, since_date)
+        query += " ORDER BY date ASC"
+
+        cursor = conn.execute(query, params)
+        row_count = 0
+        error_count = 0
+
+        for row in cursor:
+            try:
+                msg = _row_to_email(row, folders, fti_content, addresses)
+                if msg:
+                    row_count += 1
+                    yield msg
+            except Exception as e:
+                error_count += 1
+                if error_count <= 10:
+                    logger.warning("Error parsing email row id=%s: %s", row["id"], e)
+                elif error_count == 11:
+                    logger.warning("Suppressing further row parse errors...")
+
+        logger.info("Parsed %d emails (%d errors)", row_count, error_count)
 
     except sqlite3.OperationalError as e:
-        logger.error("Error reading eM Client database: %s", e)
+        logger.error("Error reading mail_index.dat: %s", e)
     finally:
         conn.close()
 
 
-def _parse_from_table(
-    conn: sqlite3.Connection,
-    table_name: str,
-    col_lower: dict[str, str],
-    since_date: str | None,
-) -> Iterator[EmailMessage]:
-    """Parse emails from the discovered mail table.
-
-    Adapts to whatever columns are available in the table.
-    """
-    # Map expected fields to actual column names
-    field_candidates = {
-        "subject": ["subject"],
-        "body": ["body", "bodytext", "body_text", "textbody"],
-        "html_body": ["htmlbody", "html_body", "bodyhtml", "body_html"],
-        "sender": ["sender", "from", "fromaddress", "from_address", "senderaddress"],
-        "recipients": ["to", "recipients", "toaddress", "to_address"],
-        "cc": ["cc", "ccaddress", "cc_address"],
-        "date": ["date", "datereceived", "date_received", "sentdate", "sent_date", "receiveddate"],
-        "folder": ["folder", "foldername", "folder_name", "folderid", "folder_id"],
-        "message_id": [
-            "messageid", "message_id", "internetmessageid", "internet_message_id",
-        ],
-        "header": ["partheader", "part_header", "header", "headers", "internetheader"],
-    }
-
-    select_cols: list[str] = []
-    col_mapping: dict[str, str] = {}  # our_name -> actual_col_name
-
-    for our_name, candidates in field_candidates.items():
-        for candidate in candidates:
-            if candidate in col_lower:
-                actual = col_lower[candidate]
-                col_mapping[our_name] = actual
-                select_cols.append(f"[{actual}]")
-                break
-
-    if not select_cols:
-        logger.error("No usable columns found in table %s", table_name)
-        return
-
-    # Build query
-    query = f"SELECT {', '.join(select_cols)} FROM [{table_name}]"
-    params: list[str] = []
-
-    # Date filtering if we have a date column and a filter
-    if since_date and "date" in col_mapping:
-        date_col = col_mapping["date"]
-        query += f" WHERE [{date_col}] > ?"
-        params.append(since_date)
-
-    if "date" in col_mapping:
-        date_col = col_mapping["date"]
-        query += f" ORDER BY [{date_col}] ASC"
-
-    logger.debug("Email query: %s", query)
-
+def _iso_to_ticks(iso_date: str) -> int | None:
+    """Convert an ISO date/datetime string to .NET ticks."""
     try:
-        cursor = conn.execute(query, params)
-    except sqlite3.OperationalError as e:
-        logger.error("Failed to query mail table %s: %s", table_name, e)
-        return
-
-    row_count = 0
-    error_count = 0
-
-    for row in cursor:
-        try:
-            msg = _row_to_email(row, col_mapping)
-            if msg:
-                row_count += 1
-                yield msg
-        except Exception as e:
-            error_count += 1
-            if error_count <= 10:
-                logger.warning("Error parsing email row: %s", e)
-            elif error_count == 11:
-                logger.warning("Suppressing further row parse errors...")
-
-    logger.info("Parsed %d emails (%d errors)", row_count, error_count)
+        if "T" in iso_date:
+            dt = datetime.fromisoformat(iso_date)
+        else:
+            dt = datetime.fromisoformat(iso_date + "T00:00:00")
+        delta = dt - _DOTNET_EPOCH
+        return int(delta.total_seconds() * 10_000_000)
+    except (ValueError, OverflowError):
+        return None
 
 
 def _row_to_email(
-    row: sqlite3.Row, col_mapping: dict[str, str]
+    row: sqlite3.Row,
+    folders: dict[int, str],
+    fti_content: dict[int, str],
+    addresses: dict[int, dict[str, list[str]]],
 ) -> EmailMessage | None:
-    """Convert a database row to an EmailMessage."""
+    """Convert a MailItems row to an EmailMessage."""
+    mail_id = row["id"]
+    subject = row["subject"] or ""
+    message_id = row["messageId"] or ""
+    date_str = _ticks_to_iso(row["date"])
 
-    def get(field_name: str) -> str:
-        if field_name not in col_mapping:
-            return ""
-        actual_col = col_mapping[field_name]
-        val = row[actual_col]
-        if val is None:
-            return ""
-        if isinstance(val, bytes):
-            return val.decode("utf-8", errors="replace")
-        return str(val)
+    # Folder
+    folder_id = row["folder"]
+    folder = folders.get(folder_id, "")
 
-    # Try to get fields from direct columns
-    subject = get("subject")
-    sender = get("sender")
-    recipients_str = get("recipients")
-    cc_str = get("cc")
-    date_str = get("date")
-    folder = get("folder")
-    message_id = get("message_id")
+    # Addresses
+    addr_data = addresses.get(mail_id, {"from": [], "to": [], "cc": []})
+    sender = addr_data["from"][0] if addr_data["from"] else ""
+    recipients = addr_data["to"] + addr_data["cc"]
 
-    # Parse headers if available and we're missing fields
-    header_data = get("header")
-    if header_data and (not subject or not sender or not message_id):
-        headers = _parse_header_blob(header_data.encode("utf-8", errors="replace"))
-        if not subject:
-            subject = headers.get("subject", "")
-        if not sender:
-            sender = headers.get("from", "")
-        if not message_id:
-            message_id = headers.get("message-id", "")
-        if not date_str:
-            date_str = headers.get("date", "")
-        if not recipients_str:
-            recipients_str = headers.get("to", "")
-        if not cc_str:
-            cc_str = headers.get("cc", "")
-
-    # Get body text
-    body = get("body")
-    html_body = get("html_body")
-
-    if not body and html_body:
-        body = _html_to_text(html_body)
-    elif html_body and not body.strip():
-        body = _html_to_text(html_body)
+    # Body text from FTI, fallback to preview
+    body = fti_content.get(mail_id, "")
+    if not body:
+        body = row["preview"] or ""
 
     if not body and not subject:
         return None
@@ -395,27 +373,13 @@ def _row_to_email(
     body = _strip_quoted_replies(body)
     body = _strip_signature(body)
 
-    # Parse recipients
-    recipients: list[str] = []
-    for addr_str in [recipients_str, cc_str]:
-        if addr_str:
-            parsed = email.utils.getaddresses([addr_str])
-            recipients.extend(
-                addr if not name else f"{name} <{addr}>"
-                for name, addr in parsed
-                if addr
-            )
+    if not body.strip() and not subject:
+        return None
 
-    # Normalize date to ISO format if possible
-    if date_str:
-        try:
-            parsed_date = email.utils.parsedate_to_datetime(date_str)
-            date_str = parsed_date.isoformat()
-        except (ValueError, TypeError):
-            pass  # Keep the original string
-
-    # Generate a message_id if we don't have one
+    # Generate a stable message_id if we don't have one
     if not message_id:
+        import hashlib
+
         id_source = f"{sender}|{subject}|{date_str}"
         message_id = hashlib.sha256(id_source.encode()).hexdigest()[:32]
 
