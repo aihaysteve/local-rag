@@ -37,6 +37,19 @@ class Config:
         default_factory=lambda: Path.home() / "Library" / "Application Support" / "eM Client"
     )
     calibre_libraries: list[Path] = field(default_factory=list)
+    netnewswire_db_path: Path = field(
+        default_factory=lambda: (
+            Path.home()
+            / "Library"
+            / "Containers"
+            / "com.ranchero.NetNewsWire-Evergreen"
+            / "Data"
+            / "Library"
+            / "Application Support"
+            / "NetNewsWire"
+            / "Accounts"
+        )
+    )
     git_repos: list[Path] = field(default_factory=list)
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
 
@@ -93,6 +106,22 @@ def load_config(path: Path | None = None) -> Config:
             data.get("emclient_db_path", str(Path.home() / "Library" / "Application Support" / "eM Client"))
         ),
         calibre_libraries=calibre_libraries,
+        netnewswire_db_path=_expand_path(
+            data.get(
+                "netnewswire_db_path",
+                str(
+                    Path.home()
+                    / "Library"
+                    / "Containers"
+                    / "com.ranchero.NetNewsWire-Evergreen"
+                    / "Data"
+                    / "Library"
+                    / "Application Support"
+                    / "NetNewsWire"
+                    / "Accounts"
+                ),
+            )
+        ),
         git_repos=git_repos,
         search_defaults=search_defaults,
     )

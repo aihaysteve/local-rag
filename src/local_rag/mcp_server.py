@@ -126,6 +126,7 @@ def create_server() -> FastMCP:
         from local_rag.indexers.git_indexer import GitRepoIndexer, _is_git_repo, _parse_watermark
         from local_rag.indexers.obsidian import ObsidianIndexer
         from local_rag.indexers.project import ProjectIndexer
+        from local_rag.indexers.rss_indexer import RSSIndexer
 
         config = load_config()
         conn = get_connection(config)
@@ -138,6 +139,8 @@ def create_server() -> FastMCP:
                 indexer = EmailIndexer(str(config.emclient_db_path))
             elif collection == "calibre":
                 indexer = CalibreIndexer(config.calibre_libraries)
+            elif collection == "rss":
+                indexer = RSSIndexer(str(config.netnewswire_db_path))
             else:
                 # Check if this is an existing git repo collection
                 row = conn.execute(

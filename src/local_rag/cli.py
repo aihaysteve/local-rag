@@ -137,6 +137,26 @@ def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
         conn.close()
 
 
+@index.command("rss")
+@click.option("--force", is_flag=True, help="Force re-index all articles.")
+def index_rss(force: bool) -> None:
+    """Index NetNewsWire RSS articles."""
+    from local_rag.indexers.rss_indexer import RSSIndexer
+
+    config = load_config()
+    conn = _get_db(config)
+    try:
+        indexer = RSSIndexer(str(config.netnewswire_db_path))
+        result = indexer.index(conn, config, force=force)
+        click.echo(
+            f"RSS indexing complete: {result.indexed} indexed, "
+            f"{result.skipped} skipped, {result.errors} errors "
+            f"(out of {result.total_found} articles found)"
+        )
+    finally:
+        conn.close()
+
+
 @index.command("project")
 @click.argument("name")
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
@@ -210,6 +230,7 @@ def reindex(collection: str, force: bool) -> None:
     from local_rag.indexers.git_indexer import GitRepoIndexer, _parse_watermark
     from local_rag.indexers.obsidian import ObsidianIndexer
     from local_rag.indexers.project import ProjectIndexer
+    from local_rag.indexers.rss_indexer import RSSIndexer
 
     config = load_config()
     conn = _get_db(config)
@@ -229,6 +250,8 @@ def reindex(collection: str, force: bool) -> None:
             indexer = EmailIndexer(str(config.emclient_db_path))
         elif collection == "calibre":
             indexer = CalibreIndexer(config.calibre_libraries)
+        elif collection == "rss":
+            indexer = RSSIndexer(str(config.netnewswire_db_path))
         elif _parse_watermark(row["description"]):
             # Git repo collection — extract repo path from watermark
             repo_path_str, _ = _parse_watermark(row["description"])
