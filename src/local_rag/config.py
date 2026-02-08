@@ -37,6 +37,7 @@ class Config:
         default_factory=lambda: Path.home() / "Library" / "Application Support" / "eM Client"
     )
     calibre_libraries: list[Path] = field(default_factory=list)
+    git_repos: list[Path] = field(default_factory=list)
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
 
 
@@ -78,6 +79,7 @@ def load_config(path: Path | None = None) -> Config:
     obsidian_vaults = [_expand_path(v) for v in data.get("obsidian_vaults", [])]
     obsidian_exclude_folders = data.get("obsidian_exclude_folders", [])
     calibre_libraries = [_expand_path(v) for v in data.get("calibre_libraries", [])]
+    git_repos = [_expand_path(r) for r in data.get("git_repos", [])]
 
     config = Config(
         db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
@@ -91,6 +93,7 @@ def load_config(path: Path | None = None) -> Config:
             data.get("emclient_db_path", str(Path.home() / "Library" / "Application Support" / "eM Client"))
         ),
         calibre_libraries=calibre_libraries,
+        git_repos=git_repos,
         search_defaults=search_defaults,
     )
 

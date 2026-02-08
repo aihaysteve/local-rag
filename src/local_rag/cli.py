@@ -159,6 +159,44 @@ def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
         conn.close()
 
 
+@index.command("repo")
+@click.argument("path", required=False, type=click.Path(exists=True, path_type=Path))
+@click.option("--name", "-n", default=None, help="Collection name (defaults to repo dir name).")
+@click.option("--force", is_flag=True, help="Force re-index all files.")
+def index_repo(path: Path | None, name: str | None, force: bool) -> None:
+    """Index a git repository's code files.
+
+    If PATH is given, indexes that single repo. If omitted, indexes all repos
+    listed in the git_repos config.
+    """
+    from local_rag.indexers.git_indexer import GitRepoIndexer
+
+    config = load_config()
+
+    if path:
+        repo_paths = [path]
+    elif config.git_repos:
+        repo_paths = config.git_repos
+    else:
+        click.echo("Error: No path provided and no git_repos configured.", err=True)
+        sys.exit(1)
+
+    conn = _get_db(config)
+    try:
+        for repo_path in repo_paths:
+            # --name only applies when indexing a single explicit repo
+            coll_name = name if (path and name) else None
+            indexer = GitRepoIndexer(repo_path, collection_name=coll_name)
+            result = indexer.index(conn, config, force=force)
+            click.echo(
+                f"Repo '{indexer.collection_name}' indexing complete: {result.indexed} indexed, "
+                f"{result.skipped} skipped, {result.errors} errors "
+                f"(out of {result.total_found} files found)"
+            )
+    finally:
+        conn.close()
+
+
 # ── Reindex command ─────────────────────────────────────────────────────
 
 
@@ -169,6 +207,7 @@ def reindex(collection: str, force: bool) -> None:
     """Force full re-index of a collection."""
     from local_rag.indexers.calibre_indexer import CalibreIndexer
     from local_rag.indexers.email_indexer import EmailIndexer
+    from local_rag.indexers.git_indexer import GitRepoIndexer, _parse_watermark
     from local_rag.indexers.obsidian import ObsidianIndexer
     from local_rag.indexers.project import ProjectIndexer
 
@@ -177,7 +216,7 @@ def reindex(collection: str, force: bool) -> None:
     try:
         # Determine indexer based on collection type
         row = conn.execute(
-            "SELECT id, collection_type FROM collections WHERE name = ?", (collection,)
+            "SELECT id, collection_type, description FROM collections WHERE name = ?", (collection,)
         ).fetchone()
 
         if not row:
@@ -185,11 +224,15 @@ def reindex(collection: str, force: bool) -> None:
             sys.exit(1)
 
         if collection == "obsidian":
-            indexer = ObsidianIndexer(config.obsidian_vaults)
+            indexer = ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)
         elif collection == "email":
             indexer = EmailIndexer(str(config.emclient_db_path))
         elif collection == "calibre":
             indexer = CalibreIndexer(config.calibre_libraries)
+        elif _parse_watermark(row["description"]):
+            # Git repo collection — extract repo path from watermark
+            repo_path_str, _ = _parse_watermark(row["description"])
+            indexer = GitRepoIndexer(Path(repo_path_str), collection_name=collection)
         else:
             # Project collection — get paths from sources table
             sources = conn.execute(

@@ -123,6 +123,7 @@ def create_server() -> FastMCP:
 
         from local_rag.indexers.calibre_indexer import CalibreIndexer
         from local_rag.indexers.email_indexer import EmailIndexer
+        from local_rag.indexers.git_indexer import GitRepoIndexer, _is_git_repo, _parse_watermark
         from local_rag.indexers.obsidian import ObsidianIndexer
         from local_rag.indexers.project import ProjectIndexer
 
@@ -132,15 +133,30 @@ def create_server() -> FastMCP:
 
         try:
             if collection == "obsidian":
-                indexer = ObsidianIndexer(config.obsidian_vaults)
+                indexer = ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)
             elif collection == "email":
                 indexer = EmailIndexer(str(config.emclient_db_path))
             elif collection == "calibre":
                 indexer = CalibreIndexer(config.calibre_libraries)
             else:
-                if not path:
+                # Check if this is an existing git repo collection
+                row = conn.execute(
+                    "SELECT description FROM collections WHERE name = ?",
+                    (collection,),
+                ).fetchone()
+                watermark = _parse_watermark(row["description"] if row else None)
+
+                if watermark:
+                    # Existing git repo collection — re-index from stored repo path
+                    repo_path_str, _ = watermark
+                    indexer = GitRepoIndexer(P(repo_path_str), collection_name=collection)
+                elif path and P(path).is_dir() and _is_git_repo(P(path)):
+                    # New git repo collection
+                    indexer = GitRepoIndexer(P(path), collection_name=collection)
+                elif path:
+                    indexer = ProjectIndexer(collection, [P(path)])
+                else:
                     return {"error": f"Path required for project collection '{collection}'."}
-                indexer = ProjectIndexer(collection, [P(path)])
 
             result = indexer.index(conn, config)
             return {

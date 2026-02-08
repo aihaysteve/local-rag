@@ -15,6 +15,10 @@
     "calibre_libraries": [
         "~/CalibreLibrary"
     ],
+    "git_repos": [
+        "~/Repository/my-project",
+        "~/Repository/another-repo"
+    ],
     "search_defaults": {
         "top_k": 10,
         "rrf_k": 60,
