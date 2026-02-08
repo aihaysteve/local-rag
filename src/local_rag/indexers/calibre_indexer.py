@@ -298,10 +298,11 @@ def _metadata_changed(
         return True
 
     stored_meta = json.loads(row["metadata"])
-    # Compare key metadata fields
-    if stored_meta.get("authors") != (book.authors or []):
+    # Compare key metadata fields — use `or None` to match what _build_book_metadata stores
+    # (it skips falsy values, so stored_meta won't have the key for None/[])
+    if stored_meta.get("authors") != (book.authors or None):
         return True
-    if stored_meta.get("tags") != (book.tags or []):
+    if stored_meta.get("tags") != (book.tags or None):
         return True
     if stored_meta.get("series") != book.series:
         return True
