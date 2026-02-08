@@ -78,7 +78,7 @@ def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
 
     conn = _get_db(config)
     try:
-        indexer = ObsidianIndexer(vault_paths)
+        indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders)
         result = indexer.index(conn, config, force=force)
         click.echo(
             f"Obsidian indexing complete: {result.indexed} indexed, "

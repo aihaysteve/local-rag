@@ -26,8 +26,9 @@ _SKIP_DIRS = {".obsidian", ".trash", ".git"}
 class ObsidianIndexer(BaseIndexer):
     """Indexes all supported files in Obsidian vaults."""
 
-    def __init__(self, vault_paths: list[Path]) -> None:
+    def __init__(self, vault_paths: list[Path], exclude_folders: list[str] | None = None) -> None:
         self.vault_paths = vault_paths
+        self.exclude_folders = set(exclude_folders or [])
 
     def index(
         self, conn: sqlite3.Connection, config: Config, force: bool = False
@@ -57,7 +58,7 @@ class ObsidianIndexer(BaseIndexer):
                 continue
 
             logger.info("Indexing Obsidian vault: %s", vault_path)
-            files = _walk_vault(vault_path)
+            files = _walk_vault(vault_path, self.exclude_folders)
             total_found += len(files)
             logger.info("Found %d supported files in %s", len(files), vault_path)
 
@@ -79,15 +80,16 @@ class ObsidianIndexer(BaseIndexer):
         return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
 
-def _walk_vault(vault_path: Path) -> list[Path]:
+def _walk_vault(vault_path: Path, exclude_folders: set[str] | None = None) -> list[Path]:
     """Walk an Obsidian vault, yielding all supported files while skipping hidden/system dirs."""
+    exclude = exclude_folders or set()
     results: list[Path] = []
     for item in sorted(vault_path.rglob("*")):
         if not item.is_file():
             continue
-        # Skip files in hidden or system directories
+        # Skip files in hidden, system, or user-excluded directories
         parts = item.relative_to(vault_path).parts
-        if any(part.startswith(".") or part in _SKIP_DIRS for part in parts[:-1]):
+        if any(part.startswith(".") or part in _SKIP_DIRS or part in exclude for part in parts[:-1]):
             continue
         # Skip hidden files
         if item.name.startswith("."):

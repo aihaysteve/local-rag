@@ -7,6 +7,10 @@
     "obsidian_vaults": [
         "~/Documents/MyVault"
     ],
+    "obsidian_exclude_folders": [
+        "_Inbox",
+        "_Templates"
+    ],
     "emclient_db_path": "~/Library/Application Support/eM Client",
     "calibre_libraries": [
         "~/CalibreLibrary"

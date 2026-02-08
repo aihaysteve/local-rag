@@ -32,6 +32,7 @@ class Config:
     chunk_size_tokens: int = 500
     chunk_overlap_tokens: int = 50
     obsidian_vaults: list[Path] = field(default_factory=list)
+    obsidian_exclude_folders: list[str] = field(default_factory=list)
     emclient_db_path: Path = field(
         default_factory=lambda: Path.home() / "Library" / "Application Support" / "eM Client"
     )
@@ -75,6 +76,7 @@ def load_config(path: Path | None = None) -> Config:
     )
 
     obsidian_vaults = [_expand_path(v) for v in data.get("obsidian_vaults", [])]
+    obsidian_exclude_folders = data.get("obsidian_exclude_folders", [])
     calibre_libraries = [_expand_path(v) for v in data.get("calibre_libraries", [])]
 
     config = Config(
@@ -84,6 +86,7 @@ def load_config(path: Path | None = None) -> Config:
         chunk_size_tokens=data.get("chunk_size_tokens", 500),
         chunk_overlap_tokens=data.get("chunk_overlap_tokens", 50),
         obsidian_vaults=obsidian_vaults,
+        obsidian_exclude_folders=obsidian_exclude_folders,
         emclient_db_path=_expand_path(
             data.get("emclient_db_path", str(Path.home() / "Library" / "Application Support" / "eM Client"))
         ),
