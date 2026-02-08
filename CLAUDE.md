@@ -37,24 +37,39 @@ uv run local-rag serve
 
 ## Architecture
 
-```
-Sources                        Indexer                    Storage              Interface
-────────                       ───────                    ───────              ─────────
-Obsidian vault ─────┐
-  (.md, .pdf, .docx,│
-   .html, .epub,    │
-   .txt, etc.)      │
-                    │
-eM Client (SQLite) ─┤
-                    │
-Calibre (SQLite) ───┤
-                    ├──► Python Indexer ──► rag.db ──► CLI
-NetNewsWire (SQLite)┤    (chunking +       (SQLite +     MCP Server
-                    │     Ollama embed)     sqlite-vec    (for Claude)
-Git repos ──────────┤                      + FTS5)
-                    │
-Project docs ───────┘
-  (any folder)
+```mermaid
+flowchart LR
+    subgraph Sources
+        OBS["Obsidian vault<br/>.md .pdf .docx .html .epub .txt"]
+        EM["eM Client<br/>SQLite"]
+        CAL["Calibre<br/>SQLite"]
+        NNW["NetNewsWire<br/>SQLite"]
+        GIT["Git repos<br/>tree-sitter"]
+        PRJ["Project docs<br/>any folder"]
+    end
+
+    subgraph Indexer
+        IDX["Python Indexer<br/>chunking + Ollama embed"]
+    end
+
+    subgraph Storage
+        DB["rag.db<br/>SQLite + sqlite-vec + FTS5"]
+    end
+
+    subgraph Interface
+        CLI["CLI"]
+        MCP["MCP Server<br/>Claude Desktop / Claude Code"]
+    end
+
+    OBS --> IDX
+    EM --> IDX
+    CAL --> IDX
+    NNW --> IDX
+    GIT --> IDX
+    PRJ --> IDX
+    IDX --> DB
+    DB --> CLI
+    DB --> MCP
 ```
 
 ### Core Concepts

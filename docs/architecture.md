@@ -11,46 +11,59 @@ A fully local, privacy-preserving RAG (Retrieval Augmented Generation) system fo
 
 ## System Architecture
 
-```
-Sources                        Indexer                    Storage              Interface
---------                       -------                    -------              ---------
-Obsidian vault -----+
-  (.md, .pdf,       |
-   .docx, .txt,     |
-   .html, .epub)    |
-                    |
-eM Client (SQLite) -+
-                    |
-Calibre (SQLite) ---+---> Python Indexer ----> rag.db ----> CLI
-                    |     (parse, chunk,       (SQLite +     MCP Server
-NetNewsWire (SQLite)+      embed via Ollama)    sqlite-vec    (for Claude)
-                    |          |               + FTS5)
-Git repos ----------+          v
-                    |     Ollama (local)
-Project docs -------+     bge-m3 model
-  (any folder with
-   supported files)
-```
+```mermaid
+flowchart LR
+    subgraph Sources
+        OBS["Obsidian vault<br/>.md .pdf .docx .html .epub .txt"]
+        EM["eM Client<br/>SQLite"]
+        CAL["Calibre<br/>SQLite"]
+        NNW["NetNewsWire<br/>SQLite"]
+        GIT["Git repos<br/>tree-sitter"]
+        PRJ["Project docs<br/>any folder"]
+    end
 
+    subgraph Indexer
+        IDX["Python Indexer<br/>chunking + Ollama embed"]
+    end
+
+    subgraph Storage
+        DB["rag.db<br/>SQLite + sqlite-vec + FTS5"]
+    end
+
+    subgraph Interface
+        CLI["CLI"]
+        MCP["MCP Server<br/>Claude Desktop / Claude Code"]
+    end
+
+    OBS --> IDX
+    EM --> IDX
+    CAL --> IDX
+    NNW --> IDX
+    GIT --> IDX
+    PRJ --> IDX
+    IDX --> DB
+    DB --> CLI
+    DB --> MCP
+```
 ## Supported Sources
 
 ### System Collections
 
 These are built-in collection types with dedicated parsers and indexers:
 
-| Source | Collection | Data Source | What's Indexed |
-|--------|------------|------------|----------------|
-| **Obsidian** | `obsidian` | Vault directory | All supported file types in the vault (.md, .pdf, .docx, .html, .txt, .epub). Markdown files get frontmatter, wikilink, and tag extraction. |
-| **eM Client** | `email` | SQLite databases (read-only) | Email subject, body, sender, recipients, date, folder. Body text from FTI index with preview fallback. |
-| **Calibre** | `calibre` | SQLite metadata.db + book files (read-only) | EPUB and PDF book content with rich metadata (authors, tags, series, rating, publisher). |
-| **NetNewsWire** | `rss` | SQLite databases (read-only) | RSS/Atom article title, author, content, feed name. HTML content converted to plain text. |
+| Source          | Collection | Data Source                                 | What's Indexed                                                                                                                              |
+|-----------------|------------|---------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| **Obsidian**    | `obsidian` | Vault directory                             | All supported file types in the vault (.md, .pdf, .docx, .html, .txt, .epub). Markdown files get frontmatter, wikilink, and tag extraction. |
+| **eM Client**   | `email`    | SQLite databases (read-only)                | Email subject, body, sender, recipients, date, folder. Body text from FTI index with preview fallback.                                      |
+| **Calibre**     | `calibre`  | SQLite metadata.db + book files (read-only) | EPUB and PDF book content with rich metadata (authors, tags, series, rating, publisher).                                                    |
+| **NetNewsWire** | `rss`      | SQLite databases (read-only)                | RSS/Atom article title, author, content, feed name. HTML content converted to plain text.                                                   |
 
 ### User Collections
 
-| Source | Collection | Data Source | What's Indexed |
-|--------|------------|------------|----------------|
-| **Git Repos** | repo directory name | Git-tracked files | Code files parsed with tree-sitter for structural chunking. Respects .gitignore. |
-| **Project Docs** | user-specified name | Any folder | Files dispatched to the correct parser by extension. |
+| Source           | Collection          | Data Source       | What's Indexed                                                                   |
+|------------------|---------------------|-------------------|----------------------------------------------------------------------------------|
+| **Git Repos**    | repo directory name | Git-tracked files | Code files parsed with tree-sitter for structural chunking. Respects .gitignore. |
+| **Project Docs** | user-specified name | Any folder        | Files dispatched to the correct parser by extension.                             |
 
 ## Technology Stack
 
@@ -114,15 +127,15 @@ Parser (type-specific)
     |  Email: eM Client SQLite FTI + preview fallback
     |  Calibre: metadata.db + book file parsing
     |  RSS: NetNewsWire SQLite article content
-    |  Plaintext: read as-is
-    |
+    | Plaintext: read as-is |
+    |-----------------------|
     v
 Chunker
     |  Markdown: split on headings, preserve heading path as context prefix
     |  Email: single chunk if short, paragraph-split if long
     |  Code: split on structural boundaries (functions, classes)
-    |  Plain: fixed-size word windows (~500 words, 50 word overlap)
-    |
+    | Plain: fixed-size word windows (~500 words, 50 word overlap) |
+    |--------------------------------------------------------------|
     v
 Ollama embed (bge-m3, 1024d) --- batches of 32
     |
@@ -158,28 +171,28 @@ Query string
 
 Five tables plus two virtual tables:
 
-| Table | Purpose |
-|-------|---------|
-| `collections` | Namespaces for organizing content (system or project) |
-| `sources` | Individual files/emails that have been indexed, with SHA256 hash for change detection |
-| `documents` | Chunked text content with metadata JSON |
-| `vec_documents` | sqlite-vec virtual table storing embedding vectors |
-| `documents_fts` | FTS5 virtual table mirroring documents for keyword search |
-| `meta` | Schema version tracking for migrations |
+| Table           | Purpose                                                                               |
+|-----------------|---------------------------------------------------------------------------------------|
+| `collections`   | Namespaces for organizing content (system or project)                                 |
+| `sources`       | Individual files/emails that have been indexed, with SHA256 hash for change detection |
+| `documents`     | Chunked text content with metadata JSON                                               |
+| `vec_documents` | sqlite-vec virtual table storing embedding vectors                                    |
+| `documents_fts` | FTS5 virtual table mirroring documents for keyword search                             |
+| `meta`          | Schema version tracking for migrations                                                |
 
 Relationships: `collections` 1:N `sources` 1:N `documents`. CASCADE deletes ensure clean removal.
 
 ## Supported File Types
 
-| Extension | Parser | Chunking Strategy |
-|-----------|--------|-------------------|
-| `.md` | Obsidian markdown (frontmatter, wikilinks, tags) | Heading-aware splitting |
-| `.pdf` | pymupdf page-by-page extraction | Per-page plain chunking |
-| `.docx` | python-docx (paragraphs, headings, tables) | Plain chunking |
-| `.epub` | zipfile + BeautifulSoup chapter extraction | Per-chapter plain chunking |
-| `.html` / `.htm` | BeautifulSoup text extraction | Plain chunking |
-| `.txt` / `.csv` / `.json` / `.yaml` / `.yml` | Read as plaintext | Plain chunking |
-| `.py` / `.go` / `.tf` / `.ts` / `.js` / `.rs` / `.java` / `.c` / `.h` | tree-sitter structural parsing | Function/class boundary splitting |
+| Extension                                                             | Parser                                           | Chunking Strategy                 |
+|-----------------------------------------------------------------------|--------------------------------------------------|-----------------------------------|
+| `.md`                                                                 | Obsidian markdown (frontmatter, wikilinks, tags) | Heading-aware splitting           |
+| `.pdf`                                                                | pymupdf page-by-page extraction                  | Per-page plain chunking           |
+| `.docx`                                                               | python-docx (paragraphs, headings, tables)       | Plain chunking                    |
+| `.epub`                                                               | zipfile + BeautifulSoup chapter extraction       | Per-chapter plain chunking        |
+| `.html` / `.htm`                                                      | BeautifulSoup text extraction                    | Plain chunking                    |
+| `.txt` / `.csv` / `.json` / `.yaml` / `.yml`                          | Read as plaintext                                | Plain chunking                    |
+| `.py` / `.go` / `.tf` / `.ts` / `.js` / `.rs` / `.java` / `.c` / `.h` | tree-sitter structural parsing                   | Function/class boundary splitting |
 
 ## CLI Commands
 
