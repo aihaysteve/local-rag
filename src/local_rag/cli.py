@@ -61,6 +61,17 @@ def index() -> None:
     """Index sources into the RAG database."""
 
 
+def _check_collection_enabled(config, name: str) -> None:
+    """Exit with a message if the collection is disabled in config."""
+    if not config.is_collection_enabled(name):
+        click.echo(
+            f"Collection '{name}' is disabled in config (disabled_collections). "
+            "Remove it from disabled_collections to re-enable.",
+            err=True,
+        )
+        sys.exit(1)
+
+
 @index.command("obsidian")
 @click.option("--vault", "-v", "vaults", multiple=True, type=click.Path(exists=True, path_type=Path),
               help="Vault path(s). If omitted, uses config.")
@@ -70,6 +81,7 @@ def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
     from local_rag.indexers.obsidian import ObsidianIndexer
 
     config = load_config()
+    _check_collection_enabled(config, "obsidian")
     vault_paths = list(vaults) if vaults else config.obsidian_vaults
 
     if not vault_paths:
@@ -96,6 +108,7 @@ def index_email(force: bool) -> None:
     from local_rag.indexers.email_indexer import EmailIndexer
 
     config = load_config()
+    _check_collection_enabled(config, "email")
     conn = _get_db(config)
     try:
         indexer = EmailIndexer(str(config.emclient_db_path))
@@ -118,6 +131,7 @@ def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
     from local_rag.indexers.calibre_indexer import CalibreIndexer
 
     config = load_config()
+    _check_collection_enabled(config, "calibre")
     library_paths = list(libraries) if libraries else config.calibre_libraries
 
     if not library_paths:
@@ -144,6 +158,7 @@ def index_rss(force: bool) -> None:
     from local_rag.indexers.rss_indexer import RSSIndexer
 
     config = load_config()
+    _check_collection_enabled(config, "rss")
     conn = _get_db(config)
     try:
         indexer = RSSIndexer(str(config.netnewswire_db_path))
@@ -166,6 +181,7 @@ def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
     from local_rag.indexers.project import ProjectIndexer
 
     config = load_config()
+    _check_collection_enabled(config, name)
     conn = _get_db(config)
     try:
         indexer = ProjectIndexer(name, list(paths))
@@ -206,6 +222,8 @@ def index_repo(path: Path | None, name: str | None, force: bool) -> None:
         for repo_path in repo_paths:
             # --name only applies when indexing a single explicit repo
             coll_name = name if (path and name) else None
+            resolved_name = coll_name or repo_path.name
+            _check_collection_enabled(config, resolved_name)
             indexer = GitRepoIndexer(repo_path, collection_name=coll_name)
             result = indexer.index(conn, config, force=force)
             click.echo(
@@ -215,6 +233,67 @@ def index_repo(path: Path | None, name: str | None, force: bool) -> None:
             )
     finally:
         conn.close()
+
+
+@index.command("all")
+@click.option("--force", is_flag=True, help="Force re-index all sources.")
+def index_all(force: bool) -> None:
+    """Index all configured sources at once.
+
+    Indexes obsidian, email, calibre, rss, and git repos based on what
+    is configured in ~/.local-rag/config.json. Skips any source that
+    has no paths configured.
+    """
+    from local_rag.indexers.calibre_indexer import CalibreIndexer
+    from local_rag.indexers.email_indexer import EmailIndexer
+    from local_rag.indexers.git_indexer import GitRepoIndexer
+    from local_rag.indexers.obsidian import ObsidianIndexer
+    from local_rag.indexers.rss_indexer import RSSIndexer
+
+    config = load_config()
+    conn = _get_db(config)
+
+    sources: list[tuple[str, object]] = []
+
+    if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
+        sources.append(("obsidian", ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)))
+
+    if config.is_collection_enabled("email") and config.emclient_db_path and config.emclient_db_path.exists():
+        sources.append(("email", EmailIndexer(str(config.emclient_db_path))))
+
+    if config.is_collection_enabled("calibre") and config.calibre_libraries:
+        sources.append(("calibre", CalibreIndexer(config.calibre_libraries)))
+
+    if config.is_collection_enabled("rss") and config.netnewswire_db_path and config.netnewswire_db_path.exists():
+        sources.append(("rss", RSSIndexer(str(config.netnewswire_db_path))))
+
+    if config.git_repos:
+        for repo_path in config.git_repos:
+            coll_name = repo_path.name
+            if config.is_collection_enabled(coll_name):
+                sources.append((coll_name, GitRepoIndexer(repo_path)))
+
+    if not sources:
+        click.echo("No sources configured. Set paths in ~/.local-rag/config.json.", err=True)
+        sys.exit(1)
+
+    click.echo(f"Indexing {len(sources)} source(s)...\n")
+
+    try:
+        for label, indexer in sources:
+            click.echo(f"── {label} ──")
+            try:
+                result = indexer.index(conn, config, force=force)
+                click.echo(
+                    f"  {result.indexed} indexed, {result.skipped} skipped, "
+                    f"{result.errors} errors (out of {result.total_found} found)\n"
+                )
+            except Exception as e:
+                click.echo(f"  Error: {e}\n", err=True)
+    finally:
+        conn.close()
+
+    click.echo("All done.")
 
 
 # ── Search command ──────────────────────────────────────────────────────

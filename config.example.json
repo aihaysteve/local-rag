@@ -20,6 +20,7 @@
         "~/Repository/my-project",
         "~/Repository/another-repo"
     ],
+    "disabled_collections": [],
     "search_defaults": {
         "top_k": 10,
         "rrf_k": 60,

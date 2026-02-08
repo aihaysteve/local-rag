@@ -149,7 +149,10 @@ To switch models:
 ```bash
 uv run local-rag index obsidian --force
 uv run local-rag index email --force
-# Repeat for each collection
+uv run local-rag index calibre --force
+uv run local-rag index rss --force
+uv run local-rag index repo --force
+# Repeat for any project collections as well
 ```
 
 Re-indexing is required because each model encodes meaning differently. A vector from bge-m3 and a vector from nomic-embed-text can't be compared — they live in different mathematical spaces.

@@ -17,16 +17,40 @@ Sources                        Indexer                    Storage              I
 Obsidian vault -----+
   (.md, .pdf,       |
    .docx, .txt,     |
-   .html, etc.)     |
+   .html, .epub)    |
                     |
-eM Client (SQLite) -+---> Python Indexer ----> rag.db ----> CLI
+eM Client (SQLite) -+
+                    |
+Calibre (SQLite) ---+---> Python Indexer ----> rag.db ----> CLI
                     |     (parse, chunk,       (SQLite +     MCP Server
-Project docs -------+      embed via Ollama)    sqlite-vec    (for Claude)
-  (any folder with          |                   + FTS5)
-   supported files)         v
-                       Ollama (local)
-                       bge-m3 model
+NetNewsWire (SQLite)+      embed via Ollama)    sqlite-vec    (for Claude)
+                    |          |               + FTS5)
+Git repos ----------+          v
+                    |     Ollama (local)
+Project docs -------+     bge-m3 model
+  (any folder with
+   supported files)
 ```
+
+## Supported Sources
+
+### System Collections
+
+These are built-in collection types with dedicated parsers and indexers:
+
+| Source | Collection | Data Source | What's Indexed |
+|--------|------------|------------|----------------|
+| **Obsidian** | `obsidian` | Vault directory | All supported file types in the vault (.md, .pdf, .docx, .html, .txt, .epub). Markdown files get frontmatter, wikilink, and tag extraction. |
+| **eM Client** | `email` | SQLite databases (read-only) | Email subject, body, sender, recipients, date, folder. Body text from FTI index with preview fallback. |
+| **Calibre** | `calibre` | SQLite metadata.db + book files (read-only) | EPUB and PDF book content with rich metadata (authors, tags, series, rating, publisher). |
+| **NetNewsWire** | `rss` | SQLite databases (read-only) | RSS/Atom article title, author, content, feed name. HTML content converted to plain text. |
+
+### User Collections
+
+| Source | Collection | Data Source | What's Indexed |
+|--------|------------|------------|----------------|
+| **Git Repos** | repo directory name | Git-tracked files | Code files parsed with tree-sitter for structural chunking. Respects .gitignore. |
+| **Project Docs** | user-specified name | Any folder | Files dispatched to the correct parser by extension. |
 
 ## Technology Stack
 
@@ -67,7 +91,7 @@ Default parameters: `k=60`, `vector_weight=0.7`, `fts_weight=0.3`. This ensures 
 
 The MCP server exposes the RAG as tools that Claude Desktop and Claude Code can call directly:
 
-- **`rag_search`** — hybrid search with optional filters (collection, source type, date range)
+- **`rag_search`** — hybrid search with optional filters (collection, source type, date range, author)
 - **`rag_list_collections`** — list all collections with source/chunk counts
 - **`rag_collection_info`** — detailed info about a specific collection
 - **`rag_index`** — trigger indexing for a collection
@@ -77,20 +101,26 @@ Uses the `mcp` Python SDK (FastMCP) with stdio transport by default. Configured 
 ## Data Flow: Indexing
 
 ```
-File on disk
+File on disk / SQLite database
     |
     v
 Parser (type-specific)
     |  Markdown: extract frontmatter, wikilinks, tags, strip dataview
     |  PDF: extract text page-by-page (pymupdf)
     |  DOCX: extract paragraphs, headings, tables (python-docx)
+    |  EPUB: extract chapters (zipfile + BeautifulSoup)
     |  HTML: extract text preserving structure (BeautifulSoup)
+    |  Code: tree-sitter structural parsing (functions, classes, etc.)
+    |  Email: eM Client SQLite FTI + preview fallback
+    |  Calibre: metadata.db + book file parsing
+    |  RSS: NetNewsWire SQLite article content
     |  Plaintext: read as-is
     |
     v
 Chunker
     |  Markdown: split on headings, preserve heading path as context prefix
     |  Email: single chunk if short, paragraph-split if long
+    |  Code: split on structural boundaries (functions, classes)
     |  Plain: fixed-size word windows (~500 words, 50 word overlap)
     |
     v
@@ -117,7 +147,7 @@ Query string
                           RRF merge + dedup
                                    |
                                    v
-                          Apply filters (collection, type, date, sender)
+                          Apply filters (collection, type, date, sender, author)
                                    |
                                    v
                           SearchResult objects (content, title, metadata,
@@ -146,15 +176,21 @@ Relationships: `collections` 1:N `sources` 1:N `documents`. CASCADE deletes ensu
 | `.md` | Obsidian markdown (frontmatter, wikilinks, tags) | Heading-aware splitting |
 | `.pdf` | pymupdf page-by-page extraction | Per-page plain chunking |
 | `.docx` | python-docx (paragraphs, headings, tables) | Plain chunking |
+| `.epub` | zipfile + BeautifulSoup chapter extraction | Per-chapter plain chunking |
 | `.html` / `.htm` | BeautifulSoup text extraction | Plain chunking |
 | `.txt` / `.csv` / `.json` / `.yaml` / `.yml` | Read as plaintext | Plain chunking |
+| `.py` / `.go` / `.tf` / `.ts` / `.js` / `.rs` / `.java` / `.c` / `.h` | tree-sitter structural parsing | Function/class boundary splitting |
 
 ## CLI Commands
 
 ```
 local-rag index obsidian [--vault PATH]    Index Obsidian vault(s)
 local-rag index email                      Index eM Client emails
+local-rag index calibre [--library PATH]   Index Calibre ebook libraries
+local-rag index rss                        Index NetNewsWire RSS articles
+local-rag index repo [PATH] [--name NAME]  Index a git repository
 local-rag index project NAME PATH...       Index docs into a project collection
+local-rag index all                        Index all configured sources at once
 local-rag search QUERY [--collection]      Hybrid search with filters
 local-rag collections list                 List all collections
 local-rag collections info NAME            Detailed collection info
@@ -162,6 +198,8 @@ local-rag collections delete NAME          Delete a collection
 local-rag status                           Show database stats
 local-rag serve [--port PORT]              Start MCP server
 ```
+
+All index commands support `--force` to bypass incremental change detection and re-index everything.
 
 ## Configuration
 
@@ -173,7 +211,12 @@ Key settings:
 - `embedding_dimensions` — vector size (default: `1024`)
 - `chunk_size_tokens` / `chunk_overlap_tokens` — chunking parameters (default: `500`/`50`)
 - `obsidian_vaults` — list of vault paths to index
-- `emclient_db_path` — path to eM Client database
+- `obsidian_exclude_folders` — folder names to skip in vaults (e.g. `_Inbox`, `_Templates`)
+- `emclient_db_path` — path to eM Client data directory
+- `calibre_libraries` — list of Calibre library paths
+- `netnewswire_db_path` — path to NetNewsWire accounts directory
+- `git_repos` — list of git repository paths
+- `disabled_collections` — list of collection names to skip during indexing (any collection name)
 - `search_defaults` — RRF parameters (`top_k`, `rrf_k`, `vector_weight`, `fts_weight`)
 
 ## Project Structure
@@ -192,11 +235,18 @@ src/local_rag/
     email.py             eM Client email parser
     pdf.py               PDF text extraction
     docx.py              DOCX text extraction
+    epub.py              EPUB text extraction
     html.py              HTML text extraction
     plaintext.py         Plaintext reader
+    calibre.py           Calibre metadata.db parser
+    rss.py               NetNewsWire RSS parser
+    code.py              Tree-sitter code parser
   indexers/
     base.py              Abstract base indexer
     obsidian.py          Obsidian vault indexer (all file types)
     email_indexer.py     eM Client email indexer
+    calibre_indexer.py   Calibre ebook indexer
+    rss_indexer.py       NetNewsWire RSS indexer
+    git_indexer.py       Git repository indexer
     project.py           Project document indexer
 ```

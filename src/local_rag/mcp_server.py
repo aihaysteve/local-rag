@@ -134,12 +134,20 @@ def create_server() -> FastMCP:
 
         try:
             if collection == "obsidian":
+                if not config.is_collection_enabled("obsidian"):
+                    return {"error": "Collection 'obsidian' is disabled in config."}
                 indexer = ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)
             elif collection == "email":
+                if not config.is_collection_enabled("email"):
+                    return {"error": "Collection 'email' is disabled in config."}
                 indexer = EmailIndexer(str(config.emclient_db_path))
             elif collection == "calibre":
+                if not config.is_collection_enabled("calibre"):
+                    return {"error": "Collection 'calibre' is disabled in config."}
                 indexer = CalibreIndexer(config.calibre_libraries)
             elif collection == "rss":
+                if not config.is_collection_enabled("rss"):
+                    return {"error": "Collection 'rss' is disabled in config."}
                 indexer = RSSIndexer(str(config.netnewswire_db_path))
             else:
                 # Check if this is an existing git repo collection
@@ -148,6 +156,9 @@ def create_server() -> FastMCP:
                     (collection,),
                 ).fetchone()
                 watermark = _parse_watermark(row["description"] if row else None)
+
+                if not config.is_collection_enabled(collection):
+                    return {"error": f"Collection '{collection}' is disabled in config."}
 
                 if watermark:
                     # Existing git repo collection — re-index from stored repo path

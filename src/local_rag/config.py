@@ -51,7 +51,20 @@ class Config:
         )
     )
     git_repos: list[Path] = field(default_factory=list)
+    disabled_collections: set[str] = field(default_factory=set)
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
+
+    def is_collection_enabled(self, name: str) -> bool:
+        """Check if a collection is enabled for indexing.
+
+        Args:
+            name: Collection name (e.g., 'obsidian', 'email', 'calibre', 'rss',
+                  or any user-created collection name).
+
+        Returns:
+            True if the collection is not in the disabled_collections set.
+        """
+        return name not in self.disabled_collections
 
 
 def _expand_path(p: str | Path) -> Path:
@@ -93,6 +106,7 @@ def load_config(path: Path | None = None) -> Config:
     obsidian_exclude_folders = data.get("obsidian_exclude_folders", [])
     calibre_libraries = [_expand_path(v) for v in data.get("calibre_libraries", [])]
     git_repos = [_expand_path(r) for r in data.get("git_repos", [])]
+    disabled_collections = set(data.get("disabled_collections", []))
 
     config = Config(
         db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
@@ -123,6 +137,7 @@ def load_config(path: Path | None = None) -> Config:
             )
         ),
         git_repos=git_repos,
+        disabled_collections=disabled_collections,
         search_defaults=search_defaults,
     )
 
