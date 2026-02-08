@@ -6,8 +6,13 @@ import sys
 from pathlib import Path
 
 import click
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
 from local_rag.config import load_config
+
+console = Console()
 
 
 def _handle_sigint(_sig: int, _frame: object) -> None:
@@ -61,6 +66,19 @@ def index() -> None:
     """Index sources into the RAG database."""
 
 
+def _print_index_result(label: str, result) -> None:
+    """Print a colored index result summary."""
+    parts = [
+        f"[bold]{label}[/bold] indexing complete:",
+        f"  [green]{result.indexed} indexed[/green],",
+        f"  [dim]{result.skipped} skipped[/dim],",
+    ]
+    error_style = "red" if result.errors > 0 else "dim"
+    parts.append(f"  [{error_style}]{result.errors} errors[/{error_style}]")
+    parts.append(f"  [dim](out of {result.total_found} found)[/dim]")
+    console.print(" ".join(parts))
+
+
 def _check_collection_enabled(config, name: str) -> None:
     """Exit with a message if the collection is disabled in config."""
     if not config.is_collection_enabled(name):
@@ -92,11 +110,7 @@ def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
     try:
         indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders)
         result = indexer.index(conn, config, force=force)
-        click.echo(
-            f"Obsidian indexing complete: {result.indexed} indexed, "
-            f"{result.skipped} skipped, {result.errors} errors "
-            f"(out of {result.total_found} files found)"
-        )
+        _print_index_result("Obsidian", result)
     finally:
         conn.close()
 
@@ -113,11 +127,7 @@ def index_email(force: bool) -> None:
     try:
         indexer = EmailIndexer(str(config.emclient_db_path))
         result = indexer.index(conn, config, force=force)
-        click.echo(
-            f"Email indexing complete: {result.indexed} indexed, "
-            f"{result.skipped} skipped, {result.errors} errors "
-            f"(out of {result.total_found} emails found)"
-        )
+        _print_index_result("Email", result)
     finally:
         conn.close()
 
@@ -142,11 +152,7 @@ def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
     try:
         indexer = CalibreIndexer(library_paths)
         result = indexer.index(conn, config, force=force)
-        click.echo(
-            f"Calibre indexing complete: {result.indexed} indexed, "
-            f"{result.skipped} skipped, {result.errors} errors "
-            f"(out of {result.total_found} books found)"
-        )
+        _print_index_result("Calibre", result)
     finally:
         conn.close()
 
@@ -163,11 +169,7 @@ def index_rss(force: bool) -> None:
     try:
         indexer = RSSIndexer(str(config.netnewswire_db_path))
         result = indexer.index(conn, config, force=force)
-        click.echo(
-            f"RSS indexing complete: {result.indexed} indexed, "
-            f"{result.skipped} skipped, {result.errors} errors "
-            f"(out of {result.total_found} articles found)"
-        )
+        _print_index_result("RSS", result)
     finally:
         conn.close()
 
@@ -186,11 +188,7 @@ def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
     try:
         indexer = ProjectIndexer(name, list(paths))
         result = indexer.index(conn, config, force=force)
-        click.echo(
-            f"Project '{name}' indexing complete: {result.indexed} indexed, "
-            f"{result.skipped} skipped, {result.errors} errors "
-            f"(out of {result.total_found} files found)"
-        )
+        _print_index_result(name, result)
     finally:
         conn.close()
 
@@ -226,11 +224,7 @@ def index_repo(path: Path | None, name: str | None, force: bool) -> None:
             _check_collection_enabled(config, resolved_name)
             indexer = GitRepoIndexer(repo_path, collection_name=coll_name)
             result = indexer.index(conn, config, force=force)
-            click.echo(
-                f"Repo '{indexer.collection_name}' indexing complete: {result.indexed} indexed, "
-                f"{result.skipped} skipped, {result.errors} errors "
-                f"(out of {result.total_found} files found)"
-            )
+            _print_index_result(indexer.collection_name, result)
     finally:
         conn.close()
 
@@ -279,21 +273,40 @@ def index_all(force: bool) -> None:
 
     click.echo(f"Indexing {len(sources)} source(s)...\n")
 
+    summary_rows: list[tuple[str, int, int, int, int, str | None]] = []
+
     try:
         for label, indexer in sources:
-            click.echo(f"── {label} ──")
+            click.echo(f"  {label}...")
             try:
                 result = indexer.index(conn, config, force=force)
-                click.echo(
-                    f"  {result.indexed} indexed, {result.skipped} skipped, "
-                    f"{result.errors} errors (out of {result.total_found} found)\n"
-                )
+                summary_rows.append((label, result.indexed, result.skipped, result.errors, result.total_found, None))
             except Exception as e:
-                click.echo(f"  Error: {e}\n", err=True)
+                summary_rows.append((label, 0, 0, 0, 0, str(e)))
     finally:
         conn.close()
 
-    click.echo("All done.")
+    table = Table(title="Indexing Summary")
+    table.add_column("Collection", style="bold")
+    table.add_column("Indexed", justify="right", style="green")
+    table.add_column("Skipped", justify="right", style="dim")
+    table.add_column("Errors", justify="right")
+    table.add_column("Total", justify="right")
+
+    for label, indexed, skipped, errors, total, error_msg in summary_rows:
+        error_style = "red" if errors > 0 else "dim"
+        if error_msg:
+            table.add_row(label, "-", "-", "[red]failed[/red]", "-")
+        else:
+            table.add_row(
+                label,
+                str(indexed),
+                str(skipped),
+                Text(str(errors), style=error_style),
+                str(total),
+            )
+
+    console.print(table)
 
 
 # ── Search command ──────────────────────────────────────────────────────
@@ -340,23 +353,42 @@ def search(query: str, collection: str | None, source_type: str | None,
             return
 
         for i, r in enumerate(results, 1):
-            click.echo(f"\n{'─' * 60}")
-            click.echo(f"  [{i}] {r.title}")
-            click.echo(f"  Collection: {r.collection}  |  Type: {r.source_type}  |  Score: {r.score:.4f}")
-            click.echo(f"  Source: {r.source_path}")
+            # Color-code score
+            score = r.score
+            if score >= 0.7:
+                score_text = Text(f"{score:.4f}", style="green")
+            elif score >= 0.4:
+                score_text = Text(f"{score:.4f}", style="yellow")
+            else:
+                score_text = Text(f"{score:.4f}", style="red")
+
+            console.print()
+            console.rule(f"[bold]\\[{i}] {r.title}[/bold]", style="dim")
+
+            meta_table = Table(show_header=False, box=None, padding=(0, 2))
+            meta_table.add_column("Key", style="bold")
+            meta_table.add_column("Value")
+            meta_table.add_row("Collection", r.collection)
+            meta_table.add_row("Type", r.source_type)
+            meta_table.add_row("Score", score_text)
+            meta_table.add_row("Source", r.source_path)
+
             if r.metadata:
-                meta_str = ", ".join(f"{k}={v}" for k, v in r.metadata.items() if k != "heading_path")
-                if meta_str:
-                    click.echo(f"  Meta: {meta_str}")
+                meta_items = {k: v for k, v in r.metadata.items() if k != "heading_path"}
+                if meta_items:
+                    meta_str = ", ".join(f"{k}={v}" for k, v in meta_items.items())
+                    meta_table.add_row("Meta", meta_str)
 
-            # Show snippet (first 200 chars)
-            snippet = r.content[:200].replace("\n", " ")
-            if len(r.content) > 200:
+            console.print(meta_table)
+
+            # Show snippet (first 300 chars)
+            snippet = r.content[:300].replace("\n", " ")
+            if len(r.content) > 300:
                 snippet += "..."
-            click.echo(f"  {snippet}")
+            console.print(f"  [dim]{snippet}[/dim]")
 
-        click.echo(f"\n{'─' * 60}")
-        click.echo(f"  {len(results)} result(s) found.")
+        console.print()
+        console.print(f"[bold]{len(results)}[/bold] result(s) found.")
     finally:
         conn.close()
 
@@ -387,13 +419,23 @@ def collections_list() -> None:
             click.echo("No collections found.")
             return
 
-        click.echo(f"\n{'Name':<30} {'Type':<10} {'Sources':<10} {'Chunks':<10} {'Created'}")
-        click.echo("─" * 80)
+        table = Table(title="Collections")
+        table.add_column("Name", style="bold")
+        table.add_column("Type", style="dim")
+        table.add_column("Sources", justify="right")
+        table.add_column("Chunks", justify="right")
+        table.add_column("Created", style="dim")
+
         for row in rows:
-            click.echo(
-                f"{row['name']:<30} {row['collection_type']:<10} "
-                f"{row['source_count']:<10} {row['chunk_count']:<10} {row['created_at']}"
+            table.add_row(
+                row["name"],
+                row["collection_type"],
+                str(row["source_count"]),
+                str(row["chunk_count"]),
+                row["created_at"],
             )
+
+        console.print(table)
     finally:
         conn.close()
 
@@ -437,23 +479,32 @@ def collections_info(name: str) -> None:
             (coll_id,),
         ).fetchall()
 
-        click.echo(f"\nCollection: {name}")
-        click.echo(f"  Type: {row['collection_type']}")
-        click.echo(f"  Created: {row['created_at']}")
-        click.echo(f"  Description: {row['description'] or '(none)'}")
-        click.echo(f"  Sources: {source_count}")
-        click.echo(f"  Documents (chunks): {doc_count}")
-        click.echo(f"  Last indexed: {last_indexed or 'never'}")
+        info = Table(show_header=False, box=None, padding=(0, 2))
+        info.add_column("Key", style="bold")
+        info.add_column("Value")
+        info.add_row("Collection", name)
+        info.add_row("Type", row["collection_type"])
+        info.add_row("Created", row["created_at"])
+        info.add_row("Description", row["description"] or "(none)")
+        info.add_row("Sources", str(source_count))
+        info.add_row("Chunks", str(doc_count))
+        info.add_row("Last indexed", last_indexed or "never")
+        console.print(info)
 
         if type_breakdown:
-            click.echo("  Source types:")
+            console.print()
+            types_table = Table(title="Source Types")
+            types_table.add_column("Type")
+            types_table.add_column("Count", justify="right")
             for tb in type_breakdown:
-                click.echo(f"    {tb['source_type']}: {tb['cnt']}")
+                types_table.add_row(tb["source_type"], str(tb["cnt"]))
+            console.print(types_table)
 
         if sample_titles:
-            click.echo("  Sample titles:")
+            console.print()
+            console.print("[bold]Sample titles[/bold]")
             for st in sample_titles:
-                click.echo(f"    - {st['title']}")
+                console.print(f"  - {st['title']}")
     finally:
         conn.close()
 
@@ -524,14 +575,17 @@ def status() -> None:
             "SELECT MAX(last_indexed_at) as ts FROM sources"
         ).fetchone()["ts"]
 
-        click.echo(f"\nlocal-rag status")
-        click.echo(f"  Database: {config.db_path}")
-        click.echo(f"  Size: {db_size_mb:.1f} MB")
-        click.echo(f"  Collections: {coll_count}")
-        click.echo(f"  Sources: {source_count}")
-        click.echo(f"  Documents (chunks): {doc_count}")
-        click.echo(f"  Last indexed: {last_indexed or 'never'}")
-        click.echo(f"  Embedding model: {config.embedding_model} ({config.embedding_dimensions}d)")
+        table = Table(title="local-rag status", show_header=False, box=None, padding=(0, 2))
+        table.add_column("Key", style="bold")
+        table.add_column("Value")
+        table.add_row("Database", str(config.db_path))
+        table.add_row("Size", f"{db_size_mb:.1f} MB")
+        table.add_row("Collections", str(coll_count))
+        table.add_row("Sources", str(source_count))
+        table.add_row("Chunks", str(doc_count))
+        table.add_row("Last indexed", last_indexed or "never")
+        table.add_row("Embedding model", f"{config.embedding_model} ({config.embedding_dimensions}d)")
+        console.print(table)
     finally:
         conn.close()
 

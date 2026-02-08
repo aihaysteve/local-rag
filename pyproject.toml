@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6.0",
     "mcp>=1.0.0",
     "tree-sitter-language-pack>=0.7.0",
+    "rich>=13.0",
 ]
 
 [project.scripts]

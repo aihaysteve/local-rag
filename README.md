@@ -158,6 +158,95 @@ local-rag uses a hybrid search approach combining semantic vector search with ke
 
 Everything runs locally — embeddings are generated on your machine by Ollama, and the database is a single SQLite file.
 
+## Automatic Indexing with launchd
+
+To keep your index up to date automatically, create a macOS launchd user agent. Unlike cron, launchd catches up on missed runs after your Mac wakes from sleep.
+
+**1. Create the plist file:**
+
+Run this from the local-rag repository directory:
+
+```bash
+cat > ~/Library/LaunchAgents/com.local-rag.index.plist << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.local-rag.index</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>$(which uv)</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>$PWD</string>
+        <string>local-rag</string>
+        <string>index</string>
+        <string>all</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$(dirname $(which uv)):/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Run every 2 hours (7200 seconds) -->
+    <key>StartInterval</key>
+    <integer>7200</integer>
+
+    <!-- Log output to ~/.local-rag/index.log -->
+    <key>StandardOutPath</key>
+    <string>$HOME/.local-rag/index.log</string>
+    <key>StandardErrorPath</key>
+    <string>$HOME/.local-rag/index.log</string>
+
+    <!-- Run once immediately when loaded -->
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+EOF
+```
+
+This resolves all paths automatically: `$(which uv)` finds your uv binary, `$PWD` uses the current directory (the local-rag repo), and `$HOME` points to your home directory. Make sure to run the command from the local-rag repository root.
+
+**2. Load the agent:**
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.local-rag.index.plist
+```
+
+**3. Verify it's running:**
+
+```bash
+launchctl list | grep local-rag
+tail -f ~/.local-rag/index.log
+```
+
+**Managing the agent:**
+
+```bash
+# Stop and unload
+launchctl unload ~/Library/LaunchAgents/com.local-rag.index.plist
+
+# Reload after editing the plist
+launchctl unload ~/Library/LaunchAgents/com.local-rag.index.plist
+launchctl load ~/Library/LaunchAgents/com.local-rag.index.plist
+```
+
+**Plist fields explained:**
+
+| Field | Purpose |
+|-------|---------|
+| `Label` | Unique identifier for the job |
+| `ProgramArguments` | Command to run, split into argv array |
+| `EnvironmentVariables` | Sets `PATH` so launchd can find `uv` and `ollama` (launchd jobs start with a minimal environment) |
+| `StartInterval` | Run every N seconds (7200 = 2 hours) |
+| `StandardOutPath/ErrorPath` | Where stdout/stderr are written |
+| `RunAtLoad` | Run immediately when the agent is loaded (on login or after `launchctl load`) |
+
 ## Documentation
 
 - [Architecture overview](docs/architecture.md) — system design, data flow, database schema, supported file types
