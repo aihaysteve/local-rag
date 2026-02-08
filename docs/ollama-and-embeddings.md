@@ -49,14 +49,14 @@ local-rag uses cosine distance to measure similarity between vectors. Cosine dis
 
 local-rag uses **bge-m3** as its default embedding model. Here's what you need to know:
 
-| Property | Value |
-|----------|-------|
-| Full name | BAAI General Embedding - Multi-Function, Multi-Lingual, Multi-Granularity |
-| Developed by | Beijing Academy of Artificial Intelligence (BAAI) |
-| Vector dimensions | 1024 |
-| Supported languages | 100+ (English, German, Chinese, Japanese, etc.) |
-| Download size | ~1.2 GB |
-| RAM usage | ~2 GB when loaded |
+| Property            | Value                                                                     |
+|---------------------|---------------------------------------------------------------------------|
+| Full name           | BAAI General Embedding - Multi-Function, Multi-Lingual, Multi-Granularity |
+| Developed by        | Beijing Academy of Artificial Intelligence (BAAI)                         |
+| Vector dimensions   | 1024                                                                      |
+| Supported languages | 100+ (English, German, Chinese, Japanese, etc.)                           |
+| Download size       | ~1.2 GB                                                                   |
+| RAM usage           | ~2 GB when loaded                                                         |
 
 ### Why bge-m3?
 
@@ -114,7 +114,7 @@ This means every search requires one Ollama call to embed the query.
 
 Embeddings are stored in SQLite as packed binary blobs — each float is serialized as 4 bytes in IEEE 754 format using Python's `struct.pack`. The sqlite-vec extension reads this binary format directly for fast comparison.
 
-```
+```shell
 1024 floats × 4 bytes = 4,096 bytes per document chunk
 ```
 
@@ -133,12 +133,12 @@ The embedding model is configurable in `~/.local-rag/config.json`:
 
 Other compatible models you could use:
 
-| Model | Dimensions | Size | Notes |
-|-------|------------|------|-------|
-| bge-m3 (default) | 1024 | ~1.2 GB | Best multilingual, recommended |
-| mxbai-embed-large | 1024 | ~670 MB | Good English-focused alternative |
-| nomic-embed-text | 768 | ~270 MB | Smaller, faster, decent quality |
-| all-minilm | 384 | ~45 MB | Minimal resource usage, lower quality |
+| Model             | Dimensions | Size    | Notes                                 |
+|-------------------|------------|---------|---------------------------------------|
+| bge-m3 (default)  | 1024       | ~1.2 GB | Best multilingual, recommended        |
+| mxbai-embed-large | 1024       | ~670 MB | Good English-focused alternative      |
+| nomic-embed-text  | 768        | ~270 MB | Smaller, faster, decent quality       |
+| all-minilm        | 384        | ~45 MB  | Minimal resource usage, lower quality |
 
 To switch models:
 

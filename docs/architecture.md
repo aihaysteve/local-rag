@@ -45,6 +45,7 @@ flowchart LR
     DB --> CLI
     DB --> MCP
 ```
+
 ## Supported Sources
 
 ### System Collections
@@ -94,7 +95,7 @@ Every search query runs two parallel searches:
 
 Results from both lists are merged using RRF:
 
-```
+```shell
 score(doc) = vector_weight / (k + vec_rank) + fts_weight / (k + fts_rank)
 ```
 
@@ -113,7 +114,7 @@ Uses the `mcp` Python SDK (FastMCP) with stdio transport by default. Configured 
 
 ## Data Flow: Indexing
 
-```
+```shell
 File on disk / SQLite database
     |
     v
@@ -149,7 +150,7 @@ SQLite insert (within transaction)
 
 ## Data Flow: Search
 
-```
+```shell
 Query string
     |
     +---> Ollama embed ---> sqlite-vec MATCH (top-k by distance)
@@ -196,7 +197,7 @@ Relationships: `collections` 1:N `sources` 1:N `documents`. CASCADE deletes ensu
 
 ## CLI Commands
 
-```
+```shell
 local-rag index obsidian [--vault PATH]    Index Obsidian vault(s)
 local-rag index email                      Index eM Client emails
 local-rag index calibre [--library PATH]   Index Calibre ebook libraries
@@ -219,6 +220,7 @@ All index commands support `--force` to bypass incremental change detection and 
 Config file: `~/.local-rag/config.json`
 
 Key settings:
+
 - `db_path` — database location (default: `~/.local-rag/rag.db`)
 - `embedding_model` — Ollama model name (default: `bge-m3`)
 - `embedding_dimensions` — vector size (default: `1024`)
@@ -234,7 +236,7 @@ Key settings:
 
 ## Project Structure
 
-```
+```shell
 src/local_rag/
   config.py              Configuration loading
   db.py                  Database init, migrations, helpers

@@ -24,11 +24,11 @@ This vector is then compared against all stored document vectors using sqlite-ve
 
 The result is a ranked list like:
 
-| Rank | Document | Why it matched |
-|------|----------|---------------|
-| 1 | "K8s rollout best practices" | Similar meaning |
-| 2 | "Container orchestration guide" | Related topic |
-| 3 | "Kubernetes deployment YAML reference" | Direct match |
+| Rank | Document                               | Why it matched  |
+|------|----------------------------------------|-----------------|
+| 1    | "K8s rollout best practices"           | Similar meaning |
+| 2    | "Container orchestration guide"        | Related topic   |
+| 3    | "Kubernetes deployment YAML reference" | Direct match    |
 
 ### 2. Full-Text Search (Keyword)
 
@@ -36,11 +36,11 @@ The same query text is tokenized and matched against an FTS5 index (SQLite's bui
 
 The result is a different ranked list:
 
-| Rank | Document | Why it matched |
-|------|----------|---------------|
-| 1 | "Kubernetes deployment YAML reference" | Contains exact words |
-| 2 | "Kubernetes cluster deployment checklist" | Contains exact words |
-| 3 | "Deployment strategy for microservices" | Partial word match |
+| Rank | Document                                  | Why it matched       |
+|------|-------------------------------------------|----------------------|
+| 1    | "Kubernetes deployment YAML reference"    | Contains exact words |
+| 2    | "Kubernetes cluster deployment checklist" | Contains exact words |
+| 3    | "Deployment strategy for microservices"   | Partial word match   |
 
 Notice the two lists overlap but aren't identical. Each catches things the other misses.
 
@@ -56,11 +56,12 @@ Simple approaches like averaging raw scores don't work well because vector dista
 
 For each document, RRF computes:
 
-```
+```shell
 rrf_score = vector_weight / (k + vector_rank) + fts_weight / (k + fts_rank)
 ```
 
 Where:
+
 - `vector_rank` is the document's position in the vector search results (1 = best match)
 - `fts_rank` is the document's position in the FTS results (1 = best match)
 - `k` is a smoothing constant (default: 60)
@@ -74,24 +75,26 @@ If a document only appears in one of the two lists, it only gets a score from th
 Say we have these results:
 
 **Vector search results:**
+
 1. Doc A (k8s rollout best practices)
 2. Doc B (container orchestration guide)
 3. Doc C (kubernetes deployment YAML reference)
 
 **FTS results:**
+
 1. Doc C (kubernetes deployment YAML reference)
 2. Doc D (kubernetes cluster deployment checklist)
 3. Doc E (deployment strategy for microservices)
 
 Using the defaults (`k=60`, `vector_weight=0.7`, `fts_weight=0.3`):
 
-| Document | Vector Rank | FTS Rank | Vector Contribution | FTS Contribution | Total RRF Score |
-|----------|-------------|----------|---------------------|------------------|-----------------|
-| Doc C | 3 | 1 | 0.7 / (60+3) = 0.0111 | 0.3 / (60+1) = 0.0049 | **0.0160** |
-| Doc A | 1 | — | 0.7 / (60+1) = 0.0115 | 0 | **0.0115** |
-| Doc B | 2 | — | 0.7 / (60+2) = 0.0113 | 0 | **0.0113** |
-| Doc D | — | 2 | 0 | 0.3 / (60+2) = 0.0048 | **0.0048** |
-| Doc E | — | 3 | 0 | 0.3 / (60+3) = 0.0048 | **0.0048** |
+| Document | Vector Rank | FTS Rank | Vector Contribution   | FTS Contribution      | Total RRF Score |
+|----------|-------------|----------|-----------------------|-----------------------|-----------------|
+| Doc C    | 3           | 1        | 0.7 / (60+3) = 0.0111 | 0.3 / (60+1) = 0.0049 | **0.0160**      |
+| Doc A    | 1           | —        | 0.7 / (60+1) = 0.0115 | 0                     | **0.0115**      |
+| Doc B    | 2           | —        | 0.7 / (60+2) = 0.0113 | 0                     | **0.0113**      |
+| Doc D    | —           | 2        | 0                     | 0.3 / (60+2) = 0.0048 | **0.0048**      |
+| Doc E    | —           | 3        | 0                     | 0.3 / (60+3) = 0.0048 | **0.0048**      |
 
 **Final ranking:** C, A, B, D, E
 
