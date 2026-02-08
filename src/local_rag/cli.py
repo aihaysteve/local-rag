@@ -292,10 +292,9 @@ def collections_list() -> None:
     try:
         rows = conn.execute("""
             SELECT c.name, c.collection_type, c.created_at,
-                   COUNT(d.id) as doc_count
+                   (SELECT COUNT(*) FROM sources s WHERE s.collection_id = c.id) as source_count,
+                   (SELECT COUNT(*) FROM documents d WHERE d.collection_id = c.id) as chunk_count
             FROM collections c
-            LEFT JOIN documents d ON d.collection_id = c.id
-            GROUP BY c.id
             ORDER BY c.name
         """).fetchall()
 
@@ -303,12 +302,12 @@ def collections_list() -> None:
             click.echo("No collections found.")
             return
 
-        click.echo(f"\n{'Name':<30} {'Type':<10} {'Docs':<10} {'Created'}")
-        click.echo("─" * 70)
+        click.echo(f"\n{'Name':<30} {'Type':<10} {'Sources':<10} {'Chunks':<10} {'Created'}")
+        click.echo("─" * 80)
         for row in rows:
             click.echo(
                 f"{row['name']:<30} {row['collection_type']:<10} "
-                f"{row['doc_count']:<10} {row['created_at']}"
+                f"{row['source_count']:<10} {row['chunk_count']:<10} {row['created_at']}"
             )
     finally:
         conn.close()
