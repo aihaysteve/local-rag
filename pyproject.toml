@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "local-rag"
 version = "0.1.0"
 description = "Fully local RAG system for Obsidian, email, and project documents"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "sqlite-vec>=0.1.6",
