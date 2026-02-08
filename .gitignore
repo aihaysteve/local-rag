@@ -21,3 +21,6 @@ config.json
 
 # Environment
 .env
+
+# MCP config with local paths
+.mcp.json
