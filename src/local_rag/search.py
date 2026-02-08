@@ -131,13 +131,17 @@ def _escape_fts_query(query: str) -> str:
     return " ".join(f'"{token}"' for token in tokens)
 
 
+_COLLECTION_TYPES = {"system", "project", "code"}
+
+
 def _passes_filters(
     conn: sqlite3.Connection, document_id: int, filters: SearchFilters
 ) -> bool:
     """Check if a document passes the given filters."""
     row = conn.execute(
         """
-        SELECT d.metadata, c.name as collection_name, s.source_type, s.source_path
+        SELECT d.metadata, c.name as collection_name, c.collection_type,
+               s.source_type, s.source_path
         FROM documents d
         JOIN collections c ON d.collection_id = c.id
         JOIN sources s ON d.source_id = s.id
@@ -149,8 +153,13 @@ def _passes_filters(
     if not row:
         return False
 
-    if filters.collection and row["collection_name"] != filters.collection:
-        return False
+    if filters.collection:
+        # If the filter matches a collection_type, filter by type
+        if filters.collection in _COLLECTION_TYPES:
+            if row["collection_type"] != filters.collection:
+                return False
+        elif row["collection_name"] != filters.collection:
+            return False
 
     if filters.source_type and row["source_type"] != filters.source_type:
         return False

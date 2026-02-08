@@ -30,9 +30,12 @@ def create_server() -> FastMCP:
 
         Args:
             query: The search query text.
-            collection: Optional collection name to search within.
+            collection: Optional collection name or collection type to search within.
+                Can be a specific collection name (e.g., 'obsidian', 'email') or a
+                collection type ('system', 'project', 'code') to search all collections
+                of that type. Use 'code' to search across all indexed git repositories.
             top_k: Number of results to return (default 10).
-            source_type: Filter by source type (e.g., 'pdf', 'markdown', 'email').
+            source_type: Filter by source type (e.g., 'pdf', 'markdown', 'email', 'code', 'rss').
             date_from: Only results after this date (YYYY-MM-DD).
             date_to: Only results before this date (YYYY-MM-DD).
             author: Filter by book author (case-insensitive substring match).

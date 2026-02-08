@@ -9,7 +9,7 @@ from local_rag.config import Config
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def get_connection(config: Config) -> sqlite3.Connection:
@@ -45,7 +45,8 @@ def init_db(conn: sqlite3.Connection, config: Config) -> None:
     """
     dim = config.embedding_dimensions
 
-    conn.executescript(f"""
+    conn.executescript(
+        f"""
         CREATE TABLE IF NOT EXISTS collections (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -112,7 +113,8 @@ def init_db(conn: sqlite3.Connection, config: Config) -> None:
             key TEXT PRIMARY KEY,
             value TEXT
         );
-    """)
+    """
+    )
 
     # Set schema version if not already set
     row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
@@ -123,7 +125,14 @@ def init_db(conn: sqlite3.Connection, config: Config) -> None:
         )
     conn.commit()
 
-    logger.info("Database initialized (schema version %d, embedding dim %d)", SCHEMA_VERSION, dim)
+    # Run any pending migrations
+    migrate(conn, config)
+
+    logger.info(
+        "Database initialized (schema version %d, embedding dim %d)",
+        SCHEMA_VERSION,
+        dim,
+    )
 
 
 def migrate(conn: sqlite3.Connection, config: Config) -> None:
@@ -145,9 +154,15 @@ def migrate(conn: sqlite3.Connection, config: Config) -> None:
         logger.debug("Database schema is up to date (version %d)", current_version)
         return
 
-    # Future migrations would go here:
-    # if current_version < 2:
-    #     _migrate_v1_to_v2(conn)
+    if current_version < 2:
+        # Reclassify git repo collections from 'project' to 'code'.
+        # Git repos are identified by their watermark description (starts with "git-").
+        conn.execute(
+            "UPDATE collections SET collection_type = 'code' "
+            "WHERE collection_type = 'project' AND description LIKE 'git-%'"
+        )
+        conn.commit()
+        logger.info("Migration v2: reclassified git repo collections as 'code'")
 
     conn.execute(
         "UPDATE meta SET value = ? WHERE key = 'schema_version'",
@@ -168,7 +183,7 @@ def get_or_create_collection(
     Args:
         conn: SQLite connection.
         name: Collection name.
-        collection_type: 'system' or 'project'.
+        collection_type: 'system', 'project', or 'code'.
         description: Optional description.
 
     Returns:
@@ -184,5 +199,7 @@ def get_or_create_collection(
     )
     conn.commit()
     collection_id = cursor.lastrowid
-    logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, collection_id)
+    logger.info(
+        "Created collection '%s' (type=%s, id=%d)", name, collection_type, collection_id
+    )
     return collection_id

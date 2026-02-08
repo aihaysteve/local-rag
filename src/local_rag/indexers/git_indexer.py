@@ -262,7 +262,7 @@ class GitRepoIndexer(BaseIndexer):
         head_sha = _get_head_sha(self.repo_path)
         logger.info("Git repo: %s (HEAD: %s)", self.repo_path, head_sha[:12])
 
-        collection_id = get_or_create_collection(conn, self.collection_name, "project")
+        collection_id = get_or_create_collection(conn, self.collection_name, "code")
 
         # Check for existing watermark
         row = conn.execute(
