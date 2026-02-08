@@ -9,6 +9,7 @@ import json
 import logging
 import sqlite3
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,6 +54,27 @@ _EXCLUDE_PATTERNS: set[str] = {
 }
 
 _WATERMARK_PREFIX = "git:"
+
+
+@dataclass
+class CommitInfo:
+    """Parsed git commit metadata."""
+
+    sha: str
+    author_name: str
+    author_email: str
+    author_date: str
+    subject: str
+
+
+@dataclass
+class FileChange:
+    """A single file change from a git commit."""
+
+    file_path: str
+    additions: int
+    deletions: int
+    is_binary: bool
 
 
 def _run_git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -110,6 +132,201 @@ def _commit_exists(repo_path: Path, sha: str) -> bool:
         return True
     except subprocess.CalledProcessError:
         return False
+
+
+def _get_commits_since(
+    repo_path: Path, since_sha: str | None, months: int
+) -> list[CommitInfo]:
+    """Get commits since a given SHA or within the last N months.
+
+    Args:
+        repo_path: Path to the git repository.
+        since_sha: If set, only return commits after this SHA.
+        months: How many months of history to include.
+
+    Returns:
+        List of CommitInfo, oldest first.
+    """
+    args = [
+        "log",
+        "--no-merges",
+        f"--since={months} months ago",
+        "--pretty=format:%H|%an|%ae|%aI|%s",
+    ]
+    if since_sha:
+        args.append(f"{since_sha}..HEAD")
+
+    try:
+        result = _run_git(repo_path, *args)
+    except subprocess.CalledProcessError as e:
+        logger.warning("Failed to get commit log: %s", e)
+        return []
+
+    commits: list[CommitInfo] = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("|", 4)
+        if len(parts) != 5:
+            logger.debug("Skipping malformed log line: %s", line)
+            continue
+        commits.append(
+            CommitInfo(
+                sha=parts[0],
+                author_name=parts[1],
+                author_email=parts[2],
+                author_date=parts[3],
+                subject=parts[4],
+            )
+        )
+
+    # Reverse so oldest commit is first (git log returns newest first)
+    commits.reverse()
+    return commits
+
+
+def _get_commit_file_changes(repo_path: Path, commit_sha: str) -> list[FileChange]:
+    """Get the list of files changed in a commit with addition/deletion stats.
+
+    Args:
+        repo_path: Path to the git repository.
+        commit_sha: The commit SHA to inspect.
+
+    Returns:
+        List of FileChange objects.
+    """
+    try:
+        result = _run_git(repo_path, "show", "--numstat", "--format=", commit_sha)
+    except subprocess.CalledProcessError as e:
+        logger.warning("Failed to get file changes for %s: %s", commit_sha[:12], e)
+        return []
+
+    changes: list[FileChange] = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        adds_str, dels_str, file_path = parts
+        # Binary files show as "-\t-\tfilename"
+        is_binary = adds_str == "-" and dels_str == "-"
+        changes.append(
+            FileChange(
+                file_path=file_path,
+                additions=0 if is_binary else int(adds_str),
+                deletions=0 if is_binary else int(dels_str),
+                is_binary=is_binary,
+            )
+        )
+    return changes
+
+
+def _get_file_diff(repo_path: Path, commit_sha: str, file_path: str) -> str:
+    """Get the diff for a specific file in a commit.
+
+    Args:
+        repo_path: Path to the git repository.
+        commit_sha: The commit SHA.
+        file_path: Path of the file within the repo.
+
+    Returns:
+        Raw diff text, or empty string on failure.
+    """
+    try:
+        result = _run_git(repo_path, "show", commit_sha, "--", file_path)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            "Failed to get diff for %s in %s: %s", file_path, commit_sha[:12], e
+        )
+        return ""
+
+
+def _commit_to_chunks(
+    commit: CommitInfo,
+    file_changes: list[FileChange],
+    repo_path: Path,
+    config: Config,
+) -> list[Chunk]:
+    """Convert a commit and its file changes into chunks for embedding.
+
+    Each non-binary file change becomes a separate chunk containing the commit
+    message and that file's diff. Large diffs are split into windows.
+
+    Args:
+        commit: The commit metadata.
+        file_changes: List of file changes in the commit.
+        repo_path: Path to the repository.
+        config: Application configuration.
+
+    Returns:
+        List of Chunk objects.
+    """
+    chunk_size = config.chunk_size_tokens
+    overlap = config.chunk_overlap_tokens
+    chunks: list[Chunk] = []
+    chunk_idx = 0
+    repo_name = repo_path.name
+    short_sha = commit.sha[:7]
+    # Extract date portion from ISO format
+    date_str = commit.author_date[:10]
+
+    for fc in file_changes:
+        if fc.is_binary:
+            continue
+
+        diff_text = _get_file_diff(repo_path, commit.sha, fc.file_path)
+        if not diff_text:
+            continue
+
+        prefix = (
+            f"[{repo_name}/{fc.file_path}] "
+            f"[commit: {short_sha}] "
+            f"[{date_str}]\n"
+        )
+        body = f"{commit.subject}\n\n{diff_text}"
+
+        metadata = {
+            "commit_sha": commit.sha,
+            "commit_sha_short": short_sha,
+            "author_name": commit.author_name,
+            "author_email": commit.author_email,
+            "author_date": commit.author_date,
+            "commit_message": commit.subject,
+            "file_path": fc.file_path,
+            "additions": fc.additions,
+            "deletions": fc.deletions,
+        }
+
+        prefixed_text = prefix + body
+        prefix_word_count = _word_count(prefix)
+
+        if _word_count(prefixed_text) <= chunk_size:
+            chunks.append(
+                Chunk(
+                    text=prefixed_text,
+                    title=f"{repo_name}/{fc.file_path}",
+                    metadata=metadata,
+                    chunk_index=chunk_idx,
+                )
+            )
+            chunk_idx += 1
+        else:
+            available = max(chunk_size - prefix_word_count, 50)
+            windows = _split_into_windows(body, available, overlap)
+            for window in windows:
+                chunks.append(
+                    Chunk(
+                        text=prefix + window,
+                        title=f"{repo_name}/{fc.file_path}",
+                        metadata=metadata.copy(),
+                        chunk_index=chunk_idx,
+                    )
+                )
+                chunk_idx += 1
+
+    return chunks
 
 
 def _should_exclude(relative_path: str) -> bool:
@@ -256,7 +473,11 @@ class GitRepoIndexer(BaseIndexer):
         self.collection_name = collection_name
 
     def index(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        index_history: bool = False,
     ) -> IndexResult:
         """Index all supported code files in the git repository.
 
@@ -264,6 +485,7 @@ class GitRepoIndexer(BaseIndexer):
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all files regardless of change detection.
+            index_history: If True, also index commit history.
 
         Returns:
             IndexResult summarizing the indexing run.
@@ -292,6 +514,10 @@ class GitRepoIndexer(BaseIndexer):
         if not force and old_sha:
             if old_sha == head_sha:
                 logger.info("No new commits since last index (SHA: %s)", head_sha[:12])
+                if index_history:
+                    return self._index_history(
+                        conn, config, collection_id, force, config.git_history_in_months
+                    )
                 return IndexResult(total_found=0, skipped=0)
 
             if _commit_exists(self.repo_path, old_sha):
@@ -368,9 +594,22 @@ class GitRepoIndexer(BaseIndexer):
             total_found,
         )
 
-        return IndexResult(
+        code_result = IndexResult(
             indexed=indexed, skipped=skipped, errors=errors, total_found=total_found
         )
+
+        if index_history:
+            history_result = self._index_history(
+                conn, config, collection_id, force, config.git_history_in_months
+            )
+            return IndexResult(
+                indexed=code_result.indexed + history_result.indexed,
+                skipped=code_result.skipped + history_result.skipped,
+                errors=code_result.errors + history_result.errors,
+                total_found=code_result.total_found + history_result.total_found,
+            )
+
+        return code_result
 
     def _should_index(self, relative_path: str) -> bool:
         """Check if a file should be indexed based on extension and exclusion patterns."""
@@ -532,3 +771,218 @@ class GitRepoIndexer(BaseIndexer):
         conn.commit()
         logger.info("Indexed %s (%d chunks)", relative_path, len(chunks))
         return True
+
+    def _index_history(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        collection_id: int,
+        force: bool,
+        months: int,
+    ) -> IndexResult:
+        """Index commit history for the repository.
+
+        Each changed file in a commit becomes a separate chunk containing the
+        commit message and that file's diff.
+
+        Args:
+            conn: SQLite database connection.
+            config: Application configuration.
+            collection_id: Collection ID to index into.
+            force: If True, re-index all history regardless of watermark.
+            months: How many months of history to index.
+
+        Returns:
+            IndexResult summarizing the history indexing run.
+        """
+        repo_key = str(self.repo_path)
+        history_key = f"{repo_key}:history"
+
+        # Read existing watermarks
+        row = conn.execute(
+            "SELECT description FROM collections WHERE id = ?", (collection_id,)
+        ).fetchone()
+        watermarks = _parse_watermarks(row["description"] if row else None)
+
+        since_sha = watermarks.get(history_key) if not force else None
+
+        # If forcing, delete all existing commit sources for this repo
+        if force:
+            existing_sources = conn.execute(
+                "SELECT id FROM sources WHERE collection_id = ? "
+                "AND source_type = 'commit' AND source_path LIKE ?",
+                (collection_id, f"git://{repo_key}#%"),
+            ).fetchall()
+            for src in existing_sources:
+                source_id = src["id"]
+                old_doc_ids = [
+                    r["id"]
+                    for r in conn.execute(
+                        "SELECT id FROM documents WHERE source_id = ?", (source_id,)
+                    ).fetchall()
+                ]
+                if old_doc_ids:
+                    placeholders = ",".join("?" * len(old_doc_ids))
+                    conn.execute(
+                        f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
+                        old_doc_ids,
+                    )
+                conn.execute(
+                    "DELETE FROM documents WHERE source_id = ?", (source_id,)
+                )
+                conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+            conn.commit()
+
+        commits = _get_commits_since(self.repo_path, since_sha, months)
+
+        if not commits:
+            logger.info("No new commits to index for %s", self.repo_path)
+            return IndexResult(total_found=0, skipped=0)
+
+        logger.info(
+            "Indexing %d commit(s) for %s (last %d months)",
+            len(commits),
+            self.repo_path,
+            months,
+        )
+
+        indexed = 0
+        skipped = 0
+        errors = 0
+        total_found = len(commits)
+        newest_sha = commits[-1].sha
+
+        for i, commit in enumerate(commits, 1):
+            try:
+                # Check if this commit is already indexed
+                source_path = f"git://{repo_key}#{commit.sha}"
+                existing = conn.execute(
+                    "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
+                    (collection_id, source_path),
+                ).fetchone()
+                if existing and not force:
+                    skipped += 1
+                    continue
+
+                file_changes = _get_commit_file_changes(self.repo_path, commit.sha)
+                if not file_changes:
+                    skipped += 1
+                    continue
+
+                chunks = _commit_to_chunks(
+                    commit, file_changes, self.repo_path, config
+                )
+                if not chunks:
+                    skipped += 1
+                    continue
+
+                # Generate embeddings
+                texts = [c.text for c in chunks]
+                embeddings = get_embeddings(texts, config)
+
+                now = datetime.now(timezone.utc).isoformat()
+
+                # Create or update source
+                if existing:
+                    source_id = existing["id"]
+                    old_doc_ids = [
+                        r["id"]
+                        for r in conn.execute(
+                            "SELECT id FROM documents WHERE source_id = ?",
+                            (source_id,),
+                        ).fetchall()
+                    ]
+                    if old_doc_ids:
+                        placeholders = ",".join("?" * len(old_doc_ids))
+                        conn.execute(
+                            f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
+                            old_doc_ids,
+                        )
+                    conn.execute(
+                        "DELETE FROM documents WHERE source_id = ?", (source_id,)
+                    )
+                    conn.execute(
+                        "UPDATE sources SET last_indexed_at = ? WHERE id = ?",
+                        (now, source_id),
+                    )
+                else:
+                    cursor = conn.execute(
+                        "INSERT INTO sources (collection_id, source_type, source_path, "
+                        "file_hash, file_modified_at, last_indexed_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            collection_id,
+                            "commit",
+                            source_path,
+                            commit.sha,
+                            commit.author_date,
+                            now,
+                        ),
+                    )
+                    source_id = cursor.lastrowid
+
+                # Insert documents and embeddings
+                for chunk, embedding in zip(chunks, embeddings):
+                    metadata_json = (
+                        json.dumps(chunk.metadata) if chunk.metadata else None
+                    )
+                    cursor = conn.execute(
+                        "INSERT INTO documents (source_id, collection_id, chunk_index, "
+                        "title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            source_id,
+                            collection_id,
+                            chunk.chunk_index,
+                            chunk.title,
+                            chunk.text,
+                            metadata_json,
+                        ),
+                    )
+                    doc_id = cursor.lastrowid
+                    conn.execute(
+                        "INSERT INTO vec_documents (embedding, document_id) "
+                        "VALUES (?, ?)",
+                        (serialize_float32(embedding), doc_id),
+                    )
+
+                conn.commit()
+                indexed += 1
+
+                logger.info(
+                    "Commit %d/%d: %s %s (%d chunks, %d files)",
+                    i,
+                    total_found,
+                    commit.sha[:7],
+                    commit.subject[:60],
+                    len(chunks),
+                    len(file_changes),
+                )
+
+            except Exception as e:
+                logger.error(
+                    "Error indexing commit %s: %s", commit.sha[:12], e
+                )
+                errors += 1
+
+        # Update history watermark
+        watermarks[history_key] = newest_sha
+        conn.execute(
+            "UPDATE collections SET description = ? WHERE id = ?",
+            (_make_watermarks(watermarks), collection_id),
+        )
+        conn.commit()
+
+        logger.info(
+            "History indexer done: %d indexed, %d skipped, %d errors out of %d commits",
+            indexed,
+            skipped,
+            errors,
+            total_found,
+        )
+
+        return IndexResult(
+            indexed=indexed,
+            skipped=skipped,
+            errors=errors,
+            total_found=total_found,
+        )

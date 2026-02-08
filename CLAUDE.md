@@ -23,6 +23,7 @@ uv run local-rag index calibre
 uv run local-rag index rss
 uv run local-rag index group rustyquill
 uv run local-rag index group                    # all groups
+uv run local-rag index group rustyquill --history  # code + commit history
 uv run local-rag index project "Project Alpha" ~/Documents/project-alpha-docs/
 
 # Search
@@ -45,7 +46,7 @@ flowchart LR
         EM["eM Client<br/>SQLite"]
         CAL["Calibre<br/>SQLite"]
         NNW["NetNewsWire<br/>SQLite"]
-        GIT["Code groups<br/>tree-sitter"]
+        GIT["Code groups<br/>tree-sitter + commits"]
         PRJ["Project docs<br/>any folder"]
     end
 
@@ -91,7 +92,7 @@ flowchart LR
 | **eM Client** | `email` | `index email` | SQLite databases (read-only) — subject, body, sender, recipients, date, folder |
 | **Calibre** | `calibre` | `index calibre` | SQLite metadata.db + book files (read-only) — EPUB/PDF content with author, tags, series metadata |
 | **NetNewsWire** | `rss` | `index rss` | SQLite databases (read-only) — RSS article title, author, content, feed name |
-| **Code Groups** | group name | `index group [NAME]` | Git repos grouped by org/topic — tree-sitter structural parsing, respects .gitignore |
+| **Code Groups** | group name | `index group [NAME]` | Git repos grouped by org/topic — tree-sitter structural parsing + commit history (messages and per-file diffs), respects .gitignore |
 | **Project Docs** | user name | `index project NAME PATH` | Any folder — files dispatched to correct parser by extension |
 
 ---
@@ -246,7 +247,7 @@ local-rag index obsidian [--vault PATH]...       # Index Obsidian vaults (from c
 local-rag index email                             # Index eM Client emails
 local-rag index calibre [--library PATH]...       # Index Calibre ebook libraries
 local-rag index rss                               # Index NetNewsWire RSS articles
-local-rag index group [NAME]                      # Index code group(s) from config
+local-rag index group [NAME] [--history]          # Index code group(s), --history for commit history
 local-rag index project "Name" PATH [PATH]...     # Index docs into a named project
 local-rag index all                               # Index all configured sources at once
 
@@ -305,6 +306,7 @@ Config file location: `~/.local-rag/config.json`
     "terraform": ["~/Repository/my-org/tf-infra", "~/Repository/other-org/tf-modules"]
   },
   "disabled_collections": [],
+  "git_history_in_months": 6,
   "search_defaults": {
     "top_k": 10,
     "rrf_k": 60,

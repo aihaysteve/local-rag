@@ -27,6 +27,7 @@
         ]
     },
     "disabled_collections": [],
+    "git_history_in_months": 6,
     "search_defaults": {
         "top_k": 10,
         "rrf_k": 60,

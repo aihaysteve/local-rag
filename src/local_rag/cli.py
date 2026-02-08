@@ -196,7 +196,8 @@ def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
 @index.command("group")
 @click.argument("name", required=False)
 @click.option("--force", is_flag=True, help="Force re-index all files.")
-def index_group(name: str | None, force: bool) -> None:
+@click.option("--history", is_flag=True, help="Also index commit history (last N months).")
+def index_group(name: str | None, force: bool, history: bool) -> None:
     """Index code group(s) from config.
 
     If NAME is given, indexes only that group's repos. If omitted, indexes
@@ -224,7 +225,7 @@ def index_group(name: str | None, force: bool) -> None:
             for repo_path in repo_paths:
                 click.echo(f"  {group_name}: {repo_path}")
                 indexer = GitRepoIndexer(repo_path, collection_name=group_name)
-                result = indexer.index(conn, config, force=force)
+                result = indexer.index(conn, config, force=force, index_history=history)
                 _print_index_result(f"{group_name}/{repo_path.name}", result)
     finally:
         conn.close()
@@ -262,10 +263,13 @@ def index_all(force: bool) -> None:
     if config.is_collection_enabled("rss") and config.netnewswire_db_path and config.netnewswire_db_path.exists():
         sources.append(("rss", RSSIndexer(str(config.netnewswire_db_path))))
 
+    git_indexers: list[str] = []
     for group_name, repo_paths in config.code_groups.items():
         if config.is_collection_enabled(group_name):
             for repo_path in repo_paths:
-                sources.append((f"{group_name}/{repo_path.name}", GitRepoIndexer(repo_path, collection_name=group_name)))
+                label = f"{group_name}/{repo_path.name}"
+                sources.append((label, GitRepoIndexer(repo_path, collection_name=group_name)))
+                git_indexers.append(label)
 
     if not sources:
         click.echo("No sources configured. Set paths in ~/.local-rag/config.json.", err=True)
@@ -279,7 +283,10 @@ def index_all(force: bool) -> None:
         for label, indexer in sources:
             click.echo(f"  {label}...")
             try:
-                result = indexer.index(conn, config, force=force)
+                if label in git_indexers:
+                    result = indexer.index(conn, config, force=force, index_history=True)
+                else:
+                    result = indexer.index(conn, config, force=force)
                 summary_rows.append((label, result.indexed, result.skipped, result.errors, result.total_found, None))
             except Exception as e:
                 summary_rows.append((label, 0, 0, 0, 0, str(e)))

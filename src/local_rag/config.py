@@ -52,6 +52,7 @@ class Config:
     )
     code_groups: dict[str, list[Path]] = field(default_factory=dict)
     disabled_collections: set[str] = field(default_factory=set)
+    git_history_in_months: int = 6
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
 
     def is_collection_enabled(self, name: str) -> bool:
@@ -140,6 +141,7 @@ def load_config(path: Path | None = None) -> Config:
         ),
         code_groups=code_groups,
         disabled_collections=disabled_collections,
+        git_history_in_months=data.get("git_history_in_months", 6),
         search_defaults=search_defaults,
     )
 

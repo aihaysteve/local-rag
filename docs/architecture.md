@@ -18,7 +18,7 @@ flowchart LR
         EM["eM Client<br/>SQLite"]
         CAL["Calibre<br/>SQLite"]
         NNW["NetNewsWire<br/>SQLite"]
-        GIT["Git repos<br/>tree-sitter"]
+        GIT["Git repos<br/>tree-sitter + commits"]
         PRJ["Project docs<br/>any folder"]
     end
 
@@ -63,7 +63,7 @@ These are built-in collection types with dedicated parsers and indexers:
 
 | Source           | Collection          | Data Source       | What's Indexed                                                                   |
 |------------------|---------------------|-------------------|----------------------------------------------------------------------------------|
-| **Git Repos**    | repo directory name | Git-tracked files | Code files parsed with tree-sitter for structural chunking. Respects .gitignore. |
+| **Git Repos**    | repo directory name | Git-tracked files | Code files parsed with tree-sitter + commit history (messages and per-file diffs). Respects .gitignore. |
 | **Project Docs** | user-specified name | Any folder        | Files dispatched to the correct parser by extension.                             |
 
 ## Technology Stack
@@ -125,6 +125,7 @@ Parser (type-specific)
     |  EPUB: extract chapters (zipfile + BeautifulSoup)
     |  HTML: extract text preserving structure (BeautifulSoup)
     |  Code: tree-sitter structural parsing (functions, classes, etc.)
+    |  Commits: git log + git show per-file diffs
     |  Email: eM Client SQLite FTI + preview fallback
     |  Calibre: metadata.db + book file parsing
     |  RSS: NetNewsWire SQLite article content
@@ -202,9 +203,9 @@ local-rag index obsidian [--vault PATH]    Index Obsidian vault(s)
 local-rag index email                      Index eM Client emails
 local-rag index calibre [--library PATH]   Index Calibre ebook libraries
 local-rag index rss                        Index NetNewsWire RSS articles
-local-rag index repo [PATH] [--name NAME]  Index a git repository
+local-rag index group [NAME] [--history]   Index code group(s), optionally with commit history
 local-rag index project NAME PATH...       Index docs into a project collection
-local-rag index all                        Index all configured sources at once
+local-rag index all                        Index all configured sources (includes commit history)
 local-rag search QUERY [--collection]      Hybrid search with filters
 local-rag collections list                 List all collections
 local-rag collections info NAME            Detailed collection info
@@ -230,7 +231,8 @@ Key settings:
 - `emclient_db_path` — path to eM Client data directory
 - `calibre_libraries` — list of Calibre library paths
 - `netnewswire_db_path` — path to NetNewsWire accounts directory
-- `git_repos` — list of git repository paths
+- `code_groups` — dict mapping group names to lists of git repo paths
+- `git_history_in_months` — months of commit history to index (default: `6`)
 - `disabled_collections` — list of collection names to skip during indexing (any collection name)
 - `search_defaults` — RRF parameters (`top_k`, `rrf_k`, `vector_weight`, `fts_weight`)
 

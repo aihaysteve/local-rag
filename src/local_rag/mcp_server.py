@@ -55,9 +55,11 @@ def create_server() -> FastMCP:
 
         **Code groups** (code) — Groups of git repos indexed together by topic or org.
           Each group is a collection containing code from one or more repos.
-          Source types: code.
-          Metadata: language, symbol_name, symbol_type, start_line.
-          Useful filters: collection=<group-name>, or collection=code for all code groups.
+          Source types: code, commit.
+          Code metadata: language, symbol_name, symbol_type, start_line.
+          Commit metadata: commit_sha, commit_sha_short, author_name, author_email,
+            author_date, commit_message, file_path, additions, deletions.
+          Useful filters: collection=<group-name>, source_type=commit, or collection=code for all.
 
         **Project folders** (project) — User-created document collections.
           Source types: vary by content (markdown, pdf, docx, etc.).
@@ -81,6 +83,7 @@ def create_server() -> FastMCP:
         - Search PDFs in Obsidian: query="tax return", collection="obsidian", source_type="pdf"
         - Search recent emails: query="project update", sender="boss", date_from="2025-01-01"
         - Search RSS articles: query="AI regulation", collection="rss", date_from="2025-06-01"
+        - Search commit history: query="refactored auth", collection="rustyquill", source_type="commit"
 
         Args:
             query: The search query text. Can be a natural language question or keywords.
@@ -88,7 +91,7 @@ def create_server() -> FastMCP:
                 or collection type ('system', 'project', 'code'). Omit to search everything.
             top_k: Number of results to return (default 10).
             source_type: Filter by source type: 'markdown', 'pdf', 'docx', 'epub', 'html',
-                'txt', 'email', 'code', 'rss'.
+                'txt', 'email', 'code', 'commit', 'rss'.
             date_from: Only results after this date (YYYY-MM-DD).
             date_to: Only results before this date (YYYY-MM-DD).
             sender: Filter by email sender (case-insensitive substring match).
@@ -203,14 +206,14 @@ def create_server() -> FastMCP:
                 indexer = RSSIndexer(str(config.netnewswire_db_path))
                 result = indexer.index(conn, config)
             elif collection in config.code_groups:
-                # Code group — index all repos in this group
+                # Code group — index all repos in this group (with commit history)
                 total_indexed = 0
                 total_skipped = 0
                 total_errors = 0
                 total_found = 0
                 for repo_path in config.code_groups[collection]:
                     idx = GitRepoIndexer(repo_path, collection_name=collection)
-                    r = idx.index(conn, config)
+                    r = idx.index(conn, config, index_history=True)
                     total_indexed += r.indexed
                     total_skipped += r.skipped
                     total_errors += r.errors
