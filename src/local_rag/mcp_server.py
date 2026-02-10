@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
@@ -9,6 +10,89 @@ from local_rag.config import load_config
 from local_rag.db import get_connection, init_db
 
 logger = logging.getLogger(__name__)
+
+
+def _build_source_uri(
+    source_path: str,
+    source_type: str,
+    metadata: dict,
+    collection: str,
+    obsidian_vaults: list | None = None,
+) -> str | None:
+    """Build a clickable URI for a search result's original source.
+
+    Returns an obsidian://, vscode://, file://, https://, or None depending on the source:
+    - Obsidian vault files: obsidian://open URI (opens directly in Obsidian app)
+    - Code files: vscode://file URI (opens in VS Code at the correct line)
+    - Other file-based sources (calibre, project): file:// URI
+    - RSS articles: https:// URL from metadata
+    - Email and git commits: None (no meaningful URI available)
+
+    Args:
+        source_path: The source_path from the sources table.
+        source_type: The source_type from the sources table.
+        metadata: Parsed metadata dict from the documents table.
+        collection: The collection name the result belongs to.
+        obsidian_vaults: List of configured Obsidian vault paths (needed
+            to construct obsidian:// URIs).
+
+    Returns:
+        A URI string or None if no meaningful link can be constructed.
+    """
+    # RSS articles have a web URL in metadata
+    if source_type == "rss":
+        return metadata.get("url") or None
+
+    # Email messages and git commits have no openable URI
+    if source_type in ("email", "commit"):
+        return None
+
+    # Virtual paths (calibre description-only, git commit refs) are not openable
+    if source_path.startswith(("calibre://", "git://")):
+        return None
+
+    # Obsidian vault files — use obsidian:// URI to open in the app
+    if collection == "obsidian" and obsidian_vaults:
+        obsidian_uri = _build_obsidian_uri(source_path, obsidian_vaults)
+        if obsidian_uri:
+            return obsidian_uri
+
+    # Code files — use vscode:// URI to open in VS Code at the correct line
+    if source_type == "code":
+        start_line = metadata.get("start_line", 1)
+        return f"vscode://file{quote(source_path, safe='/')}:{start_line}"
+
+    # Everything else is a real file path — return as file:// URI
+    return f"file://{quote(source_path, safe='/')}"
+
+
+def _build_obsidian_uri(source_path: str, vault_paths: list) -> str | None:
+    """Build an obsidian://open URI for a file inside an Obsidian vault.
+
+    Matches the source_path against known vault paths to extract the vault
+    name and the file path relative to the vault root.
+
+    The URI format is: obsidian://open?vault=VAULT_NAME&file=RELATIVE/PATH
+
+    Args:
+        source_path: Absolute file path of the indexed document.
+        vault_paths: List of configured Obsidian vault root paths.
+
+    Returns:
+        An obsidian:// URI string, or None if the path doesn't match any vault.
+    """
+    from pathlib import Path
+
+    for vault_path in vault_paths:
+        vault_str = str(Path(vault_path).expanduser().resolve())
+        if source_path.startswith(vault_str + "/"):
+            vault_name = Path(vault_str).name
+            relative_path = source_path[len(vault_str) + 1:]
+            return (
+                f"obsidian://open?vault={quote(vault_name, safe='')}"
+                f"&file={quote(relative_path, safe='/')}"
+            )
+    return None
 
 
 def create_server() -> FastMCP:
@@ -72,6 +156,31 @@ def create_server() -> FastMCP:
         - Type ("system", "project", "code") — searches all collections of that type.
           Use "code" to search across all code groups at once.
 
+        ## Source URIs
+
+        Each result includes a `source_uri` field with a clickable link to the original source
+        when available. Use these to let the user open or navigate to the original document.
+
+        - **Obsidian vault files** (markdown, PDFs, etc. inside a vault):
+          Returns an `obsidian://open?vault=...&file=...` URI that opens the note directly
+          in the Obsidian app. Example: `obsidian://open?vault=MyVault&file=notes/report.md`.
+        - **Code files** (from code groups):
+          Returns a `vscode://file/...` URI that opens the file in VS Code at the correct line.
+          Example: `vscode://file/Users/you/repos/project/src/main.py:42`.
+        - **Other file-based sources** (calibre books, project docs):
+          Returns a `file://` URI, e.g. `file:///Users/you/CalibreLibrary/book.epub`.
+          These open the file in the default macOS application (Preview for PDFs, editor for code, etc.).
+        - **RSS articles**: Returns the original article `https://` URL from metadata.
+          Opens the article in the default browser.
+        - **Email and git commits**: Returns `null` — no meaningful URI is available for these.
+        - **Calibre description-only entries**: Returns `null` — no actual file exists.
+
+        When presenting results to the user, include the `source_uri` as a markdown link so
+        the user can click to open the original. Example:
+          [Open in Obsidian](obsidian://open?vault=MyVault&file=notes/report.md)
+          [Open PDF](file:///Users/you/CalibreLibrary/Author/book.pdf)
+          [Read article](https://example.com/article)
+
         ## Examples
 
         - Search everything: query="kubernetes deployment strategy"
@@ -114,6 +223,9 @@ def create_server() -> FastMCP:
         except OllamaConnectionError as e:
             return [{"error": str(e)}]
 
+        config = load_config()
+        obsidian_vaults = config.obsidian_vaults
+
         return [
             {
                 "title": r.title,
@@ -121,6 +233,10 @@ def create_server() -> FastMCP:
                 "collection": r.collection,
                 "source_type": r.source_type,
                 "source_path": r.source_path,
+                "source_uri": _build_source_uri(
+                    r.source_path, r.source_type, r.metadata,
+                    r.collection, obsidian_vaults,
+                ),
                 "score": round(r.score, 4),
                 "metadata": r.metadata,
             }
