@@ -111,7 +111,7 @@ def _parse_and_chunk(
     """Parse a file and return chunks based on its type."""
     # Route Docling-handled formats through Docling when doc_store is available
     if source_type in DOCLING_FORMATS and doc_store is not None:
-        return convert_and_chunk(path, doc_store)
+        return convert_and_chunk(path, doc_store, chunk_max_tokens=config.chunk_size_tokens)
 
     # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker
     if source_type == "markdown":

@@ -257,7 +257,7 @@ def _extract_and_chunk_book(
 
         if doc_store is not None and fmt == "pdf":
             # Use Docling for PDF conversion via shared doc store
-            docling_chunks = convert_and_chunk(file_path, doc_store)
+            docling_chunks = convert_and_chunk(file_path, doc_store, chunk_max_tokens=config.chunk_size_tokens)
             for chunk in docling_chunks:
                 chunk.chunk_index = chunk_idx
                 meta = dict(book_meta)
