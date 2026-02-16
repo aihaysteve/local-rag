@@ -88,3 +88,56 @@ def _split_markdown_segments(
         i += 3
 
     return segments
+
+
+def epub_to_docling_doc(chapters: list[tuple[int, str]], title: str) -> DoclingDocument:
+    """Convert parsed epub chapters into a DoclingDocument.
+
+    Args:
+        chapters: List of (chapter_number, text) tuples from parse_epub().
+        title: Book title for the DoclingDocument name.
+
+    Returns:
+        A DoclingDocument with chapter headings and paragraph content.
+    """
+    doc = DoclingDocument(name=title)
+
+    for chapter_num, text in chapters:
+        heading = doc.add_heading(text=f"Chapter {chapter_num}", level=1)
+
+        if text.strip():
+            paragraphs = re.split(r"\n\s*\n", text.strip())
+            for para in paragraphs:
+                para = para.strip()
+                if para:
+                    doc.add_text(
+                        label=DocItemLabel.PARAGRAPH,
+                        text=para,
+                        parent=heading,
+                    )
+
+    return doc
+
+
+def plaintext_to_docling_doc(text: str, title: str) -> DoclingDocument:
+    """Convert plain text into a DoclingDocument.
+
+    Args:
+        text: Raw text content.
+        title: Document title for the DoclingDocument name.
+
+    Returns:
+        A DoclingDocument with paragraphs split on double newlines.
+    """
+    doc = DoclingDocument(name=title)
+
+    if not text or not text.strip():
+        return doc
+
+    paragraphs = re.split(r"\n\s*\n", text.strip())
+    for para in paragraphs:
+        para = para.strip()
+        if para:
+            doc.add_text(label=DocItemLabel.PARAGRAPH, text=para)
+
+    return doc

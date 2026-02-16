@@ -63,3 +63,69 @@ class TestMarkdownToDoclingDoc:
         # First item should be the preamble paragraph
         first_item = items[0][0]
         assert "Preamble" in first_item.text
+
+
+class TestEpubToDoclingDoc:
+    def test_returns_docling_document(self) -> None:
+        from ragling.docling_bridge import epub_to_docling_doc
+
+        chapters = [(1, "Chapter one text."), (2, "Chapter two text.")]
+        doc = epub_to_docling_doc(chapters, "My Book")
+        assert isinstance(doc, DoclingDocument)
+
+    def test_chapters_become_headings(self) -> None:
+        from ragling.docling_bridge import epub_to_docling_doc
+
+        chapters = [(1, "First chapter."), (2, "Second chapter.")]
+        doc = epub_to_docling_doc(chapters, "Book")
+        items = list(doc.iterate_items())
+        headers = [item for item, _level in items if item.label.value == "section_header"]
+        assert len(headers) == 2
+        assert "Chapter 1" in headers[0].text
+        assert "Chapter 2" in headers[1].text
+
+    def test_chapter_text_preserved(self) -> None:
+        from ragling.docling_bridge import epub_to_docling_doc
+
+        chapters = [(1, "The story begins here.")]
+        doc = epub_to_docling_doc(chapters, "Book")
+        items = list(doc.iterate_items())
+        texts = [item.text for item, _level in items if item.label.value == "paragraph"]
+        assert any("story begins" in t for t in texts)
+
+    def test_empty_chapters_returns_valid_document(self) -> None:
+        from ragling.docling_bridge import epub_to_docling_doc
+
+        doc = epub_to_docling_doc([], "Empty Book")
+        assert isinstance(doc, DoclingDocument)
+
+
+class TestPlaintextToDoclingDoc:
+    def test_returns_docling_document(self) -> None:
+        from ragling.docling_bridge import plaintext_to_docling_doc
+
+        doc = plaintext_to_docling_doc("Hello world.", "file.txt")
+        assert isinstance(doc, DoclingDocument)
+
+    def test_text_content_preserved(self) -> None:
+        from ragling.docling_bridge import plaintext_to_docling_doc
+
+        doc = plaintext_to_docling_doc("Important content here.", "notes.txt")
+        items = list(doc.iterate_items())
+        texts = [item.text for item, _level in items]
+        assert any("Important content" in t for t in texts)
+
+    def test_paragraphs_split_on_double_newline(self) -> None:
+        from ragling.docling_bridge import plaintext_to_docling_doc
+
+        text = "First paragraph.\n\nSecond paragraph."
+        doc = plaintext_to_docling_doc(text, "doc.txt")
+        items = list(doc.iterate_items())
+        paragraphs = [item for item, _level in items if item.label.value == "paragraph"]
+        assert len(paragraphs) == 2
+
+    def test_empty_text_returns_valid_document(self) -> None:
+        from ragling.docling_bridge import plaintext_to_docling_doc
+
+        doc = plaintext_to_docling_doc("", "empty.txt")
+        assert isinstance(doc, DoclingDocument)
