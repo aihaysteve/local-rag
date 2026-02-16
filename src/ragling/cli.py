@@ -39,10 +39,17 @@ def _setup_logging(verbose: bool) -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def _get_db(config):
-    """Get initialized database connection."""
+def _get_db(config, group: str = "default"):
+    """Get initialized database connection.
+
+    Args:
+        config: Application configuration.
+        group: Group name for per-group indexes. Sets config.group_name
+            so the correct database path is used.
+    """
     from ragling.db import get_connection, init_db
 
+    config.group_name = group
     conn = get_connection(config)
     init_db(conn, config)
     return conn
@@ -50,12 +57,16 @@ def _get_db(config):
 
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
+@click.option(
+    "--group", "-g", default="default", show_default=True, help="Group name for per-group indexes."
+)
 @click.pass_context
-def main(ctx: click.Context, verbose: bool) -> None:
-    """ragling: Fully local RAG system for personal knowledge."""
+def main(ctx: click.Context, verbose: bool, group: str) -> None:
+    """ragling: Docling-powered local RAG with shared document cache."""
     _setup_logging(verbose)
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+    ctx.obj["group"] = group
 
 
 # ── Index commands ──────────────────────────────────────────────────────
@@ -91,10 +102,17 @@ def _check_collection_enabled(config, name: str) -> None:
 
 
 @index.command("obsidian")
-@click.option("--vault", "-v", "vaults", multiple=True, type=click.Path(exists=True, path_type=Path),
-              help="Vault path(s). If omitted, uses config.")
+@click.option(
+    "--vault",
+    "-v",
+    "vaults",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Vault path(s). If omitted, uses config.",
+)
 @click.option("--force", is_flag=True, help="Force re-index all files.")
-def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
+@click.pass_context
+def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) -> None:
     """Index Obsidian vault(s)."""
     from ragling.indexers.obsidian import ObsidianIndexer
 
@@ -103,10 +121,14 @@ def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
     vault_paths = list(vaults) if vaults else config.obsidian_vaults
 
     if not vault_paths:
-        click.echo("Error: No vault paths provided. Use --vault or set obsidian_vaults in config.", err=True)
+        click.echo(
+            "Error: No vault paths provided. Use --vault or set obsidian_vaults in config.",
+            err=True,
+        )
         sys.exit(1)
 
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
         indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders)
         result = indexer.index(conn, config, force=force)
@@ -117,13 +139,15 @@ def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
 
 @index.command("email")
 @click.option("--force", is_flag=True, help="Force re-index all emails.")
-def index_email(force: bool) -> None:
+@click.pass_context
+def index_email(ctx: click.Context, force: bool) -> None:
     """Index eM Client emails."""
     from ragling.indexers.email_indexer import EmailIndexer
 
     config = load_config()
     _check_collection_enabled(config, "email")
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
         indexer = EmailIndexer(str(config.emclient_db_path))
         result = indexer.index(conn, config, force=force)
@@ -133,10 +157,17 @@ def index_email(force: bool) -> None:
 
 
 @index.command("calibre")
-@click.option("--library", "-l", "libraries", multiple=True, type=click.Path(exists=True, path_type=Path),
-              help="Library path(s). If omitted, uses config.")
+@click.option(
+    "--library",
+    "-l",
+    "libraries",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Library path(s). If omitted, uses config.",
+)
 @click.option("--force", is_flag=True, help="Force re-index all books.")
-def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
+@click.pass_context
+def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) -> None:
     """Index Calibre ebook library/libraries."""
     from ragling.indexers.calibre_indexer import CalibreIndexer
 
@@ -145,10 +176,14 @@ def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
     library_paths = list(libraries) if libraries else config.calibre_libraries
 
     if not library_paths:
-        click.echo("Error: No library paths provided. Use --library or set calibre_libraries in config.", err=True)
+        click.echo(
+            "Error: No library paths provided. Use --library or set calibre_libraries in config.",
+            err=True,
+        )
         sys.exit(1)
 
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
         indexer = CalibreIndexer(library_paths)
         result = indexer.index(conn, config, force=force)
@@ -159,13 +194,15 @@ def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
 
 @index.command("rss")
 @click.option("--force", is_flag=True, help="Force re-index all articles.")
-def index_rss(force: bool) -> None:
+@click.pass_context
+def index_rss(ctx: click.Context, force: bool) -> None:
     """Index NetNewsWire RSS articles."""
     from ragling.indexers.rss_indexer import RSSIndexer
 
     config = load_config()
     _check_collection_enabled(config, "rss")
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
         indexer = RSSIndexer(str(config.netnewswire_db_path))
         result = indexer.index(conn, config, force=force)
@@ -178,13 +215,15 @@ def index_rss(force: bool) -> None:
 @click.argument("name")
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
 @click.option("--force", is_flag=True, help="Force re-index all files.")
-def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
+@click.pass_context
+def index_project(ctx: click.Context, name: str, paths: tuple[Path, ...], force: bool) -> None:
     """Index documents into a named project collection."""
     from ragling.indexers.project import ProjectIndexer
 
     config = load_config()
     _check_collection_enabled(config, name)
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
         indexer = ProjectIndexer(name, list(paths))
         result = indexer.index(conn, config, force=force)
@@ -197,7 +236,8 @@ def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
 @click.argument("name", required=False)
 @click.option("--force", is_flag=True, help="Force re-index all files.")
 @click.option("--history", is_flag=True, help="Also index commit history (last N months).")
-def index_group(name: str | None, force: bool, history: bool) -> None:
+@click.pass_context
+def index_group(ctx: click.Context, name: str | None, force: bool, history: bool) -> None:
     """Index code group(s) from config.
 
     If NAME is given, indexes only that group's repos. If omitted, indexes
@@ -218,22 +258,24 @@ def index_group(name: str | None, force: bool, history: bool) -> None:
         click.echo("Error: No code_groups configured in ~/.ragling/config.json.", err=True)
         sys.exit(1)
 
-    conn = _get_db(config)
+    cli_group = ctx.obj["group"]
+    conn = _get_db(config, cli_group)
     try:
-        for group_name, repo_paths in groups.items():
-            _check_collection_enabled(config, group_name)
+        for code_group_name, repo_paths in groups.items():
+            _check_collection_enabled(config, code_group_name)
             for repo_path in repo_paths:
-                click.echo(f"  {group_name}: {repo_path}")
-                indexer = GitRepoIndexer(repo_path, collection_name=group_name)
+                click.echo(f"  {code_group_name}: {repo_path}")
+                indexer = GitRepoIndexer(repo_path, collection_name=code_group_name)
                 result = indexer.index(conn, config, force=force, index_history=history)
-                _print_index_result(f"{group_name}/{repo_path.name}", result)
+                _print_index_result(f"{code_group_name}/{repo_path.name}", result)
     finally:
         conn.close()
 
 
 @index.command("all")
 @click.option("--force", is_flag=True, help="Force re-index all sources.")
-def index_all(force: bool) -> None:
+@click.pass_context
+def index_all(ctx: click.Context, force: bool) -> None:
     """Index all configured sources at once.
 
     Indexes obsidian, email, calibre, rss, and code groups based on what
@@ -247,20 +289,31 @@ def index_all(force: bool) -> None:
     from ragling.indexers.rss_indexer import RSSIndexer
 
     config = load_config()
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
 
     sources: list[tuple[str, object]] = []
 
     if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
-        sources.append(("obsidian", ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)))
+        sources.append(
+            ("obsidian", ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders))
+        )
 
-    if config.is_collection_enabled("email") and config.emclient_db_path and config.emclient_db_path.exists():
+    if (
+        config.is_collection_enabled("email")
+        and config.emclient_db_path
+        and config.emclient_db_path.exists()
+    ):
         sources.append(("email", EmailIndexer(str(config.emclient_db_path))))
 
     if config.is_collection_enabled("calibre") and config.calibre_libraries:
         sources.append(("calibre", CalibreIndexer(config.calibre_libraries)))
 
-    if config.is_collection_enabled("rss") and config.netnewswire_db_path and config.netnewswire_db_path.exists():
+    if (
+        config.is_collection_enabled("rss")
+        and config.netnewswire_db_path
+        and config.netnewswire_db_path.exists()
+    ):
         sources.append(("rss", RSSIndexer(str(config.netnewswire_db_path))))
 
     git_indexers: list[str] = []
@@ -287,7 +340,9 @@ def index_all(force: bool) -> None:
                     result = indexer.index(conn, config, force=force, index_history=True)
                 else:
                     result = indexer.index(conn, config, force=force)
-                summary_rows.append((label, result.indexed, result.skipped, result.errors, result.total_found, None))
+                summary_rows.append(
+                    (label, result.indexed, result.skipped, result.errors, result.total_found, None)
+                )
             except Exception as e:
                 summary_rows.append((label, 0, 0, 0, 0, str(e)))
     finally:
@@ -328,11 +383,23 @@ def index_all(force: bool) -> None:
 @click.option("--after", help="Only results after this date (YYYY-MM-DD).")
 @click.option("--before", help="Only results before this date (YYYY-MM-DD).")
 @click.option("--top", default=10, show_default=True, help="Number of results to return.")
-def search(query: str, collection: str | None, source_type: str | None,
-           sender: str | None, author: str | None, after: str | None, before: str | None, top: int) -> None:
+@click.pass_context
+def search(
+    ctx: click.Context,
+    query: str,
+    collection: str | None,
+    source_type: str | None,
+    sender: str | None,
+    author: str | None,
+    after: str | None,
+    before: str | None,
+    top: int,
+) -> None:
     """Search across indexed collections."""
     from ragling.embeddings import OllamaConnectionError
     from ragling.search import perform_search
+
+    group = ctx.obj["group"]
 
     try:
         results = perform_search(
@@ -344,6 +411,7 @@ def search(query: str, collection: str | None, source_type: str | None,
             date_to=before,
             sender=sender,
             author=author,
+            group_name=group,
         )
     except OllamaConnectionError as e:
         click.echo(f"Error: {e}", err=True)
@@ -401,10 +469,12 @@ def collections() -> None:
 
 
 @collections.command("list")
-def collections_list() -> None:
+@click.pass_context
+def collections_list(ctx: click.Context) -> None:
     """List all collections with document counts."""
     config = load_config()
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
         rows = conn.execute("""
             SELECT c.name, c.collection_type, c.created_at,
@@ -441,14 +511,14 @@ def collections_list() -> None:
 
 @collections.command("info")
 @click.argument("name")
-def collections_info(name: str) -> None:
+@click.pass_context
+def collections_info(ctx: click.Context, name: str) -> None:
     """Show detailed info about a collection."""
     config = load_config()
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
-        row = conn.execute(
-            "SELECT * FROM collections WHERE name = ?", (name,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM collections WHERE name = ?", (name,)).fetchone()
         if not row:
             click.echo(f"Error: Collection '{name}' not found.", err=True)
             sys.exit(1)
@@ -511,14 +581,14 @@ def collections_info(name: str) -> None:
 @collections.command("delete")
 @click.argument("name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
-def collections_delete(name: str, yes: bool) -> None:
+@click.pass_context
+def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
     """Delete a collection and all its data."""
     config = load_config()
-    conn = _get_db(config)
+    group = ctx.obj["group"]
+    conn = _get_db(config, group)
     try:
-        row = conn.execute(
-            "SELECT id FROM collections WHERE name = ?", (name,)
-        ).fetchone()
+        row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
         if not row:
             click.echo(f"Error: Collection '{name}' not found.", err=True)
             sys.exit(1)
@@ -528,9 +598,7 @@ def collections_delete(name: str, yes: bool) -> None:
                 "SELECT COUNT(*) as cnt FROM documents WHERE collection_id = ?",
                 (row["id"],),
             ).fetchone()["cnt"]
-            if not click.confirm(
-                f"Delete collection '{name}' and all {doc_count} documents?"
-            ):
+            if not click.confirm(f"Delete collection '{name}' and all {doc_count} documents?"):
                 click.echo("Cancelled.")
                 return
 
@@ -554,36 +622,47 @@ def collections_delete(name: str, yes: bool) -> None:
 
 
 @main.command()
-def status() -> None:
+@click.pass_context
+def status(ctx: click.Context) -> None:
     """Show overall RAG status and statistics."""
     config = load_config()
+    group = ctx.obj["group"]
+    config.group_name = group
 
-    if not config.db_path.exists():
+    # Check the right database path based on group
+    if group != "default":
+        db_path = config.group_index_db_path
+    else:
+        db_path = config.db_path
+
+    if not db_path.exists():
         click.echo("Database not found. Run 'ragling index' to get started.")
         return
 
-    conn = _get_db(config)
+    conn = _get_db(config, group)
     try:
         coll_count = conn.execute("SELECT COUNT(*) as cnt FROM collections").fetchone()["cnt"]
         doc_count = conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
         source_count = conn.execute("SELECT COUNT(*) as cnt FROM sources").fetchone()["cnt"]
 
-        db_size_mb = config.db_path.stat().st_size / (1024 * 1024)
+        db_size_mb = db_path.stat().st_size / (1024 * 1024)
 
-        last_indexed = conn.execute(
-            "SELECT MAX(last_indexed_at) as ts FROM sources"
-        ).fetchone()["ts"]
+        last_indexed = conn.execute("SELECT MAX(last_indexed_at) as ts FROM sources").fetchone()[
+            "ts"
+        ]
 
         table = Table(title="ragling status", show_header=False, box=None, padding=(0, 2))
         table.add_column("Key", style="bold")
         table.add_column("Value")
-        table.add_row("Database", str(config.db_path))
+        table.add_row("Database", str(db_path))
         table.add_row("Size", f"{db_size_mb:.1f} MB")
         table.add_row("Collections", str(coll_count))
         table.add_row("Sources", str(source_count))
         table.add_row("Chunks", str(doc_count))
         table.add_row("Last indexed", last_indexed or "never")
-        table.add_row("Embedding model", f"{config.embedding_model} ({config.embedding_dimensions}d)")
+        table.add_row(
+            "Embedding model", f"{config.embedding_model} ({config.embedding_dimensions}d)"
+        )
         console.print(table)
     finally:
         conn.close()
@@ -593,15 +672,19 @@ def status() -> None:
 
 
 @main.command()
-@click.option("--port", type=int, default=None, help="Port for HTTP/SSE transport. If omitted, uses stdio.")
-def serve(port: int | None) -> None:
+@click.option(
+    "--port", type=int, default=None, help="Port for HTTP/SSE transport. If omitted, uses stdio."
+)
+@click.pass_context
+def serve(ctx: click.Context, port: int | None) -> None:
     """Start the MCP server."""
     from ragling.mcp_server import create_server
 
-    server = create_server()
+    group = ctx.obj["group"]
+    server = create_server(group_name=group)
 
     if port:
-        click.echo(f"Starting MCP server on port {port}...")
+        click.echo(f"Starting MCP server on port {port} (group: {group})...")
         server.run(transport="sse", port=port)
     else:
         server.run(transport="stdio")

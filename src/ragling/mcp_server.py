@@ -87,7 +87,7 @@ def _build_obsidian_uri(source_path: str, vault_paths: list) -> str | None:
         vault_str = str(Path(vault_path).expanduser().resolve())
         if source_path.startswith(vault_str + "/"):
             vault_name = Path(vault_str).name
-            relative_path = source_path[len(vault_str) + 1:]
+            relative_path = source_path[len(vault_str) + 1 :]
             return (
                 f"obsidian://open?vault={quote(vault_name, safe='')}"
                 f"&file={quote(relative_path, safe='/')}"
@@ -95,8 +95,13 @@ def _build_obsidian_uri(source_path: str, vault_paths: list) -> str | None:
     return None
 
 
-def create_server() -> FastMCP:
-    """Create and configure the MCP server with all tools registered."""
+def create_server(group_name: str = "default") -> FastMCP:
+    """Create and configure the MCP server with all tools registered.
+
+    Args:
+        group_name: Group name for per-group indexes. Passed through to
+            config so the correct database path is used.
+    """
     mcp = FastMCP("ragling", instructions="Local RAG system for searching personal knowledge.")
 
     @mcp.tool()
@@ -219,6 +224,7 @@ def create_server() -> FastMCP:
                 date_to=date_to,
                 sender=sender,
                 author=author,
+                group_name=group_name,
             )
         except OllamaConnectionError as e:
             return [{"error": str(e)}]
@@ -234,8 +240,11 @@ def create_server() -> FastMCP:
                 "source_type": r.source_type,
                 "source_path": r.source_path,
                 "source_uri": _build_source_uri(
-                    r.source_path, r.source_type, r.metadata,
-                    r.collection, obsidian_vaults,
+                    r.source_path,
+                    r.source_type,
+                    r.metadata,
+                    r.collection,
+                    obsidian_vaults,
                 ),
                 "score": round(r.score, 4),
                 "metadata": r.metadata,
@@ -250,6 +259,7 @@ def create_server() -> FastMCP:
         Collections of type 'code' represent code groups that may contain multiple git repos.
         """
         config = load_config()
+        config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)
 
@@ -302,6 +312,7 @@ def create_server() -> FastMCP:
         from ragling.indexers.rss_indexer import RSSIndexer
 
         config = load_config()
+        config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)
 
@@ -345,7 +356,9 @@ def create_server() -> FastMCP:
                 indexer = ProjectIndexer(collection, [P(path)])
                 result = indexer.index(conn, config)
             else:
-                return {"error": f"Unknown collection '{collection}'. Provide a path for project indexing."}
+                return {
+                    "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
+                }
 
             return {
                 "collection": collection,
@@ -358,6 +371,31 @@ def create_server() -> FastMCP:
             conn.close()
 
     @mcp.tool()
+    def rag_doc_store_info() -> list[dict[str, Any]]:
+        """List all documents in the shared document cache.
+
+        Shows all source files that have been converted by Docling,
+        regardless of which group indexed them. Useful for checking
+        what's cached and avoiding redundant conversions.
+
+        Returns a list of dicts, each with:
+        - source_path: Original file path
+        - content_hash: SHA-256 hash of file contents
+        - file_size: File size in bytes
+        - file_modified_at: When the file was last modified
+        - discovered_at: When the file was first seen
+        """
+        from ragling.doc_store import DocStore
+
+        config = load_config()
+        config.group_name = group_name
+        store = DocStore(config.shared_db_path)
+        try:
+            return store.list_sources()
+        finally:
+            store.close()
+
+    @mcp.tool()
     def rag_collection_info(collection: str) -> dict[str, Any]:
         """Get detailed information about a specific collection.
 
@@ -365,13 +403,12 @@ def create_server() -> FastMCP:
             collection: The collection name.
         """
         config = load_config()
+        config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)
 
         try:
-            row = conn.execute(
-                "SELECT * FROM collections WHERE name = ?", (collection,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM collections WHERE name = ?", (collection,)).fetchone()
 
             if not row:
                 return {"error": f"Collection '{collection}' not found."}

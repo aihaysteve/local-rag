@@ -52,8 +52,12 @@ def _vector_search(
     # candidates will be filtered out (e.g., searching "flux" with --from
     # needs to scan past hundreds of non-matching results).
     has_filters = filters and (
-        filters.collection or filters.source_type or filters.sender
-        or filters.author or filters.date_from or filters.date_to
+        filters.collection
+        or filters.source_type
+        or filters.sender
+        or filters.author
+        or filters.date_from
+        or filters.date_to
     )
     candidate_limit = top_k * 50 if has_filters else top_k * 3
 
@@ -100,8 +104,12 @@ def _fts_search(
         return []
 
     has_filters = filters and (
-        filters.collection or filters.source_type or filters.sender
-        or filters.author or filters.date_from or filters.date_to
+        filters.collection
+        or filters.source_type
+        or filters.sender
+        or filters.author
+        or filters.date_from
+        or filters.date_to
     )
     candidate_limit = top_k * 50 if has_filters else top_k * 3
 
@@ -149,9 +157,7 @@ def _escape_fts_query(query: str) -> str:
 _COLLECTION_TYPES = {"system", "project", "code"}
 
 
-def _passes_filters(
-    conn: sqlite3.Connection, document_id: int, filters: SearchFilters
-) -> bool:
+def _passes_filters(conn: sqlite3.Connection, document_id: int, filters: SearchFilters) -> bool:
     """Check if a document passes the given filters."""
     row = conn.execute(
         """
@@ -305,6 +311,7 @@ def perform_search(
     date_to: str | None = None,
     sender: str | None = None,
     author: str | None = None,
+    group_name: str = "default",
 ) -> list[SearchResult]:
     """Run a full hybrid search: load config, connect, embed, search, cleanup.
 
@@ -321,6 +328,7 @@ def perform_search(
         date_to: Only results before this date (YYYY-MM-DD).
         sender: Filter by email sender (case-insensitive substring match).
         author: Filter by book author (case-insensitive substring match).
+        group_name: Group name for per-group indexes (default "default").
 
     Returns:
         List of SearchResult objects sorted by relevance.
@@ -332,6 +340,7 @@ def perform_search(
     from ragling.embeddings import get_embedding
 
     config = load_config()
+    config.group_name = group_name
     conn = get_connection(config)
     init_db(conn, config)
 
