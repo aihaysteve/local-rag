@@ -304,6 +304,7 @@ def create_server(group_name: str = "default") -> FastMCP:
         """
         from pathlib import Path as P
 
+        from ragling.doc_store import DocStore
         from ragling.indexers.calibre_indexer import CalibreIndexer
         from ragling.indexers.email_indexer import EmailIndexer
         from ragling.indexers.git_indexer import GitRepoIndexer
@@ -315,6 +316,7 @@ def create_server(group_name: str = "default") -> FastMCP:
         config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)
+        doc_store = DocStore(config.shared_db_path)
 
         try:
             if not config.is_collection_enabled(collection):
@@ -322,12 +324,12 @@ def create_server(group_name: str = "default") -> FastMCP:
 
             if collection == "obsidian":
                 indexer = ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)
-                result = indexer.index(conn, config)
+                result = indexer.index(conn, config, doc_store=doc_store)
             elif collection == "email":
                 indexer = EmailIndexer(str(config.emclient_db_path))
                 result = indexer.index(conn, config)
             elif collection == "calibre":
-                indexer = CalibreIndexer(config.calibre_libraries)
+                indexer = CalibreIndexer(config.calibre_libraries, doc_store=doc_store)
                 result = indexer.index(conn, config)
             elif collection == "rss":
                 indexer = RSSIndexer(str(config.netnewswire_db_path))
@@ -353,7 +355,7 @@ def create_server(group_name: str = "default") -> FastMCP:
                     "total_found": total_found,
                 }
             elif path:
-                indexer = ProjectIndexer(collection, [P(path)])
+                indexer = ProjectIndexer(collection, [P(path)], doc_store=doc_store)
                 result = indexer.index(conn, config)
             else:
                 return {
@@ -368,6 +370,7 @@ def create_server(group_name: str = "default") -> FastMCP:
                 "total_found": result.total_found,
             }
         finally:
+            doc_store.close()
             conn.close()
 
     @mcp.tool()

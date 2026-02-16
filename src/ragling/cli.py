@@ -114,6 +114,7 @@ def _check_collection_enabled(config, name: str) -> None:
 @click.pass_context
 def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) -> None:
     """Index Obsidian vault(s)."""
+    from ragling.doc_store import DocStore
     from ragling.indexers.obsidian import ObsidianIndexer
 
     config = load_config()
@@ -129,11 +130,13 @@ def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) ->
 
     group = ctx.obj["group"]
     conn = _get_db(config, group)
+    doc_store = DocStore(config.shared_db_path)
     try:
         indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders)
-        result = indexer.index(conn, config, force=force)
+        result = indexer.index(conn, config, force=force, doc_store=doc_store)
         _print_index_result("Obsidian", result)
     finally:
+        doc_store.close()
         conn.close()
 
 
@@ -169,6 +172,7 @@ def index_email(ctx: click.Context, force: bool) -> None:
 @click.pass_context
 def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) -> None:
     """Index Calibre ebook library/libraries."""
+    from ragling.doc_store import DocStore
     from ragling.indexers.calibre_indexer import CalibreIndexer
 
     config = load_config()
@@ -184,11 +188,13 @@ def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) 
 
     group = ctx.obj["group"]
     conn = _get_db(config, group)
+    doc_store = DocStore(config.shared_db_path)
     try:
-        indexer = CalibreIndexer(library_paths)
+        indexer = CalibreIndexer(library_paths, doc_store=doc_store)
         result = indexer.index(conn, config, force=force)
         _print_index_result("Calibre", result)
     finally:
+        doc_store.close()
         conn.close()
 
 
@@ -218,17 +224,20 @@ def index_rss(ctx: click.Context, force: bool) -> None:
 @click.pass_context
 def index_project(ctx: click.Context, name: str, paths: tuple[Path, ...], force: bool) -> None:
     """Index documents into a named project collection."""
+    from ragling.doc_store import DocStore
     from ragling.indexers.project import ProjectIndexer
 
     config = load_config()
     _check_collection_enabled(config, name)
     group = ctx.obj["group"]
     conn = _get_db(config, group)
+    doc_store = DocStore(config.shared_db_path)
     try:
-        indexer = ProjectIndexer(name, list(paths))
+        indexer = ProjectIndexer(name, list(paths), doc_store=doc_store)
         result = indexer.index(conn, config, force=force)
         _print_index_result(name, result)
     finally:
+        doc_store.close()
         conn.close()
 
 
@@ -282,6 +291,7 @@ def index_all(ctx: click.Context, force: bool) -> None:
     is configured in ~/.ragling/config.json. Skips any source that
     has no paths configured.
     """
+    from ragling.doc_store import DocStore
     from ragling.indexers.calibre_indexer import CalibreIndexer
     from ragling.indexers.email_indexer import EmailIndexer
     from ragling.indexers.git_indexer import GitRepoIndexer
@@ -291,6 +301,7 @@ def index_all(ctx: click.Context, force: bool) -> None:
     config = load_config()
     group = ctx.obj["group"]
     conn = _get_db(config, group)
+    doc_store = DocStore(config.shared_db_path)
 
     sources: list[tuple[str, object]] = []
 
@@ -307,7 +318,7 @@ def index_all(ctx: click.Context, force: bool) -> None:
         sources.append(("email", EmailIndexer(str(config.emclient_db_path))))
 
     if config.is_collection_enabled("calibre") and config.calibre_libraries:
-        sources.append(("calibre", CalibreIndexer(config.calibre_libraries)))
+        sources.append(("calibre", CalibreIndexer(config.calibre_libraries, doc_store=doc_store)))
 
     if (
         config.is_collection_enabled("rss")
@@ -338,6 +349,8 @@ def index_all(ctx: click.Context, force: bool) -> None:
             try:
                 if label in git_indexers:
                     result = indexer.index(conn, config, force=force, index_history=True)
+                elif label == "obsidian":
+                    result = indexer.index(conn, config, force=force, doc_store=doc_store)
                 else:
                     result = indexer.index(conn, config, force=force)
                 summary_rows.append(
@@ -346,6 +359,7 @@ def index_all(ctx: click.Context, force: bool) -> None:
             except Exception as e:
                 summary_rows.append((label, 0, 0, 0, 0, str(e)))
     finally:
+        doc_store.close()
         conn.close()
 
     table = Table(title="Indexing Summary")
