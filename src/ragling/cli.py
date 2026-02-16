@@ -701,19 +701,66 @@ def status(ctx: click.Context) -> None:
 
 @main.command()
 @click.option(
-    "--port", type=int, default=None, help="Port for HTTP/SSE transport. If omitted, uses stdio."
+    "--port",
+    type=int,
+    default=10001,
+    show_default=True,
+    help="Port for SSE transport.",
 )
+@click.option("--sse", is_flag=True, help="Enable SSE transport.")
+@click.option("--no-stdio", is_flag=True, help="Disable stdio transport (SSE only).")
 @click.pass_context
-def serve(ctx: click.Context, port: int | None) -> None:
+def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     """Start the MCP server."""
+    from ragling.indexing_status import IndexingStatus
     from ragling.mcp_server import create_server
 
-    group = ctx.obj["group"]
-    server = create_server(group_name=group)
+    if no_stdio and not sse:
+        click.echo("Error: Cannot disable both stdio and SSE.", err=True)
+        ctx.exit(1)
+        return
 
-    if port:
-        click.echo(f"Starting MCP server on port {port} (group: {group})...")
+    group = ctx.obj["group"]
+    config = load_config(ctx.obj.get("config_path"))
+
+    # Create shared indexing status
+    indexing_status = IndexingStatus()
+
+    # Start startup sync if home/global paths configured
+    if config.home or config.global_paths:
+        from ragling.sync import run_startup_sync
+
+        run_startup_sync(config, indexing_status)
+
+    # Start file watcher after sync
+    if config.home or config.global_paths:
+        from ragling.watcher import start_watcher
+
+        def _on_files_changed(files: list[Path]) -> None:
+            logger.info("File changes detected: %d files", len(files))
+
+        start_watcher(config, _on_files_changed)
+
+    server = create_server(
+        group_name=group,
+        config=config,
+        indexing_status=indexing_status,
+    )
+
+    if sse and not no_stdio:
+        # Both transports requested. For now, run SSE only since
+        # server.run() is blocking (stdio + SSE simultaneously
+        # needs custom implementation).
+        logger.warning("Simultaneous stdio + SSE is not yet supported; starting SSE only.")
+        click.echo(f"Starting MCP server on port {port} (SSE, group: {group})...")
         server.settings.port = port
         server.run(transport="sse")
-    else:
+    elif sse:
+        click.echo(f"Starting MCP server on port {port} (SSE only, group: {group})...")
+        server.settings.port = port
+        server.run(transport="sse")
+    elif not no_stdio:
         server.run(transport="stdio")
+    else:
+        click.echo("Error: Cannot disable both stdio and SSE.", err=True)
+        ctx.exit(1)

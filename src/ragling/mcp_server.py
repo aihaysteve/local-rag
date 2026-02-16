@@ -1,13 +1,19 @@
 """MCP server exposing ragling search and index tools."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
-from ragling.config import load_config
+from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
+
+if TYPE_CHECKING:
+    from ragling.auth import UserContext
+    from ragling.indexing_status import IndexingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -95,13 +101,72 @@ def _build_obsidian_uri(source_path: str, vault_paths: list) -> str | None:
     return None
 
 
-def create_server(group_name: str = "default") -> FastMCP:
+def _apply_user_context_to_results(
+    results: list[dict[str, Any]], user_ctx: UserContext
+) -> list[dict[str, Any]]:
+    """Apply path mappings to search results for a user.
+
+    Creates copies of each result dict with source_path and source_uri
+    mapped through the user's path mappings.
+
+    Args:
+        results: List of search result dicts with source_path and source_uri keys.
+        user_ctx: User context containing path mappings.
+
+    Returns:
+        New list of result dicts with mapped paths.
+    """
+    from ragling.path_mapping import apply_forward, apply_forward_uri
+
+    mapped = []
+    for r in results:
+        r = dict(r)  # copy to avoid mutating the original
+        r["source_path"] = apply_forward(r["source_path"], user_ctx.path_mappings)
+        r["source_uri"] = apply_forward_uri(r.get("source_uri"), user_ctx.path_mappings)
+        mapped.append(r)
+    return mapped
+
+
+def _build_search_response(
+    results: list[dict[str, Any]],
+    indexing_status: IndexingStatus | None = None,
+) -> dict[str, Any]:
+    """Build search response with optional indexing status.
+
+    Args:
+        results: List of search result dicts.
+        indexing_status: Optional indexing status tracker.
+
+    Returns:
+        Response dict with 'results' and 'indexing' keys.
+    """
+    response: dict[str, Any] = {"results": results}
+    if indexing_status:
+        response["indexing"] = indexing_status.to_dict()
+    else:
+        response["indexing"] = None
+    return response
+
+
+def create_server(
+    group_name: str = "default",
+    config: Config | None = None,
+    indexing_status: IndexingStatus | None = None,
+) -> FastMCP:
     """Create and configure the MCP server with all tools registered.
 
     Args:
         group_name: Group name for per-group indexes. Passed through to
             config so the correct database path is used.
+        config: Optional pre-loaded Config. If None, tools will call
+            load_config() on each invocation (backwards compatible).
+        indexing_status: Optional IndexingStatus tracker for reporting
+            indexing progress in search responses.
     """
+    # Capture config for use inside tool closures. When provided, tools
+    # use this instead of calling load_config() each time.
+    server_config = config
+
     mcp = FastMCP("ragling", instructions="Local RAG system for searching personal knowledge.")
 
     @mcp.tool()
@@ -229,8 +294,8 @@ def create_server(group_name: str = "default") -> FastMCP:
         except OllamaConnectionError as e:
             return [{"error": str(e)}]
 
-        config = load_config()
-        obsidian_vaults = config.obsidian_vaults
+        cfg = server_config or load_config()
+        obsidian_vaults = cfg.obsidian_vaults
 
         return [
             {
@@ -258,7 +323,7 @@ def create_server(group_name: str = "default") -> FastMCP:
 
         Collections of type 'code' represent code groups that may contain multiple git repos.
         """
-        config = load_config()
+        config = server_config or load_config()
         config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)
@@ -313,7 +378,7 @@ def create_server(group_name: str = "default") -> FastMCP:
         from ragling.indexers.project import ProjectIndexer
         from ragling.indexers.rss_indexer import RSSIndexer
 
-        config = load_config()
+        config = server_config or load_config()
         config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)
@@ -394,7 +459,7 @@ def create_server(group_name: str = "default") -> FastMCP:
         """
         from ragling.doc_store import DocStore
 
-        config = load_config()
+        config = server_config or load_config()
         config.group_name = group_name
         store = DocStore(config.shared_db_path)
         try:
@@ -409,7 +474,7 @@ def create_server(group_name: str = "default") -> FastMCP:
         Args:
             collection: The collection name.
         """
-        config = load_config()
+        config = server_config or load_config()
         config.group_name = group_name
         conn = get_connection(config)
         init_db(conn, config)

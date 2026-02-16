@@ -226,3 +226,36 @@ class TestGetDb:
             _get_db(config)
 
         assert config.group_name == "default"
+
+
+class TestServeCommand:
+    """Tests for the serve command flags."""
+
+    def test_serve_help_shows_sse_flag(self) -> None:
+        """The serve command should accept --sse."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--sse" in result.output
+
+    def test_serve_help_shows_no_stdio_flag(self) -> None:
+        """The serve command should accept --no-stdio."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--no-stdio" in result.output
+
+    def test_serve_help_shows_port_with_default(self) -> None:
+        """The serve command should show --port with default 10001."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--port" in result.output
+        assert "10001" in result.output
+
+    def test_serve_no_stdio_no_sse_errors(self) -> None:
+        """Disabling both transports should print an error."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["serve", "--no-stdio"])
+        # Should error because neither SSE nor stdio is enabled
+        assert "Cannot disable" in result.output or result.exit_code != 0
