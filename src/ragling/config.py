@@ -1,4 +1,4 @@
-"""Configuration loading and validation for local-rag."""
+"""Configuration loading and validation for ragling."""
 
 import json
 import logging
@@ -7,7 +7,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_DIR = Path.home() / ".local-rag"
+DEFAULT_CONFIG_DIR = Path.home() / ".ragling"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.json"
 DEFAULT_DB_PATH = DEFAULT_CONFIG_DIR / "rag.db"
 
@@ -78,7 +78,7 @@ def load_config(path: Path | None = None) -> Config:
     """Load configuration from a JSON file, falling back to defaults.
 
     Args:
-        path: Path to config file. Defaults to ~/.local-rag/config.json.
+        path: Path to config file. Defaults to ~/.ragling/config.json.
 
     Returns:
         Loaded Config instance with all paths expanded.

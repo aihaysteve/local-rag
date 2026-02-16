@@ -1,4 +1,4 @@
-"""Project document indexer for local-rag.
+"""Project document indexer for ragling.
 
 Indexes arbitrary document folders (PDF, DOCX, TXT, HTML, MD) into named
 project collections.
@@ -11,16 +11,16 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from local_rag.chunker import Chunk, chunk_markdown, chunk_plain
-from local_rag.config import Config
-from local_rag.db import get_or_create_collection
-from local_rag.embeddings import get_embeddings, serialize_float32
-from local_rag.indexers.base import BaseIndexer, IndexResult
-from local_rag.parsers.docx import parse_docx
-from local_rag.parsers.html import parse_html
-from local_rag.parsers.markdown import parse_markdown
-from local_rag.parsers.pdf import parse_pdf
-from local_rag.parsers.plaintext import parse_plaintext
+from ragling.chunker import Chunk, chunk_markdown, chunk_plain
+from ragling.config import Config
+from ragling.db import get_or_create_collection
+from ragling.embeddings import get_embeddings, serialize_float32
+from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.parsers.docx import parse_docx
+from ragling.parsers.html import parse_html
+from ragling.parsers.markdown import parse_markdown
+from ragling.parsers.pdf import parse_pdf
+from ragling.parsers.plaintext import parse_plaintext
 
 logger = logging.getLogger(__name__)
 

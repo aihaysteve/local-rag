@@ -1,4 +1,4 @@
-"""Click CLI entry point for local-rag."""
+"""Click CLI entry point for ragling."""
 
 import logging
 import signal
@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from local_rag.config import load_config
+from ragling.config import load_config
 
 console = Console()
 
@@ -41,7 +41,7 @@ def _setup_logging(verbose: bool) -> None:
 
 def _get_db(config):
     """Get initialized database connection."""
-    from local_rag.db import get_connection, init_db
+    from ragling.db import get_connection, init_db
 
     conn = get_connection(config)
     init_db(conn, config)
@@ -52,7 +52,7 @@ def _get_db(config):
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
 @click.pass_context
 def main(ctx: click.Context, verbose: bool) -> None:
-    """local-rag: Fully local RAG system for personal knowledge."""
+    """ragling: Fully local RAG system for personal knowledge."""
     _setup_logging(verbose)
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
@@ -96,7 +96,7 @@ def _check_collection_enabled(config, name: str) -> None:
 @click.option("--force", is_flag=True, help="Force re-index all files.")
 def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
     """Index Obsidian vault(s)."""
-    from local_rag.indexers.obsidian import ObsidianIndexer
+    from ragling.indexers.obsidian import ObsidianIndexer
 
     config = load_config()
     _check_collection_enabled(config, "obsidian")
@@ -119,7 +119,7 @@ def index_obsidian(vaults: tuple[Path, ...], force: bool) -> None:
 @click.option("--force", is_flag=True, help="Force re-index all emails.")
 def index_email(force: bool) -> None:
     """Index eM Client emails."""
-    from local_rag.indexers.email_indexer import EmailIndexer
+    from ragling.indexers.email_indexer import EmailIndexer
 
     config = load_config()
     _check_collection_enabled(config, "email")
@@ -138,7 +138,7 @@ def index_email(force: bool) -> None:
 @click.option("--force", is_flag=True, help="Force re-index all books.")
 def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
     """Index Calibre ebook library/libraries."""
-    from local_rag.indexers.calibre_indexer import CalibreIndexer
+    from ragling.indexers.calibre_indexer import CalibreIndexer
 
     config = load_config()
     _check_collection_enabled(config, "calibre")
@@ -161,7 +161,7 @@ def index_calibre(libraries: tuple[Path, ...], force: bool) -> None:
 @click.option("--force", is_flag=True, help="Force re-index all articles.")
 def index_rss(force: bool) -> None:
     """Index NetNewsWire RSS articles."""
-    from local_rag.indexers.rss_indexer import RSSIndexer
+    from ragling.indexers.rss_indexer import RSSIndexer
 
     config = load_config()
     _check_collection_enabled(config, "rss")
@@ -180,7 +180,7 @@ def index_rss(force: bool) -> None:
 @click.option("--force", is_flag=True, help="Force re-index all files.")
 def index_project(name: str, paths: tuple[Path, ...], force: bool) -> None:
     """Index documents into a named project collection."""
-    from local_rag.indexers.project import ProjectIndexer
+    from ragling.indexers.project import ProjectIndexer
 
     config = load_config()
     _check_collection_enabled(config, name)
@@ -203,7 +203,7 @@ def index_group(name: str | None, force: bool, history: bool) -> None:
     If NAME is given, indexes only that group's repos. If omitted, indexes
     all groups defined in code_groups config.
     """
-    from local_rag.indexers.git_indexer import GitRepoIndexer
+    from ragling.indexers.git_indexer import GitRepoIndexer
 
     config = load_config()
 
@@ -215,7 +215,7 @@ def index_group(name: str | None, force: bool, history: bool) -> None:
     elif config.code_groups:
         groups = config.code_groups
     else:
-        click.echo("Error: No code_groups configured in ~/.local-rag/config.json.", err=True)
+        click.echo("Error: No code_groups configured in ~/.ragling/config.json.", err=True)
         sys.exit(1)
 
     conn = _get_db(config)
@@ -237,14 +237,14 @@ def index_all(force: bool) -> None:
     """Index all configured sources at once.
 
     Indexes obsidian, email, calibre, rss, and code groups based on what
-    is configured in ~/.local-rag/config.json. Skips any source that
+    is configured in ~/.ragling/config.json. Skips any source that
     has no paths configured.
     """
-    from local_rag.indexers.calibre_indexer import CalibreIndexer
-    from local_rag.indexers.email_indexer import EmailIndexer
-    from local_rag.indexers.git_indexer import GitRepoIndexer
-    from local_rag.indexers.obsidian import ObsidianIndexer
-    from local_rag.indexers.rss_indexer import RSSIndexer
+    from ragling.indexers.calibre_indexer import CalibreIndexer
+    from ragling.indexers.email_indexer import EmailIndexer
+    from ragling.indexers.git_indexer import GitRepoIndexer
+    from ragling.indexers.obsidian import ObsidianIndexer
+    from ragling.indexers.rss_indexer import RSSIndexer
 
     config = load_config()
     conn = _get_db(config)
@@ -272,7 +272,7 @@ def index_all(force: bool) -> None:
                 git_indexers.append(label)
 
     if not sources:
-        click.echo("No sources configured. Set paths in ~/.local-rag/config.json.", err=True)
+        click.echo("No sources configured. Set paths in ~/.ragling/config.json.", err=True)
         sys.exit(1)
 
     click.echo(f"Indexing {len(sources)} source(s)...\n")
@@ -331,8 +331,8 @@ def index_all(force: bool) -> None:
 def search(query: str, collection: str | None, source_type: str | None,
            sender: str | None, author: str | None, after: str | None, before: str | None, top: int) -> None:
     """Search across indexed collections."""
-    from local_rag.embeddings import OllamaConnectionError
-    from local_rag.search import perform_search
+    from ragling.embeddings import OllamaConnectionError
+    from ragling.search import perform_search
 
     try:
         results = perform_search(
@@ -559,7 +559,7 @@ def status() -> None:
     config = load_config()
 
     if not config.db_path.exists():
-        click.echo("Database not found. Run 'local-rag index' to get started.")
+        click.echo("Database not found. Run 'ragling index' to get started.")
         return
 
     conn = _get_db(config)
@@ -574,7 +574,7 @@ def status() -> None:
             "SELECT MAX(last_indexed_at) as ts FROM sources"
         ).fetchone()["ts"]
 
-        table = Table(title="local-rag status", show_header=False, box=None, padding=(0, 2))
+        table = Table(title="ragling status", show_header=False, box=None, padding=(0, 2))
         table.add_column("Key", style="bold")
         table.add_column("Value")
         table.add_row("Database", str(config.db_path))
@@ -596,7 +596,7 @@ def status() -> None:
 @click.option("--port", type=int, default=None, help="Port for HTTP/SSE transport. If omitted, uses stdio.")
 def serve(port: int | None) -> None:
     """Start the MCP server."""
-    from local_rag.mcp_server import create_server
+    from ragling.mcp_server import create_server
 
     server = create_server()
 

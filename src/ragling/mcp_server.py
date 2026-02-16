@@ -1,4 +1,4 @@
-"""MCP server exposing local-rag search and index tools."""
+"""MCP server exposing ragling search and index tools."""
 
 import logging
 from typing import Any
@@ -6,8 +6,8 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
-from local_rag.config import load_config
-from local_rag.db import get_connection, init_db
+from ragling.config import load_config
+from ragling.db import get_connection, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _build_obsidian_uri(source_path: str, vault_paths: list) -> str | None:
 
 def create_server() -> FastMCP:
     """Create and configure the MCP server with all tools registered."""
-    mcp = FastMCP("local-rag", instructions="Local RAG system for searching personal knowledge.")
+    mcp = FastMCP("ragling", instructions="Local RAG system for searching personal knowledge.")
 
     @mcp.tool()
     def rag_search(
@@ -206,8 +206,8 @@ def create_server() -> FastMCP:
             sender: Filter by email sender (case-insensitive substring match).
             author: Filter by book author (case-insensitive substring match).
         """
-        from local_rag.embeddings import OllamaConnectionError
-        from local_rag.search import perform_search
+        from ragling.embeddings import OllamaConnectionError
+        from ragling.search import perform_search
 
         try:
             results = perform_search(
@@ -294,12 +294,12 @@ def create_server() -> FastMCP:
         """
         from pathlib import Path as P
 
-        from local_rag.indexers.calibre_indexer import CalibreIndexer
-        from local_rag.indexers.email_indexer import EmailIndexer
-        from local_rag.indexers.git_indexer import GitRepoIndexer
-        from local_rag.indexers.obsidian import ObsidianIndexer
-        from local_rag.indexers.project import ProjectIndexer
-        from local_rag.indexers.rss_indexer import RSSIndexer
+        from ragling.indexers.calibre_indexer import CalibreIndexer
+        from ragling.indexers.email_indexer import EmailIndexer
+        from ragling.indexers.git_indexer import GitRepoIndexer
+        from ragling.indexers.obsidian import ObsidianIndexer
+        from ragling.indexers.project import ProjectIndexer
+        from ragling.indexers.rss_indexer import RSSIndexer
 
         config = load_config()
         conn = get_connection(config)

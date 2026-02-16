@@ -1,8 +1,8 @@
-"""Email indexer for eM Client.
+"""NetNewsWire RSS indexer.
 
-Indexes emails from the eM Client SQLite databases into the "email" system
-collection. Discovers account directories automatically and opens all
-databases in read-only mode with retry logic for handling lock contention.
+Indexes RSS articles from NetNewsWire's SQLite databases into the "rss"
+system collection. Discovers account directories automatically and opens
+all databases in read-only mode with retry logic for handling lock contention.
 """
 
 import json
@@ -12,12 +12,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from local_rag.chunker import chunk_email
-from local_rag.config import Config
-from local_rag.db import get_or_create_collection
-from local_rag.embeddings import get_embeddings, serialize_float32
-from local_rag.indexers.base import BaseIndexer, IndexResult
-from local_rag.parsers.email import EmailMessage, find_account_dirs, parse_emails
+from ragling.chunker import chunk_email
+from ragling.config import Config
+from ragling.db import get_or_create_collection
+from ragling.embeddings import get_embeddings, serialize_float32
+from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.parsers.rss import Article, find_account_dirs, parse_articles
 
 logger = logging.getLogger(__name__)
 
@@ -25,103 +25,84 @@ MAX_LOCK_RETRIES = 3
 LOCK_RETRY_DELAY = 2.0  # seconds
 
 
-def _find_account_dirs(config: Config) -> list[Path]:
-    """Locate eM Client account directories.
-
-    Args:
-        config: Application configuration.
-
-    Returns:
-        List of account directories containing mail databases.
-    """
-    base = config.emclient_db_path
-
-    # If the configured path points directly to an account dir
-    # (contains mail_index.dat), use it as-is
-    if (base / "mail_index.dat").is_file():
-        return [base]
-
-    return find_account_dirs(base)
-
-
-class EmailIndexer(BaseIndexer):
-    """Indexes emails from eM Client into the RAG database."""
+class RSSIndexer(BaseIndexer):
+    """Indexes RSS articles from NetNewsWire into the RAG database."""
 
     def __init__(self, db_path: str | None = None):
-        """Initialize the email indexer.
+        """Initialize the RSS indexer.
 
         Args:
-            db_path: Optional explicit path to the eM Client data directory
-                or a specific account directory. If not provided, will be
-                determined from config.
+            db_path: Optional explicit path to the NetNewsWire Accounts
+                directory or a specific account directory. If not provided,
+                will be determined from config.
         """
         self._explicit_db_path = db_path
 
     def index(
         self, conn: sqlite3.Connection, config: Config, force: bool = False
     ) -> IndexResult:
-        """Index emails from eM Client into the "email" collection.
+        """Index RSS articles from NetNewsWire into the "rss" collection.
 
-        Discovers all account directories and indexes emails from each.
+        Discovers all account directories and indexes articles from each.
 
         Args:
             conn: SQLite connection to the RAG database.
             config: Application configuration.
-            force: If True, re-index all emails regardless of prior indexing.
+            force: If True, re-index all articles regardless of prior indexing.
 
         Returns:
             IndexResult summarizing what was done.
         """
         result = IndexResult()
 
-        # Locate eM Client account directories
+        # Locate NetNewsWire account directories
         if self._explicit_db_path:
             explicit_path = Path(self._explicit_db_path).expanduser()
-            if (explicit_path / "mail_index.dat").is_file():
+            if (explicit_path / "DB.sqlite3").is_file():
                 account_dirs = [explicit_path]
             else:
                 account_dirs = find_account_dirs(explicit_path)
 
             if not account_dirs:
-                msg = f"No eM Client mail databases found at {explicit_path}"
+                msg = f"No NetNewsWire databases found at {explicit_path}"
                 logger.error(msg)
                 result.errors = 1
                 result.error_messages.append(msg)
                 return result
         else:
-            account_dirs = _find_account_dirs(config)
+            account_dirs = find_account_dirs(config.netnewswire_db_path)
             if not account_dirs:
                 msg = (
-                    f"Cannot find eM Client account directories. "
-                    f"Checked: {config.emclient_db_path}. "
-                    "Set emclient_db_path in config or pass the path explicitly."
+                    f"Cannot find NetNewsWire account directories. "
+                    f"Checked: {config.netnewswire_db_path}. "
+                    "Set netnewswire_db_path in config or pass the path explicitly."
                 )
                 logger.error(msg)
                 result.errors = 1
                 result.error_messages.append(msg)
                 return result
 
-        logger.info("Found %d eM Client account(s)", len(account_dirs))
+        logger.info("Found %d NetNewsWire account(s)", len(account_dirs))
 
-        # Get/create the email system collection
+        # Get/create the rss system collection
         collection_id = get_or_create_collection(
-            conn, "email", "system", "Emails from eM Client"
+            conn, "rss", "system", "RSS articles from NetNewsWire"
         )
 
         # Determine watermark for incremental indexing
-        since_date = None
+        since_ts = None
         if not force:
-            since_date = self._get_watermark(conn, collection_id)
-            if since_date:
-                logger.info("Incremental index: fetching emails since %s", since_date)
+            since_ts = self._get_watermark(conn, collection_id)
+            if since_ts:
+                logger.info("Incremental index: fetching articles since ts=%s", since_ts)
 
-        latest_date = since_date or ""
+        latest_ts = since_ts or 0.0
 
         # Index each account
         for account_dir in account_dirs:
             logger.info("Indexing account: %s", account_dir.name)
-            account_result = self._index_account(
-                conn, config, collection_id, account_dir, since_date, force
+            account_result, account_latest = self._index_account(
+                conn, config, collection_id, account_dir, since_ts, force
             )
 
             result.total_found += account_result.total_found
@@ -130,14 +111,14 @@ class EmailIndexer(BaseIndexer):
             result.errors += account_result.errors
             result.error_messages.extend(account_result.error_messages)
 
-            if account_result.latest_date and account_result.latest_date > latest_date:
-                latest_date = account_result.latest_date
+            if account_latest > latest_ts:
+                latest_ts = account_latest
 
         # Update watermark
-        if latest_date:
-            self._set_watermark(conn, collection_id, latest_date)
+        if latest_ts > 0:
+            self._set_watermark(conn, collection_id, latest_ts)
 
-        logger.info("Email indexing complete: %s", result)
+        logger.info("RSS indexing complete: %s", result)
         return result
 
     def _index_account(
@@ -146,50 +127,55 @@ class EmailIndexer(BaseIndexer):
         config: Config,
         collection_id: int,
         account_dir: Path,
-        since_date: str | None,
+        since_ts: float | None,
         force: bool,
-    ) -> "AccountIndexResult":
-        """Index emails from a single account directory."""
-        result = AccountIndexResult()
+    ) -> tuple[IndexResult, float]:
+        """Index articles from a single account directory.
 
-        emails = self._parse_with_retry(account_dir, since_date)
-        if emails is None:
-            msg = f"Failed to open eM Client database in {account_dir.name} after retries"
+        Returns:
+            Tuple of (IndexResult, latest_timestamp).
+        """
+        result = IndexResult()
+        latest_ts = 0.0
+
+        articles = self._parse_with_retry(account_dir, since_ts)
+        if articles is None:
+            msg = f"Failed to open NetNewsWire database in {account_dir.name} after retries"
             logger.error(msg)
             result.errors = 1
             result.error_messages.append(msg)
-            return result
+            return result, latest_ts
 
-        total_emails = len(emails)
-        logger.info("Found %d emails to process in %s", total_emails, account_dir.name)
+        total_articles = len(articles)
+        logger.info("Found %d articles to process in %s", total_articles, account_dir.name)
 
-        for email_msg in emails:
+        for article in articles:
             result.total_found += 1
 
             # Skip if already indexed (unless force)
-            if not force and self._is_indexed(conn, collection_id, email_msg.message_id):
+            if not force and self._is_indexed(conn, collection_id, article.article_id):
                 result.skipped += 1
                 continue
 
             try:
-                chunks_count = self._index_email(conn, config, collection_id, email_msg)
+                chunks_count = self._index_article(conn, config, collection_id, article)
                 result.indexed += 1
 
                 logger.info(
-                    "Indexed email [%d/%d]: %s (%d chunks)",
+                    "Indexed article [%d/%d]: %s (%d chunks)",
                     result.total_found,
-                    total_emails,
-                    (email_msg.subject or "(no subject)")[:60],
+                    total_articles,
+                    (article.title or "(no title)")[:60],
                     chunks_count,
                 )
 
-                # Track latest date for watermark
-                if email_msg.date and email_msg.date > result.latest_date:
-                    result.latest_date = email_msg.date
+                # Track latest timestamp for watermark
+                if article.date_published_ts > latest_ts:
+                    latest_ts = article.date_published_ts
 
             except Exception as e:
                 result.errors += 1
-                msg = f"Error indexing email {email_msg.message_id}: {e}"
+                msg = f"Error indexing article {article.article_id}: {e}"
                 if result.errors <= 10:
                     logger.warning(msg)
                     result.error_messages.append(msg)
@@ -201,7 +187,7 @@ class EmailIndexer(BaseIndexer):
                 logger.info(
                     "Progress: %d/%d processed (%d indexed, %d skipped, %d errors)",
                     result.total_found,
-                    total_emails,
+                    total_articles,
                     result.indexed,
                     result.skipped,
                     result.errors,
@@ -216,24 +202,21 @@ class EmailIndexer(BaseIndexer):
             result.errors,
         )
 
-        return result
+        return result, latest_ts
 
     def _parse_with_retry(
-        self, account_dir: Path, since_date: str | None
-    ) -> list[EmailMessage] | None:
-        """Try to parse emails with retry on database lock.
-
-        Returns a list of emails, or None if all retries failed.
-        """
+        self, account_dir: Path, since_ts: float | None
+    ) -> list[Article] | None:
+        """Try to parse articles with retry on database lock."""
         for attempt in range(1, MAX_LOCK_RETRIES + 1):
             try:
-                emails = list(parse_emails(account_dir, since_date))
-                return emails
+                articles = list(parse_articles(account_dir, since_ts))
+                return articles
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < MAX_LOCK_RETRIES:
                         logger.warning(
-                            "eM Client database is locked (attempt %d/%d), "
+                            "NetNewsWire database is locked (attempt %d/%d), "
                             "retrying in %ds...",
                             attempt,
                             MAX_LOCK_RETRIES,
@@ -242,8 +225,8 @@ class EmailIndexer(BaseIndexer):
                         time.sleep(LOCK_RETRY_DELAY)
                     else:
                         logger.error(
-                            "eM Client database is locked after %d attempts. "
-                            "Try closing eM Client and running again.",
+                            "NetNewsWire database is locked after %d attempts. "
+                            "Try closing NetNewsWire and running again.",
                             MAX_LOCK_RETRIES,
                         )
                         return None
@@ -254,31 +237,32 @@ class EmailIndexer(BaseIndexer):
         return None
 
     def _is_indexed(
-        self, conn: sqlite3.Connection, collection_id: int, message_id: str
+        self, conn: sqlite3.Connection, collection_id: int, article_id: str
     ) -> bool:
-        """Check if an email with this message_id is already indexed."""
+        """Check if an article is already indexed."""
         row = conn.execute(
             "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, message_id),
+            (collection_id, article_id),
         ).fetchone()
         return row is not None
 
-    def _index_email(
+    def _index_article(
         self,
         conn: sqlite3.Connection,
         config: Config,
         collection_id: int,
-        email_msg: EmailMessage,
+        article: Article,
     ) -> int:
-        """Index a single email: chunk, embed, and insert.
+        """Index a single article: chunk, embed, and insert.
 
         Returns:
             Number of chunks indexed.
         """
-        # Chunk the email
+        # Reuse the email chunker — RSS articles have a similar structure
+        # (title + body text, usually short-to-medium length)
         chunks = chunk_email(
-            subject=email_msg.subject,
-            body=email_msg.body_text,
+            subject=article.title,
+            body=article.body_text,
             chunk_size=config.chunk_size_tokens,
             overlap=config.chunk_overlap_tokens,
         )
@@ -291,12 +275,16 @@ class EmailIndexer(BaseIndexer):
         embeddings = get_embeddings(chunk_texts, config)
 
         # Build metadata
-        metadata = {
-            "sender": email_msg.sender,
-            "recipients": email_msg.recipients,
-            "date": email_msg.date,
-            "folder": email_msg.folder,
+        metadata: dict = {
+            "url": article.url,
+            "feed_name": article.feed_name,
+            "date": article.date_published,
         }
+        if article.feed_category:
+            metadata["feed_category"] = article.feed_category
+        if article.authors:
+            metadata["authors"] = article.authors
+
         metadata_json = json.dumps(metadata)
 
         now = datetime.now().isoformat()
@@ -304,16 +292,16 @@ class EmailIndexer(BaseIndexer):
         # Delete existing source if re-indexing (force mode)
         conn.execute(
             "DELETE FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, email_msg.message_id),
+            (collection_id, article.article_id),
         )
 
         # Insert source
         cursor = conn.execute(
             """
             INSERT INTO sources (collection_id, source_type, source_path, last_indexed_at)
-            VALUES (?, 'email', ?, ?)
+            VALUES (?, 'rss', ?, ?)
             """,
-            (collection_id, email_msg.message_id, now),
+            (collection_id, article.article_id, now),
         )
         source_id = cursor.lastrowid
 
@@ -329,7 +317,7 @@ class EmailIndexer(BaseIndexer):
                     source_id,
                     collection_id,
                     chunk.chunk_index,
-                    email_msg.subject or "(no subject)",
+                    article.title or "(no title)",
                     chunk.text,
                     metadata_json,
                 ),
@@ -346,8 +334,8 @@ class EmailIndexer(BaseIndexer):
 
     def _get_watermark(
         self, conn: sqlite3.Connection, collection_id: int
-    ) -> str | None:
-        """Get the latest indexed email date for incremental updates."""
+    ) -> float | None:
+        """Get the latest indexed article timestamp for incremental updates."""
         row = conn.execute(
             """
             SELECT MAX(json_extract(d.metadata, '$.date')) as latest_date
@@ -358,27 +346,23 @@ class EmailIndexer(BaseIndexer):
         ).fetchone()
 
         if row and row["latest_date"]:
-            return row["latest_date"]
+            # Convert ISO date back to timestamp for comparison
+            try:
+                dt = datetime.fromisoformat(row["latest_date"])
+                return dt.timestamp()
+            except (ValueError, OSError):
+                return None
         return None
 
     def _set_watermark(
-        self, conn: sqlite3.Connection, collection_id: int, date: str
+        self, conn: sqlite3.Connection, collection_id: int, ts: float
     ) -> None:
-        """Store the watermark date in the collection description for tracking."""
+        """Store the watermark timestamp in the collection description."""
+        from ragling.parsers.rss import _ts_to_iso
+
+        date_str = _ts_to_iso(ts)
         conn.execute(
             "UPDATE collections SET description = ? WHERE id = ?",
-            (f"Emails from eM Client (indexed through {date})", collection_id),
+            (f"RSS articles from NetNewsWire (indexed through {date_str})", collection_id),
         )
         conn.commit()
-
-
-class AccountIndexResult:
-    """Tracks indexing results for a single account."""
-
-    def __init__(self) -> None:
-        self.total_found: int = 0
-        self.indexed: int = 0
-        self.skipped: int = 0
-        self.errors: int = 0
-        self.error_messages: list[str] = []
-        self.latest_date: str = ""

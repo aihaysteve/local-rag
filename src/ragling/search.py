@@ -5,8 +5,8 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 
-from local_rag.config import Config, load_config
-from local_rag.embeddings import serialize_float32
+from ragling.config import Config, load_config
+from ragling.embeddings import serialize_float32
 
 logger = logging.getLogger(__name__)
 
@@ -326,10 +326,10 @@ def perform_search(
         List of SearchResult objects sorted by relevance.
 
     Raises:
-        local_rag.embeddings.OllamaConnectionError: If Ollama is not reachable.
+        ragling.embeddings.OllamaConnectionError: If Ollama is not reachable.
     """
-    from local_rag.db import get_connection, init_db
-    from local_rag.embeddings import get_embedding
+    from ragling.db import get_connection, init_db
+    from ragling.embeddings import get_embedding
 
     config = load_config()
     conn = get_connection(config)

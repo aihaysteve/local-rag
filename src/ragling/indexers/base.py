@@ -4,7 +4,7 @@ import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from local_rag.config import Config
+from ragling.config import Config
 
 
 @dataclass

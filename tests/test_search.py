@@ -1,12 +1,12 @@
-"""Tests for local_rag.search module."""
+"""Tests for ragling.search module."""
 
 import json
 import sqlite3
 
 import pytest
 
-from local_rag.config import Config
-from local_rag.search import SearchFilters, SearchResult, _escape_fts_query, rrf_merge
+from ragling.config import Config
+from ragling.search import SearchFilters, SearchResult, _escape_fts_query, rrf_merge
 
 # Check if sqlite3 supports loading extensions (required for sqlite-vec integration tests)
 _conn = sqlite3.connect(":memory:")
@@ -221,7 +221,7 @@ class TestSearchWithDatabase:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.row_factory = sqlite3.Row
 
-        from local_rag.db import init_db
+        from ragling.db import init_db
 
         init_db(conn, config)
 
@@ -240,8 +240,8 @@ class TestSearchWithDatabase:
         source_type="markdown",
     ):
         """Helper to insert a document with its embedding."""
-        from local_rag.db import get_or_create_collection
-        from local_rag.embeddings import serialize_float32
+        from ragling.db import get_or_create_collection
+        from ragling.embeddings import serialize_float32
 
         col_id = get_or_create_collection(conn, collection_name)
 
@@ -282,7 +282,7 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from local_rag.search import _escape_fts_query
+        from ragling.search import _escape_fts_query
 
         query = _escape_fts_query("kubernetes deployment")
         rows = conn.execute(
@@ -302,7 +302,7 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from local_rag.search import _escape_fts_query
+        from ragling.search import _escape_fts_query
 
         query = _escape_fts_query("postgresql replication")
         rows = conn.execute(
@@ -321,7 +321,7 @@ class TestSearchWithDatabase:
             conn, "test", "/b.md", "B", "content b", [0.0, 1.0, 0.0, 0.0]
         )
 
-        from local_rag.embeddings import serialize_float32
+        from ragling.embeddings import serialize_float32
 
         query_blob = serialize_float32([0.9, 0.1, 0.0, 0.0])
         rows = conn.execute(
@@ -353,7 +353,7 @@ class TestSearchWithDatabase:
             [0.0, 1.0, 0.0, 0.0],
         )
 
-        from local_rag.search import search
+        from ragling.search import search
 
         results = search(
             conn=conn,
@@ -384,7 +384,7 @@ class TestSearchWithDatabase:
             [0.9, 0.1, 0.0, 0.0],
         )
 
-        from local_rag.search import search
+        from ragling.search import search
 
         results = search(
             conn=conn,
@@ -411,7 +411,7 @@ class TestSearchWithDatabase:
             source_type="markdown",
         )
 
-        from local_rag.search import search
+        from ragling.search import search
 
         results = search(
             conn=conn,

@@ -1,8 +1,8 @@
-"""Tests for local_rag.chunker module."""
+"""Tests for ragling.chunker module."""
 
 import pytest
 
-from local_rag.chunker import Chunk, chunk_email, chunk_markdown, chunk_plain
+from ragling.chunker import Chunk, chunk_email, chunk_markdown, chunk_plain
 
 
 class TestChunkMarkdown:

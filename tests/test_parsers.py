@@ -3,7 +3,7 @@
 import datetime
 from pathlib import Path
 
-from local_rag.parsers.markdown import MarkdownDocument, parse_markdown
+from ragling.parsers.markdown import MarkdownDocument, parse_markdown
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

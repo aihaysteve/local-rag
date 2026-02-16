@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "local-rag"
+name = "ragling"
 version = "0.1.0"
-description = "Fully local RAG system for Obsidian, email, and project documents"
+description = "Docling-powered local RAG with shared document cache and per-group indexes"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
@@ -22,13 +22,14 @@ dependencies = [
 ]
 
 [project.scripts]
-local-rag = "local_rag.cli:main"
+ragling = "ragling.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-cov",
     "ruff",
+    "mypy>=1.0",
 ]
 
 [tool.setuptools.packages.find]

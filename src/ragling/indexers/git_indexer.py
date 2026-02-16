@@ -13,12 +13,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from local_rag.chunker import Chunk, _split_into_windows, _word_count
-from local_rag.config import Config
-from local_rag.db import get_or_create_collection
-from local_rag.embeddings import get_embeddings, serialize_float32
-from local_rag.indexers.base import BaseIndexer, IndexResult
-from local_rag.parsers.code import (
+from ragling.chunker import Chunk, _split_into_windows, _word_count
+from ragling.config import Config
+from ragling.db import get_or_create_collection
+from ragling.embeddings import get_embeddings, serialize_float32
+from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.parsers.code import (
     CodeDocument,
     get_language,
     is_code_file,

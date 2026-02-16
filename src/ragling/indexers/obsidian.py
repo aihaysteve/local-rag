@@ -1,4 +1,4 @@
-"""Obsidian vault indexer for local-rag.
+"""Obsidian vault indexer for ragling.
 
 Indexes all supported file types found in Obsidian vaults (markdown, PDF,
 DOCX, HTML, plaintext, etc.) into the "obsidian" system collection.
@@ -11,11 +11,11 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from local_rag.config import Config
-from local_rag.db import get_or_create_collection
-from local_rag.embeddings import get_embeddings, serialize_float32
-from local_rag.indexers.base import BaseIndexer, IndexResult
-from local_rag.indexers.project import _EXTENSION_MAP, _parse_and_chunk
+from ragling.config import Config
+from ragling.db import get_or_create_collection
+from ragling.embeddings import get_embeddings, serialize_float32
+from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.indexers.project import _EXTENSION_MAP, _parse_and_chunk
 
 logger = logging.getLogger(__name__)
 

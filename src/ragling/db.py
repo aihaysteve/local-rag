@@ -1,11 +1,11 @@
-"""Database initialization, connection management, and migrations for local-rag."""
+"""Database initialization, connection management, and migrations for ragling."""
 
 import logging
 import sqlite3
 
 import sqlite_vec
 
-from local_rag.config import Config
+from ragling.config import Config
 
 logger = logging.getLogger(__name__)
 

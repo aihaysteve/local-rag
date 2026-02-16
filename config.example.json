@@ -1,5 +1,5 @@
 {
-    "db_path": "~/.local-rag/rag.db",
+    "db_path": "~/.ragling/rag.db",
     "embedding_model": "bge-m3",
     "embedding_dimensions": 1024,
     "chunk_size_tokens": 500,

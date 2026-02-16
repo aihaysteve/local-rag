@@ -1,4 +1,4 @@
-"""Ollama embedding helpers for local-rag."""
+"""Ollama embedding helpers for ragling."""
 
 import logging
 import struct
@@ -6,7 +6,7 @@ import struct
 import httpx
 import ollama
 
-from local_rag.config import Config
+from ragling.config import Config
 
 logger = logging.getLogger(__name__)
 

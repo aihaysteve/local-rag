@@ -11,14 +11,14 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from local_rag.chunker import Chunk, chunk_plain
-from local_rag.config import Config
-from local_rag.db import get_or_create_collection
-from local_rag.embeddings import get_embeddings, serialize_float32
-from local_rag.indexers.base import BaseIndexer, IndexResult
-from local_rag.parsers.calibre import CalibreBook, get_book_file_path, parse_calibre_library
-from local_rag.parsers.epub import parse_epub
-from local_rag.parsers.pdf import parse_pdf
+from ragling.chunker import Chunk, chunk_plain
+from ragling.config import Config
+from ragling.db import get_or_create_collection
+from ragling.embeddings import get_embeddings, serialize_float32
+from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.parsers.calibre import CalibreBook, get_book_file_path, parse_calibre_library
+from ragling.parsers.epub import parse_epub
+from ragling.parsers.pdf import parse_pdf
 
 logger = logging.getLogger(__name__)
 
