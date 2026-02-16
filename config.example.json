@@ -1,9 +1,9 @@
 {
     "db_path": "~/.ragling/rag.db",
+    "shared_db_path": "~/.ragling/doc_store.sqlite",
     "embedding_model": "bge-m3",
     "embedding_dimensions": 1024,
-    "chunk_size_tokens": 500,
-    "chunk_overlap_tokens": 50,
+    "chunk_size_tokens": 256,
     "obsidian_vaults": [
         "~/Documents/MyVault"
     ],
@@ -28,9 +28,19 @@
     },
     "disabled_collections": [],
     "git_history_in_months": 6,
-    "git_commit_subject_blacklist": [
-        "Ignore commit messages beginning with these prefixes"
-    ],
+    "git_commit_subject_blacklist": [],
+    "home": "~/NanoClaw/groups",
+    "global_paths": ["~/NanoClaw/global"],
+    "users": {
+        "kitchen": {
+            "api_key": "rag_your_generated_api_key_here",
+            "system_collections": ["obsidian", "calibre"],
+            "path_mappings": {
+                "~/NanoClaw/groups/kitchen/": "/workspace/group/",
+                "~/NanoClaw/global/": "/workspace/global/"
+            }
+        }
+    },
     "search_defaults": {
         "top_k": 10,
         "rrf_k": 60,
