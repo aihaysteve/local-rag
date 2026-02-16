@@ -11,11 +11,12 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ragling.chunker import Chunk, chunk_plain
+from ragling.chunker import Chunk
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
-from ragling.docling_convert import convert_and_chunk
+from ragling.docling_bridge import epub_to_docling_doc, plaintext_to_docling_doc
+from ragling.docling_convert import chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings, serialize_float32
 from ragling.indexers.base import BaseIndexer, IndexResult
 from ragling.parsers.calibre import CalibreBook, get_book_file_path, parse_calibre_library
@@ -248,8 +249,6 @@ def _extract_and_chunk_book(
     doc_store: DocStore | None = None,
 ) -> list[Chunk]:
     """Extract text from the book file and produce enriched chunks."""
-    chunk_size = config.chunk_size_tokens
-    overlap = config.chunk_overlap_tokens
     chunks: list[Chunk] = []
     chunk_idx = 0
 
@@ -267,18 +266,24 @@ def _extract_and_chunk_book(
                 chunks.append(chunk)
                 chunk_idx += 1
         elif fmt == "epub":
-            # EPUB: use dedicated parser (Docling doesn't support epub)
+            # EPUB: parse with legacy parser, chunk with HybridChunker
             from ragling.parsers.epub import parse_epub
 
             epub_chapters = parse_epub(file_path)
-            for _chapter_num, text in epub_chapters:
-                chapter_chunks = chunk_plain(text, book.title, chunk_size, overlap)
-                for chunk in chapter_chunks:
-                    chunk.chunk_index = chunk_idx
-                    meta = dict(book_meta)
-                    chunk.metadata = meta
-                    chunks.append(chunk)
-                    chunk_idx += 1
+            docling_doc = epub_to_docling_doc(epub_chapters, book.title)
+            epub_chunks = chunk_with_hybrid(
+                docling_doc,
+                title=book.title,
+                source_path=str(file_path),
+                chunk_max_tokens=config.chunk_size_tokens,
+            )
+            for chunk in epub_chunks:
+                chunk.chunk_index = chunk_idx
+                meta = dict(book_meta)
+                meta.update(chunk.metadata)
+                chunk.metadata = meta
+                chunks.append(chunk)
+                chunk_idx += 1
         elif fmt == "pdf" and doc_store is None:
             logger.warning(
                 "No doc_store available for PDF conversion of '%s', skipping book file content",
@@ -288,11 +293,18 @@ def _extract_and_chunk_book(
     # Add description chunk(s) if available
     if book.description:
         desc_title = f"{book.title} (description)"
-        desc_chunks = chunk_plain(book.description, desc_title, chunk_size, overlap)
+        docling_doc = plaintext_to_docling_doc(book.description, desc_title)
+        desc_chunks = chunk_with_hybrid(
+            docling_doc,
+            title=desc_title,
+            source_path=f"calibre://{book.title}/description",
+            chunk_max_tokens=config.chunk_size_tokens,
+        )
         for chunk in desc_chunks:
             chunk.chunk_index = chunk_idx
             meta = dict(book_meta)
             meta["chunk_type"] = "description"
+            meta.update(chunk.metadata)
             chunk.metadata = meta
             chunks.append(chunk)
             chunk_idx += 1
