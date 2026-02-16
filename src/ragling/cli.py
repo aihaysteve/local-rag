@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ragling.config import load_config
+from ragling.config import Config, load_config
 
 console = Console()
 
@@ -39,7 +39,7 @@ def _setup_logging(verbose: bool) -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def _get_db(config, group: str = "default"):
+def _get_db(config: Config, group: str = "default"):
     """Get initialized database connection.
 
     Args:

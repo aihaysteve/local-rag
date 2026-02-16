@@ -1,4 +1,4 @@
-"""Calibre library indexer for local-rag.
+"""Calibre library indexer for ragling.
 
 Indexes ebooks from Calibre libraries into the "calibre" system collection,
 enriching every chunk with book-level metadata (authors, tags, series, etc.).

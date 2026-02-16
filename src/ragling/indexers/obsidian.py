@@ -4,7 +4,6 @@ Indexes all supported file types found in Obsidian vaults (markdown, PDF,
 DOCX, HTML, plaintext, etc.) into the "obsidian" system collection.
 """
 
-import hashlib
 import json
 import logging
 import sqlite3
@@ -16,7 +15,7 @@ from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
 from ragling.embeddings import get_embeddings, serialize_float32
 from ragling.indexers.base import BaseIndexer, IndexResult
-from ragling.indexers.project import _EXTENSION_MAP, _parse_and_chunk
+from ragling.indexers.project import _EXTENSION_MAP, _file_hash, _parse_and_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +111,6 @@ def _walk_vault(vault_path: Path, exclude_folders: set[str] | None = None) -> li
             continue
         results.append(item)
     return results
-
-
-def _file_hash(file_path: Path) -> str:
-    """Compute SHA256 hash of file content."""
-    h = hashlib.sha256()
-    h.update(file_path.read_bytes())
-    return h.hexdigest()
 
 
 def _index_file(
