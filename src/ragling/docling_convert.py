@@ -163,7 +163,13 @@ def convert_and_chunk(
         List of Chunk dataclass instances ready for embedding.
     """
     # 1. Get or convert (content-addressed via doc_store)
-    doc_data = doc_store.get_or_convert(path, _convert_with_docling)
+    config_hash = converter_config_hash(
+        do_picture_description=True,
+        do_code_enrichment=True,
+        do_formula_enrichment=True,
+        table_mode="accurate",
+    )
+    doc_data = doc_store.get_or_convert(path, _convert_with_docling, config_hash=config_hash)
 
     # 2. Reconstruct DoclingDocument from cached data
     doc = DoclingDocument.model_validate(doc_data)

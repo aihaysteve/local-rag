@@ -189,3 +189,29 @@ class TestDoclingFormats:
         from ragling.docling_convert import DOCLING_FORMATS
 
         assert "code" not in DOCLING_FORMATS
+
+
+class TestConfigHashPassthrough:
+    """Tests that convert_and_chunk passes config_hash to doc_store."""
+
+    def test_convert_and_chunk_passes_config_hash(self, store: DocStore, sample_file: Path) -> None:
+        from ragling.docling_convert import convert_and_chunk
+
+        with patch.object(store, "get_or_convert", return_value={"name": "mock"}) as mock_get:
+            with patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls:
+                mock_doc = MagicMock()
+                mock_doc_cls.model_validate.return_value = mock_doc
+                with patch("ragling.docling_convert._get_tokenizer") as mock_tok:
+                    mock_tok.return_value = MagicMock()
+                    with patch("ragling.docling_convert.HybridChunker") as mock_chunker_cls:
+                        mock_chunker = MagicMock()
+                        mock_chunker.chunk.return_value = []
+                        mock_chunker_cls.return_value = mock_chunker
+
+                        convert_and_chunk(sample_file, store)
+
+            # Verify config_hash was passed
+            call_kwargs = mock_get.call_args
+            assert "config_hash" in call_kwargs.kwargs
+            assert isinstance(call_kwargs.kwargs["config_hash"], str)
+            assert len(call_kwargs.kwargs["config_hash"]) == 16
