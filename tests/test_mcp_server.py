@@ -1,5 +1,7 @@
 """Tests for ragling.mcp_server module."""
 
+from pathlib import Path
+
 
 class TestBuildSourceUri:
     """Tests for _build_source_uri (existing function, ensure no regression)."""
@@ -113,6 +115,37 @@ class TestBuildSearchResponse:
         response = _build_search_response(results)
         assert response["results"] == results
         assert len(response["results"]) == 2
+
+
+class TestConvertDocument:
+    """Tests for the _convert_document helper."""
+
+    def test_converts_markdown_file(self, tmp_path: Path) -> None:
+        md_file = tmp_path / "test.md"
+        md_file.write_text("# Hello World\n\nThis is a test document.")
+
+        from ragling.mcp_server import _convert_document
+
+        result = _convert_document(str(md_file), path_mappings={})
+        assert "Hello World" in result
+        assert "test document" in result
+
+    def test_applies_reverse_path_mapping(self, tmp_path: Path) -> None:
+        md_file = tmp_path / "test.md"
+        md_file.write_text("# Mapped\n\nContent here.")
+
+        from ragling.mcp_server import _convert_document
+
+        # Container path /workspace/group/test.md maps to host path
+        mappings = {str(tmp_path) + "/": "/workspace/group/"}
+        result = _convert_document("/workspace/group/test.md", mappings)
+        assert "Mapped" in result
+
+    def test_returns_error_for_nonexistent_file(self) -> None:
+        from ragling.mcp_server import _convert_document
+
+        result = _convert_document("/nonexistent/file.pdf", {})
+        assert "error" in result.lower() or "not found" in result.lower()
 
 
 class TestCreateServerSignature:

@@ -148,6 +148,48 @@ def _build_search_response(
     return response
 
 
+def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:
+    """Convert a document to markdown text.
+
+    Applies reverse path mapping if needed, then reads or converts the file.
+
+    Args:
+        file_path: Path to the file (may be a container path).
+        path_mappings: Host->container mappings (reversed for lookup).
+
+    Returns:
+        Markdown text content, or error message.
+    """
+    from pathlib import Path as P
+
+    from ragling.path_mapping import apply_reverse
+
+    host_path = apply_reverse(file_path, path_mappings)
+    resolved = P(host_path).expanduser().resolve()
+
+    if not resolved.exists():
+        return f"Error: File not found: {file_path}"
+
+    # For markdown, just read directly
+    if resolved.suffix.lower() == ".md":
+        return resolved.read_text(encoding="utf-8", errors="replace")
+
+    # For other formats, try Docling conversion via doc_store cache
+    try:
+        from ragling.doc_store import DocStore
+        from ragling.docling_convert import convert_and_chunk
+
+        config = load_config()
+        doc_store = DocStore(config.shared_db_path)
+        try:
+            chunks = convert_and_chunk(resolved, doc_store)
+            return "\n\n".join(c.text for c in chunks)
+        finally:
+            doc_store.close()
+    except Exception as e:
+        return f"Error converting {file_path}: {e}"
+
+
 def create_server(
     group_name: str = "default",
     config: Config | None = None,
@@ -525,5 +567,17 @@ def create_server(
             }
         finally:
             conn.close()
+
+    @mcp.tool()
+    def rag_convert(file_path: str) -> str:
+        """Convert a document (PDF, DOCX, etc.) to markdown text.
+
+        Supports PDF, DOCX, PPTX, XLSX, HTML, EPUB, images, and plain text.
+        Results are cached — converting the same file twice is instant.
+
+        Args:
+            file_path: Path to the document file.
+        """
+        return _convert_document(file_path, path_mappings={})
 
     return mcp
