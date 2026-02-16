@@ -26,26 +26,21 @@ class TestConvertAndChunk:
         """convert_and_chunk returns a list of Chunk dataclass instances."""
         from ragling.docling_convert import convert_and_chunk
 
-        with patch("ragling.docling_convert._convert_with_docling") as mock_convert:
-            # Mock returns a dict (what DocStore caches)
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = ["Section 1"]
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "Section 1\nchunk text"
+
+        with (
+            patch("ragling.docling_convert._convert_with_docling") as mock_convert,
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
             mock_convert.return_value = {"name": "mock", "schema_name": "DoclingDocument"}
-
-            with patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls:
-                mock_doc = MagicMock()
-                mock_doc_cls.model_validate.return_value = mock_doc
-
-                with patch("ragling.docling_convert._get_tokenizer") as mock_get_tok:
-                    mock_get_tok.return_value = MagicMock()
-
-                    with patch("ragling.docling_convert.HybridChunker") as mock_chunker_cls:
-                        mock_chunk = MagicMock()
-                        mock_chunk.meta.headings = ["Section 1"]
-                        mock_chunker = MagicMock()
-                        mock_chunker.chunk.return_value = [mock_chunk]
-                        mock_chunker.contextualize.return_value = "Section 1\nchunk text"
-                        mock_chunker_cls.return_value = mock_chunker
-
-                        chunks = convert_and_chunk(sample_file, store)
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(sample_file, store)
 
         assert len(chunks) == 1
         assert isinstance(chunks[0], Chunk)
@@ -56,25 +51,21 @@ class TestConvertAndChunk:
     def test_chunk_metadata_includes_source_path(self, store: DocStore, sample_file: Path) -> None:
         from ragling.docling_convert import convert_and_chunk
 
-        with patch("ragling.docling_convert._convert_with_docling") as mock_convert:
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = ["H1"]
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "H1\ntext"
+
+        with (
+            patch("ragling.docling_convert._convert_with_docling") as mock_convert,
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
             mock_convert.return_value = {"name": "mock"}
-
-            with patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls:
-                mock_doc = MagicMock()
-                mock_doc_cls.model_validate.return_value = mock_doc
-
-                with patch("ragling.docling_convert._get_tokenizer") as mock_get_tok:
-                    mock_get_tok.return_value = MagicMock()
-
-                    with patch("ragling.docling_convert.HybridChunker") as mock_chunker_cls:
-                        mock_chunk = MagicMock()
-                        mock_chunk.meta.headings = ["H1"]
-                        mock_chunker = MagicMock()
-                        mock_chunker.chunk.return_value = [mock_chunk]
-                        mock_chunker.contextualize.return_value = "H1\ntext"
-                        mock_chunker_cls.return_value = mock_chunker
-
-                        chunks = convert_and_chunk(sample_file, store)
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(sample_file, store)
 
         assert chunks[0].metadata["source_path"] == str(sample_file)
         assert chunks[0].metadata["headings"] == ["H1"]
@@ -84,30 +75,24 @@ class TestConvertAndChunk:
     ) -> None:
         from ragling.docling_convert import convert_and_chunk
 
-        with patch("ragling.docling_convert._convert_with_docling") as mock_convert:
+        chunks_data = [MagicMock() for _ in range(3)]
+        for i, mc in enumerate(chunks_data):
+            mc.meta.headings = [f"Section {i}"]
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = chunks_data
+        mock_chunker.contextualize.side_effect = [
+            f"Section {i}\ntext {i}" for i in range(3)
+        ]
+
+        with (
+            patch("ragling.docling_convert._convert_with_docling") as mock_convert,
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
             mock_convert.return_value = {"name": "mock"}
-
-            with patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls:
-                mock_doc = MagicMock()
-                mock_doc_cls.model_validate.return_value = mock_doc
-
-                with patch("ragling.docling_convert._get_tokenizer") as mock_get_tok:
-                    mock_get_tok.return_value = MagicMock()
-
-                    with patch("ragling.docling_convert.HybridChunker") as mock_chunker_cls:
-                        chunks_data = []
-                        for i in range(3):
-                            mc = MagicMock()
-                            mc.meta.headings = [f"Section {i}"]
-                            chunks_data.append(mc)
-                        mock_chunker = MagicMock()
-                        mock_chunker.chunk.return_value = chunks_data
-                        mock_chunker.contextualize.side_effect = [
-                            f"Section {i}\ntext {i}" for i in range(3)
-                        ]
-                        mock_chunker_cls.return_value = mock_chunker
-
-                        chunks = convert_and_chunk(sample_file, store)
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(sample_file, store)
 
         assert len(chunks) == 3
         assert [c.chunk_index for c in chunks] == [0, 1, 2]
@@ -289,22 +274,22 @@ class TestChunkWithHybrid:
     def test_returns_list_of_chunks(self) -> None:
         from ragling.docling_convert import chunk_with_hybrid
 
-        mock_doc = MagicMock()
-        with patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()):
-            with patch("ragling.docling_convert.HybridChunker") as mock_cls:
-                mc = MagicMock()
-                mc.meta.headings = ["H1"]
-                mc.meta.doc_items = []
-                mock_chunker = MagicMock()
-                mock_chunker.chunk.return_value = [mc]
-                mock_chunker.contextualize.return_value = "contextualized text"
-                mock_cls.return_value = mock_chunker
+        mc = MagicMock()
+        mc.meta.headings = ["H1"]
+        mc.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mc]
+        mock_chunker.contextualize.return_value = "contextualized text"
 
-                chunks = chunk_with_hybrid(
-                    mock_doc,
-                    title="test.md",
-                    source_path="/tmp/test.md",
-                )
+        with (
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
+            chunks = chunk_with_hybrid(
+                MagicMock(),
+                title="test.md",
+                source_path="/tmp/test.md",
+            )
 
         assert len(chunks) == 1
         assert isinstance(chunks[0], Chunk)
@@ -314,23 +299,23 @@ class TestChunkWithHybrid:
     def test_merges_extra_metadata(self) -> None:
         from ragling.docling_convert import chunk_with_hybrid
 
-        mock_doc = MagicMock()
-        with patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()):
-            with patch("ragling.docling_convert.HybridChunker") as mock_cls:
-                mc = MagicMock()
-                mc.meta.headings = []
-                mc.meta.doc_items = []
-                mock_chunker = MagicMock()
-                mock_chunker.chunk.return_value = [mc]
-                mock_chunker.contextualize.return_value = "text"
-                mock_cls.return_value = mock_chunker
+        mc = MagicMock()
+        mc.meta.headings = []
+        mc.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mc]
+        mock_chunker.contextualize.return_value = "text"
 
-                chunks = chunk_with_hybrid(
-                    mock_doc,
-                    title="note.md",
-                    source_path="/tmp/note.md",
-                    extra_metadata={"tags": ["python", "rag"], "links": ["Other Note"]},
-                )
+        with (
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
+            chunks = chunk_with_hybrid(
+                MagicMock(),
+                title="note.md",
+                source_path="/tmp/note.md",
+                extra_metadata={"tags": ["python", "rag"], "links": ["Other Note"]},
+            )
 
         assert chunks[0].metadata["tags"] == ["python", "rag"]
         assert chunks[0].metadata["links"] == ["Other Note"]
@@ -342,21 +327,19 @@ class TestConfigHashPassthrough:
     def test_convert_and_chunk_passes_config_hash(self, store: DocStore, sample_file: Path) -> None:
         from ragling.docling_convert import convert_and_chunk
 
-        with patch.object(store, "get_or_convert", return_value={"name": "mock"}) as mock_get:
-            with patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls:
-                mock_doc = MagicMock()
-                mock_doc_cls.model_validate.return_value = mock_doc
-                with patch("ragling.docling_convert._get_tokenizer") as mock_tok:
-                    mock_tok.return_value = MagicMock()
-                    with patch("ragling.docling_convert.HybridChunker") as mock_chunker_cls:
-                        mock_chunker = MagicMock()
-                        mock_chunker.chunk.return_value = []
-                        mock_chunker_cls.return_value = mock_chunker
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = []
 
-                        convert_and_chunk(sample_file, store)
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}) as mock_get,
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            convert_and_chunk(sample_file, store)
 
-            # Verify config_hash was passed
-            call_kwargs = mock_get.call_args
-            assert "config_hash" in call_kwargs.kwargs
-            assert isinstance(call_kwargs.kwargs["config_hash"], str)
-            assert len(call_kwargs.kwargs["config_hash"]) == 16
+        call_kwargs = mock_get.call_args
+        assert "config_hash" in call_kwargs.kwargs
+        assert isinstance(call_kwargs.kwargs["config_hash"], str)
+        assert len(call_kwargs.kwargs["config_hash"]) == 16
