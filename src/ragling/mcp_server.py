@@ -141,12 +141,10 @@ def _build_search_response(
     Returns:
         Response dict with 'results' and 'indexing' keys.
     """
-    response: dict[str, Any] = {"results": results}
-    if indexing_status:
-        response["indexing"] = indexing_status.to_dict()
-    else:
-        response["indexing"] = None
-    return response
+    return {
+        "results": results,
+        "indexing": indexing_status.to_dict() if indexing_status else None,
+    }
 
 
 def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:

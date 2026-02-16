@@ -777,6 +777,3 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         server.run(transport="sse")
     elif not no_stdio:
         server.run(transport="stdio")
-    else:
-        click.echo("Error: Cannot disable both stdio and SSE.", err=True)
-        ctx.exit(1)
