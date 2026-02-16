@@ -12,6 +12,16 @@ from docling_core.types.doc.document import NodeItem
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
 
+def _add_paragraphs(
+    doc: DoclingDocument, text: str, parent: NodeItem | None = None
+) -> None:
+    """Split text on double newlines and add non-empty paragraphs to doc."""
+    for para in re.split(r"\n\s*\n", text.strip()):
+        para = para.strip()
+        if para:
+            doc.add_text(label=DocItemLabel.PARAGRAPH, text=para, parent=parent)
+
+
 def markdown_to_docling_doc(text: str, title: str) -> DoclingDocument:
     """Convert markdown text into a DoclingDocument preserving heading hierarchy.
 
@@ -24,7 +34,7 @@ def markdown_to_docling_doc(text: str, title: str) -> DoclingDocument:
     """
     doc = DoclingDocument(name=title)
 
-    if not text or not text.strip():
+    if not text.strip():
         return doc
 
     segments = _split_markdown_segments(text)
@@ -51,15 +61,7 @@ def markdown_to_docling_doc(text: str, title: str) -> DoclingDocument:
             parent = heading_item
 
         if body.strip():
-            paragraphs = re.split(r"\n\s*\n", body.strip())
-            for para in paragraphs:
-                para = para.strip()
-                if para:
-                    doc.add_text(
-                        label=DocItemLabel.PARAGRAPH,
-                        text=para,
-                        parent=parent,
-                    )
+            _add_paragraphs(doc, body, parent=parent)
 
     return doc
 
@@ -106,15 +108,7 @@ def epub_to_docling_doc(chapters: list[tuple[int, str]], title: str) -> DoclingD
         heading = doc.add_heading(text=f"Chapter {chapter_num}", level=1)
 
         if text.strip():
-            paragraphs = re.split(r"\n\s*\n", text.strip())
-            for para in paragraphs:
-                para = para.strip()
-                if para:
-                    doc.add_text(
-                        label=DocItemLabel.PARAGRAPH,
-                        text=para,
-                        parent=heading,
-                    )
+            _add_paragraphs(doc, text, parent=heading)
 
     return doc
 
@@ -131,13 +125,9 @@ def plaintext_to_docling_doc(text: str, title: str) -> DoclingDocument:
     """
     doc = DoclingDocument(name=title)
 
-    if not text or not text.strip():
+    if not text.strip():
         return doc
 
-    paragraphs = re.split(r"\n\s*\n", text.strip())
-    for para in paragraphs:
-        para = para.strip()
-        if para:
-            doc.add_text(label=DocItemLabel.PARAGRAPH, text=para)
+    _add_paragraphs(doc, text)
 
     return doc
