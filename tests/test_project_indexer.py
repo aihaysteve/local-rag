@@ -110,12 +110,69 @@ class TestObsidianDoclingRouting:
         sig = inspect.signature(_index_file)
         assert "doc_store" in sig.parameters
 
-    def test_obsidian_indexer_index_accepts_doc_store(self) -> None:
-        """ObsidianIndexer.index() accepts doc_store parameter."""
+    def test_obsidian_indexer_constructor_accepts_doc_store(self) -> None:
+        """ObsidianIndexer.__init__() accepts doc_store parameter."""
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        sig = inspect.signature(ObsidianIndexer.__init__)
+        assert "doc_store" in sig.parameters
+
+    def test_obsidian_indexer_index_does_not_accept_doc_store(self) -> None:
+        """ObsidianIndexer.index() should NOT have doc_store parameter (use constructor)."""
         from ragling.indexers.obsidian import ObsidianIndexer
 
         sig = inspect.signature(ObsidianIndexer.index)
-        assert "doc_store" in sig.parameters
+        assert "doc_store" not in sig.parameters
+
+    def test_obsidian_indexer_stores_doc_store(self) -> None:
+        """ObsidianIndexer stores doc_store as instance attribute."""
+        from unittest.mock import MagicMock
+
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        mock_store = MagicMock()
+        indexer = ObsidianIndexer([Path("/tmp/vault")], doc_store=mock_store)
+        assert indexer.doc_store is mock_store
+
+    def test_obsidian_indexer_doc_store_defaults_none(self) -> None:
+        """ObsidianIndexer doc_store defaults to None."""
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        indexer = ObsidianIndexer([Path("/tmp/vault")])
+        assert indexer.doc_store is None
+
+
+class TestParseAndChunkDoclingRouting:
+    """Tests for _parse_and_chunk Docling format routing."""
+
+    def test_docling_format_with_doc_store_calls_convert_and_chunk(self, tmp_path: Path) -> None:
+        """Docling format + doc_store should call convert_and_chunk."""
+        from unittest.mock import MagicMock
+
+        from ragling.indexers.project import _parse_and_chunk
+
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 fake")
+        config = Config(chunk_size_tokens=256)
+        mock_store = MagicMock()
+
+        with patch("ragling.indexers.project.convert_and_chunk") as mock_convert:
+            mock_convert.return_value = [Chunk(text="text", title="test.pdf", chunk_index=0)]
+            result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=mock_store)
+
+        mock_convert.assert_called_once_with(pdf_file, mock_store, chunk_max_tokens=256)
+        assert len(result) == 1
+
+    def test_docling_format_without_doc_store_returns_empty(self, tmp_path: Path) -> None:
+        """Docling format without doc_store should return empty list and log ERROR."""
+        from ragling.indexers.project import _parse_and_chunk
+
+        pdf_file = tmp_path / "test.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 fake")
+        config = Config(chunk_size_tokens=256)
+
+        result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=None)
+        assert result == []
 
 
 class TestParseAndChunkUnifiedChunking:

@@ -4,8 +4,6 @@ Indexes arbitrary document folders (PDF, DOCX, TXT, HTML, MD) into named
 project collections.
 """
 
-import hashlib
-import json
 import logging
 import sqlite3
 from datetime import datetime, timezone
@@ -21,8 +19,8 @@ from ragling.docling_bridge import (
     plaintext_to_docling_doc,
 )
 from ragling.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
-from ragling.embeddings import get_embeddings, serialize_float32
-from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.embeddings import get_embeddings
+from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
 from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
 
@@ -58,15 +56,6 @@ _EXTENSION_MAP: dict[str, str] = {
     ".yaml": "plaintext",
     ".yml": "plaintext",
 }
-
-
-def _file_hash(path: Path) -> str:
-    """Compute SHA256 hash of a file's contents."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(8192), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 def _is_hidden(path: Path) -> bool:
@@ -110,7 +99,15 @@ def _parse_and_chunk(
 ) -> list[Chunk]:
     """Parse a file and return chunks based on its type."""
     # Route Docling-handled formats through Docling when doc_store is available
-    if source_type in DOCLING_FORMATS and doc_store is not None:
+    if source_type in DOCLING_FORMATS:
+        if doc_store is None:
+            logger.error(
+                "Format '%s' requires doc_store for Docling conversion but none was provided "
+                "— this indicates a configuration error. Skipping %s",
+                source_type,
+                path,
+            )
+            return []
         return convert_and_chunk(path, doc_store, chunk_max_tokens=config.chunk_size_tokens)
 
     # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker
@@ -244,7 +241,7 @@ class ProjectIndexer(BaseIndexer):
             True if the file was indexed, False if skipped (unchanged).
         """
         source_path = str(file_path.resolve())
-        file_h = _file_hash(file_path)
+        file_h = file_hash(file_path)
         ext = file_path.suffix.lower()
         source_type = _EXTENSION_MAP.get(ext, "plaintext")
 
@@ -268,68 +265,16 @@ class ProjectIndexer(BaseIndexer):
         texts = [c.text for c in chunks]
         embeddings = get_embeddings(texts, config)
 
-        now = datetime.now(timezone.utc).isoformat()
         mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat()
-
-        # Insert/update within a transaction
-        # Delete old data for this source if it exists
-        existing = conn.execute(
-            "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, source_path),
-        ).fetchone()
-
-        if existing:
-            source_id = existing["id"]
-            # Delete old documents (cascade will handle vec_documents via triggers
-            # but vec_documents doesn't cascade, so delete explicitly)
-            old_doc_ids = [
-                r["id"]
-                for r in conn.execute(
-                    "SELECT id FROM documents WHERE source_id = ?", (source_id,)
-                ).fetchall()
-            ]
-            if old_doc_ids:
-                placeholders = ",".join("?" * len(old_doc_ids))
-                conn.execute(
-                    f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
-                    old_doc_ids,
-                )
-            conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
-            conn.execute(
-                "UPDATE sources SET file_hash = ?, file_modified_at = ?, "
-                "last_indexed_at = ?, source_type = ? WHERE id = ?",
-                (file_h, mtime, now, source_type, source_id),
-            )
-        else:
-            cursor = conn.execute(
-                "INSERT INTO sources (collection_id, source_type, source_path, "
-                "file_hash, file_modified_at, last_indexed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (collection_id, source_type, source_path, file_h, mtime, now),
-            )
-            source_id = cursor.lastrowid
-
-        # Insert new documents and embeddings
-        for chunk, embedding in zip(chunks, embeddings):
-            metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
-            cursor = conn.execute(
-                "INSERT INTO documents (source_id, collection_id, chunk_index, "
-                "title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    source_id,
-                    collection_id,
-                    chunk.chunk_index,
-                    chunk.title,
-                    chunk.text,
-                    metadata_json,
-                ),
-            )
-            doc_id = cursor.lastrowid
-            conn.execute(
-                "INSERT INTO vec_documents (embedding, document_id) VALUES (?, ?)",
-                (serialize_float32(embedding), doc_id),
-            )
-
-        conn.commit()
-        logger.info("Indexed %s (%d chunks)", file_path, len(chunks))
+        upsert_source_with_chunks(
+            conn,
+            collection_id=collection_id,
+            source_path=source_path,
+            source_type=source_type,
+            chunks=chunks,
+            embeddings=embeddings,
+            file_hash=file_h,
+            file_modified_at=mtime,
+        )
+        logger.info("Indexed %s [%s] (%d chunks)", file_path, source_type, len(chunks))
         return True

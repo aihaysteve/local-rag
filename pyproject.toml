@@ -19,6 +19,7 @@ dependencies = [
     "rich>=13.0",
     "docling>=2.66.0",
     "docling-core>=2.56.0",
+    "transformers>=4.30.0",
 ]
 
 [project.scripts]
@@ -30,6 +31,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy>=1.0",
+    "types-PyYAML",
 ]
 
 [tool.setuptools.packages.find]

@@ -4,7 +4,6 @@ Indexes all supported file types found in Obsidian vaults (markdown, PDF,
 DOCX, HTML, plaintext, etc.) into the "obsidian" system collection.
 """
 
-import json
 import logging
 import sqlite3
 from datetime import datetime, timezone
@@ -13,9 +12,9 @@ from pathlib import Path
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
-from ragling.embeddings import get_embeddings, serialize_float32
-from ragling.indexers.base import BaseIndexer, IndexResult
-from ragling.indexers.project import _EXTENSION_MAP, _file_hash, _parse_and_chunk
+from ragling.embeddings import get_embeddings
+from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
+from ragling.indexers.project import _EXTENSION_MAP, _parse_and_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +25,21 @@ _SKIP_DIRS = {".obsidian", ".trash", ".git"}
 class ObsidianIndexer(BaseIndexer):
     """Indexes all supported files in Obsidian vaults."""
 
-    def __init__(self, vault_paths: list[Path], exclude_folders: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        vault_paths: list[Path],
+        exclude_folders: list[str] | None = None,
+        doc_store: DocStore | None = None,
+    ) -> None:
         self.vault_paths = vault_paths
         self.exclude_folders = set(exclude_folders or [])
+        self.doc_store = doc_store
 
     def index(
         self,
         conn: sqlite3.Connection,
         config: Config,
         force: bool = False,
-        doc_store: DocStore | None = None,
     ) -> IndexResult:
         """Index all configured Obsidian vaults.
 
@@ -43,7 +47,6 @@ class ObsidianIndexer(BaseIndexer):
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all files regardless of hash match.
-            doc_store: Optional shared document store for Docling conversion caching.
 
         Returns:
             IndexResult with counts of indexed/skipped/errored files.
@@ -70,7 +73,7 @@ class ObsidianIndexer(BaseIndexer):
             for file_path in files:
                 try:
                     result = _index_file(
-                        conn, config, collection_id, file_path, force, doc_store=doc_store
+                        conn, config, collection_id, file_path, force, doc_store=self.doc_store
                     )
                     if result == "indexed":
                         indexed += 1
@@ -108,6 +111,7 @@ def _walk_vault(vault_path: Path, exclude_folders: set[str] | None = None) -> li
             continue
         # Only include files with supported extensions
         if item.suffix.lower() not in _EXTENSION_MAP:
+            logger.debug("Skipping unsupported extension in vault: %s", item.name)
             continue
         results.append(item)
     return results
@@ -127,7 +131,7 @@ def _index_file(
         'indexed' if the file was processed, 'skipped' if unchanged.
     """
     source_path = str(file_path)
-    content_hash = _file_hash(file_path)
+    content_hash = file_hash(file_path)
     source_type = _EXTENSION_MAP.get(file_path.suffix.lower(), "plaintext")
     mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat()
 
@@ -151,63 +155,15 @@ def _index_file(
     chunk_texts = [c.text for c in chunks]
     embeddings = get_embeddings(chunk_texts, config)
 
-    # Persist within a transaction
-    now = datetime.now(tz=timezone.utc).isoformat()
-
-    # Upsert source row
-    existing = conn.execute(
-        "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-        (collection_id, source_path),
-    ).fetchone()
-
-    if existing:
-        source_id = existing["id"]
-        # Delete old documents (triggers handle FTS cleanup)
-        old_doc_ids = [
-            r["id"]
-            for r in conn.execute(
-                "SELECT id FROM documents WHERE source_id = ?", (source_id,)
-            ).fetchall()
-        ]
-        if old_doc_ids:
-            conn.execute(
-                f"DELETE FROM vec_documents WHERE document_id IN ({','.join('?' * len(old_doc_ids))})",
-                old_doc_ids,
-            )
-            conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
-
-        conn.execute(
-            "UPDATE sources SET file_hash = ?, file_modified_at = ?, last_indexed_at = ?, source_type = ? WHERE id = ?",
-            (content_hash, mtime, now, source_type, source_id),
-        )
-    else:
-        cursor = conn.execute(
-            "INSERT INTO sources (collection_id, source_type, source_path, file_hash, file_modified_at, last_indexed_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (collection_id, source_type, source_path, content_hash, mtime, now),
-        )
-        source_id = cursor.lastrowid
-
-    # Insert new documents and vectors
-    for chunk, embedding in zip(chunks, embeddings):
-        metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                source_id,
-                collection_id,
-                chunk.chunk_index,
-                chunk.title,
-                chunk.text,
-                metadata_json,
-            ),
-        )
-        doc_id = cursor.lastrowid
-
-        conn.execute(
-            "INSERT INTO vec_documents (embedding, document_id) VALUES (?, ?)",
-            (serialize_float32(embedding), doc_id),
-        )
-
-    conn.commit()
+    upsert_source_with_chunks(
+        conn,
+        collection_id=collection_id,
+        source_path=source_path,
+        source_type=source_type,
+        chunks=chunks,
+        embeddings=embeddings,
+        file_hash=content_hash,
+        file_modified_at=mtime,
+    )
     logger.info("Indexed %s [%s] (%d chunks)", file_path.name, source_type, len(chunks))
     return "indexed"

@@ -77,6 +77,7 @@ def _vector_search(
         return [(row["document_id"], row["distance"]) for row in rows[:top_k]]
 
     # Apply filters by looking up document metadata
+    assert filters is not None  # guaranteed by has_filters check above
     filtered = []
     for row in rows:
         doc_id = row["document_id"]
@@ -131,6 +132,7 @@ def _fts_search(
     if not has_filters:
         return [(row["rowid"], row["rank"]) for row in rows[:top_k]]
 
+    assert filters is not None  # guaranteed by has_filters check above
     filtered = []
     for row in rows:
         doc_id = row["rowid"]

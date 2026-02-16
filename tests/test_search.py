@@ -314,12 +314,8 @@ class TestSearchWithDatabase:
     def test_vec_search_finds_similar(self, db):
         conn, config = db
 
-        self._insert_document(
-            conn, "test", "/a.md", "A", "content a", [1.0, 0.0, 0.0, 0.0]
-        )
-        self._insert_document(
-            conn, "test", "/b.md", "B", "content b", [0.0, 1.0, 0.0, 0.0]
-        )
+        self._insert_document(conn, "test", "/a.md", "A", "content a", [1.0, 0.0, 0.0, 0.0])
+        self._insert_document(conn, "test", "/b.md", "B", "content b", [0.0, 1.0, 0.0, 0.0])
 
         from ragling.embeddings import serialize_float32
 

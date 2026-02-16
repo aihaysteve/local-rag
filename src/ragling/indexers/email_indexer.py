@@ -5,18 +5,17 @@ collection. Discovers account directories automatically and opens all
 databases in read-only mode with retry logic for handling lock contention.
 """
 
-import json
 import logging
 import sqlite3
 import time
-from datetime import datetime
 from pathlib import Path
 
-from ragling.chunker import chunk_email
 from ragling.config import Config
+from ragling.docling_bridge import email_to_docling_doc
+from ragling.docling_convert import chunk_with_hybrid
 from ragling.db import get_or_create_collection
-from ragling.embeddings import get_embeddings, serialize_float32
-from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.embeddings import get_embeddings
+from ragling.indexers.base import BaseIndexer, IndexResult, upsert_source_with_chunks
 from ragling.parsers.email import EmailMessage, find_account_dirs, parse_emails
 
 logger = logging.getLogger(__name__)
@@ -57,9 +56,7 @@ class EmailIndexer(BaseIndexer):
         """
         self._explicit_db_path = db_path
 
-    def index(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
-    ) -> IndexResult:
+    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
         """Index emails from eM Client into the "email" collection.
 
         Discovers all account directories and indexes emails from each.
@@ -104,9 +101,7 @@ class EmailIndexer(BaseIndexer):
         logger.info("Found %d eM Client account(s)", len(account_dirs))
 
         # Get/create the email system collection
-        collection_id = get_or_create_collection(
-            conn, "email", "system", "Emails from eM Client"
-        )
+        collection_id = get_or_create_collection(conn, "email", "system", "Emails from eM Client")
 
         # Determine watermark for incremental indexing
         since_date = None
@@ -233,8 +228,7 @@ class EmailIndexer(BaseIndexer):
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < MAX_LOCK_RETRIES:
                         logger.warning(
-                            "eM Client database is locked (attempt %d/%d), "
-                            "retrying in %ds...",
+                            "eM Client database is locked (attempt %d/%d), retrying in %ds...",
                             attempt,
                             MAX_LOCK_RETRIES,
                             LOCK_RETRY_DELAY,
@@ -253,9 +247,7 @@ class EmailIndexer(BaseIndexer):
 
         return None
 
-    def _is_indexed(
-        self, conn: sqlite3.Connection, collection_id: int, message_id: str
-    ) -> bool:
+    def _is_indexed(self, conn: sqlite3.Connection, collection_id: int, message_id: str) -> bool:
         """Check if an email with this message_id is already indexed."""
         row = conn.execute(
             "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
@@ -275,78 +267,44 @@ class EmailIndexer(BaseIndexer):
         Returns:
             Number of chunks indexed.
         """
-        # Chunk the email
-        chunks = chunk_email(
-            subject=email_msg.subject,
-            body=email_msg.body_text,
-            chunk_size=config.chunk_size_tokens,
-            overlap=config.chunk_overlap_tokens,
+        # Build DoclingDocument via bridge and chunk with HybridChunker
+        doc = email_to_docling_doc(email_msg.subject, email_msg.body_text)
+        extra_metadata = {
+            "sender": email_msg.sender,
+            "recipients": email_msg.recipients,
+            "date": email_msg.date,
+            "folder": email_msg.folder,
+        }
+        chunks = chunk_with_hybrid(
+            doc,
+            title=email_msg.subject or "(no subject)",
+            source_path=email_msg.message_id,
+            extra_metadata=extra_metadata,
         )
 
         if not chunks:
+            logger.warning(
+                "No chunks produced for email '%s' (message_id=%s)",
+                email_msg.subject or "(no subject)",
+                email_msg.message_id,
+            )
             return 0
 
         # Embed all chunks
         chunk_texts = [c.text for c in chunks]
         embeddings = get_embeddings(chunk_texts, config)
 
-        # Build metadata
-        metadata = {
-            "sender": email_msg.sender,
-            "recipients": email_msg.recipients,
-            "date": email_msg.date,
-            "folder": email_msg.folder,
-        }
-        metadata_json = json.dumps(metadata)
-
-        now = datetime.now().isoformat()
-
-        # Delete existing source if re-indexing (force mode)
-        conn.execute(
-            "DELETE FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, email_msg.message_id),
+        upsert_source_with_chunks(
+            conn,
+            collection_id=collection_id,
+            source_path=email_msg.message_id,
+            source_type="email",
+            chunks=chunks,
+            embeddings=embeddings,
         )
-
-        # Insert source
-        cursor = conn.execute(
-            """
-            INSERT INTO sources (collection_id, source_type, source_path, last_indexed_at)
-            VALUES (?, 'email', ?, ?)
-            """,
-            (collection_id, email_msg.message_id, now),
-        )
-        source_id = cursor.lastrowid
-
-        # Insert documents and vectors
-        for chunk, embedding in zip(chunks, embeddings):
-            doc_cursor = conn.execute(
-                """
-                INSERT INTO documents (source_id, collection_id, chunk_index,
-                                       title, content, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    source_id,
-                    collection_id,
-                    chunk.chunk_index,
-                    email_msg.subject or "(no subject)",
-                    chunk.text,
-                    metadata_json,
-                ),
-            )
-            doc_id = doc_cursor.lastrowid
-
-            conn.execute(
-                "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-                (doc_id, serialize_float32(embedding), doc_id),
-            )
-
-        conn.commit()
         return len(chunks)
 
-    def _get_watermark(
-        self, conn: sqlite3.Connection, collection_id: int
-    ) -> str | None:
+    def _get_watermark(self, conn: sqlite3.Connection, collection_id: int) -> str | None:
         """Get the latest indexed email date for incremental updates."""
         row = conn.execute(
             """
@@ -361,9 +319,7 @@ class EmailIndexer(BaseIndexer):
             return row["latest_date"]
         return None
 
-    def _set_watermark(
-        self, conn: sqlite3.Connection, collection_id: int, date: str
-    ) -> None:
+    def _set_watermark(self, conn: sqlite3.Connection, collection_id: int, date: str) -> None:
         """Store the watermark date in the collection description for tracking."""
         conn.execute(
             "UPDATE collections SET description = ? WHERE id = ?",

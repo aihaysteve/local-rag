@@ -4,7 +4,6 @@ Uses git ls-files for file discovery and commit SHAs for incremental indexing.
 Parses code files with tree-sitter for structural chunking.
 """
 
-import hashlib
 import json
 import logging
 import sqlite3
@@ -16,8 +15,8 @@ from pathlib import Path
 from ragling.chunker import Chunk, _split_into_windows, _word_count
 from ragling.config import Config
 from ragling.db import get_or_create_collection
-from ragling.embeddings import get_embeddings, serialize_float32
-from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.embeddings import get_embeddings
+from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
 from ragling.parsers.code import (
     CodeDocument,
     get_language,
@@ -134,9 +133,7 @@ def _commit_exists(repo_path: Path, sha: str) -> bool:
         return False
 
 
-def _get_commits_since(
-    repo_path: Path, since_sha: str | None, months: int
-) -> list[CommitInfo]:
+def _get_commits_since(repo_path: Path, since_sha: str | None, months: int) -> list[CommitInfo]:
     """Get commits since a given SHA or within the last N months.
 
     Args:
@@ -237,9 +234,7 @@ def _get_file_diff(repo_path: Path, commit_sha: str, file_path: str) -> str:
         result = _run_git(repo_path, "show", commit_sha, "--", file_path)
         return result.stdout
     except subprocess.CalledProcessError as e:
-        logger.warning(
-            "Failed to get diff for %s in %s: %s", file_path, commit_sha[:12], e
-        )
+        logger.warning("Failed to get diff for %s in %s: %s", file_path, commit_sha[:12], e)
         return ""
 
 
@@ -280,11 +275,7 @@ def _commit_to_chunks(
         if not diff_text:
             continue
 
-        prefix = (
-            f"[{repo_name}/{fc.file_path}] "
-            f"[commit: {short_sha}] "
-            f"[{date_str}]\n"
-        )
+        prefix = f"[{repo_name}/{fc.file_path}] [commit: {short_sha}] [{date_str}]\n"
         body = f"{commit.subject}\n\n{diff_text}"
 
         metadata = {
@@ -334,9 +325,7 @@ def _should_exclude(relative_path: str) -> bool:
     for pattern in _EXCLUDE_PATTERNS:
         if pattern.endswith("/"):
             # Directory pattern
-            if f"/{pattern}" in f"/{relative_path}" or relative_path.startswith(
-                pattern
-            ):
+            if f"/{pattern}" in f"/{relative_path}" or relative_path.startswith(pattern):
                 return True
         else:
             # File pattern
@@ -345,18 +334,7 @@ def _should_exclude(relative_path: str) -> bool:
     return False
 
 
-def _file_hash(path: Path) -> str:
-    """Compute SHA256 hash of a file's contents."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(8192), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
-def _code_blocks_to_chunks(
-    doc: CodeDocument, relative_path: str, config: Config
-) -> list[Chunk]:
+def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config) -> list[Chunk]:
     """Convert CodeDocument blocks into Chunks suitable for embedding.
 
     Each block gets a context prefix with file path, language, and symbol info.
@@ -443,11 +421,12 @@ def _parse_watermarks(description: str | None) -> dict[str, str]:
             if isinstance(data, dict):
                 return data
         except (json.JSONDecodeError, TypeError):
+            logger.warning("Failed to parse watermarks JSON from collection description")
             pass
 
     # Legacy format: "git:{repo_path}:{commit_sha}"
     if description.startswith(_WATERMARK_PREFIX):
-        parts = description[len(_WATERMARK_PREFIX):].rsplit(":", 1)
+        parts = description[len(_WATERMARK_PREFIX) :].rsplit(":", 1)
         if len(parts) == 2:
             return {parts[0]: parts[1]}
 
@@ -567,9 +546,7 @@ class GitRepoIndexer(BaseIndexer):
 
         for rel_path in indexable:
             try:
-                was_indexed = self._index_file(
-                    conn, config, rel_path, collection_id, force
-                )
+                was_indexed = self._index_file(conn, config, rel_path, collection_id, force)
                 if was_indexed:
                     indexed += 1
                 else:
@@ -674,13 +651,12 @@ class GitRepoIndexer(BaseIndexer):
             return False
 
         source_path = str(file_path.resolve())
-        file_h = _file_hash(file_path)
+        file_h = file_hash(file_path)
 
         # Check if already indexed with same hash
         if not force:
             row = conn.execute(
-                "SELECT id, file_hash FROM sources "
-                "WHERE collection_id = ? AND source_path = ?",
+                "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
                 (collection_id, source_path),
             ).fetchone()
             if row and row["file_hash"] == file_h:
@@ -701,74 +677,25 @@ class GitRepoIndexer(BaseIndexer):
         # Convert blocks to chunks
         chunks = _code_blocks_to_chunks(doc, relative_path, config)
         if not chunks:
+            logger.warning("Code file parsed but produced 0 chunks: %s", relative_path)
             return False
 
         # Generate embeddings
         texts = [c.text for c in chunks]
         embeddings = get_embeddings(texts, config)
 
-        now = datetime.now(timezone.utc).isoformat()
-        mtime = datetime.fromtimestamp(
-            file_path.stat().st_mtime, tz=timezone.utc
-        ).isoformat()
+        mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat()
 
-        # Delete old data for this source if it exists
-        existing = conn.execute(
-            "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, source_path),
-        ).fetchone()
-
-        if existing:
-            source_id = existing["id"]
-            old_doc_ids = [
-                r["id"]
-                for r in conn.execute(
-                    "SELECT id FROM documents WHERE source_id = ?", (source_id,)
-                ).fetchall()
-            ]
-            if old_doc_ids:
-                placeholders = ",".join("?" * len(old_doc_ids))
-                conn.execute(
-                    f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
-                    old_doc_ids,
-                )
-            conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
-            conn.execute(
-                "UPDATE sources SET file_hash = ?, file_modified_at = ?, "
-                "last_indexed_at = ?, source_type = ? WHERE id = ?",
-                (file_h, mtime, now, "code", source_id),
-            )
-        else:
-            cursor = conn.execute(
-                "INSERT INTO sources (collection_id, source_type, source_path, "
-                "file_hash, file_modified_at, last_indexed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (collection_id, "code", source_path, file_h, mtime, now),
-            )
-            source_id = cursor.lastrowid
-
-        # Insert new documents and embeddings
-        for chunk, embedding in zip(chunks, embeddings):
-            metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
-            cursor = conn.execute(
-                "INSERT INTO documents (source_id, collection_id, chunk_index, "
-                "title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    source_id,
-                    collection_id,
-                    chunk.chunk_index,
-                    chunk.title,
-                    chunk.text,
-                    metadata_json,
-                ),
-            )
-            doc_id = cursor.lastrowid
-            conn.execute(
-                "INSERT INTO vec_documents (embedding, document_id) VALUES (?, ?)",
-                (serialize_float32(embedding), doc_id),
-            )
-
-        conn.commit()
+        upsert_source_with_chunks(
+            conn,
+            collection_id=collection_id,
+            source_path=source_path,
+            source_type="code",
+            chunks=chunks,
+            embeddings=embeddings,
+            file_hash=file_h,
+            file_modified_at=mtime,
+        )
         logger.info("Indexed %s (%d chunks)", relative_path, len(chunks))
         return True
 
@@ -827,9 +754,7 @@ class GitRepoIndexer(BaseIndexer):
                         f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
                         old_doc_ids,
                     )
-                conn.execute(
-                    "DELETE FROM documents WHERE source_id = ?", (source_id,)
-                )
+                conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
                 conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
             conn.commit()
 
@@ -842,15 +767,12 @@ class GitRepoIndexer(BaseIndexer):
                 c
                 for c in commits
                 if not any(
-                    c.subject.startswith(prefix)
-                    for prefix in config.git_commit_subject_blacklist
+                    c.subject.startswith(prefix) for prefix in config.git_commit_subject_blacklist
                 )
             ]
             filtered = before_count - len(commits)
             if filtered:
-                logger.info(
-                    "Filtered %d commit(s) matching subject blacklist", filtered
-                )
+                logger.info("Filtered %d commit(s) matching subject blacklist", filtered)
 
         if not commits:
             logger.info("No new commits to index for %s", self.repo_path)
@@ -886,9 +808,7 @@ class GitRepoIndexer(BaseIndexer):
                     skipped += 1
                     continue
 
-                chunks = _commit_to_chunks(
-                    commit, file_changes, self.repo_path, config
-                )
+                chunks = _commit_to_chunks(commit, file_changes, self.repo_path, config)
                 if not chunks:
                     skipped += 1
                     continue
@@ -897,72 +817,16 @@ class GitRepoIndexer(BaseIndexer):
                 texts = [c.text for c in chunks]
                 embeddings = get_embeddings(texts, config)
 
-                now = datetime.now(timezone.utc).isoformat()
-
-                # Create or update source
-                if existing:
-                    source_id = existing["id"]
-                    old_doc_ids = [
-                        r["id"]
-                        for r in conn.execute(
-                            "SELECT id FROM documents WHERE source_id = ?",
-                            (source_id,),
-                        ).fetchall()
-                    ]
-                    if old_doc_ids:
-                        placeholders = ",".join("?" * len(old_doc_ids))
-                        conn.execute(
-                            f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
-                            old_doc_ids,
-                        )
-                    conn.execute(
-                        "DELETE FROM documents WHERE source_id = ?", (source_id,)
-                    )
-                    conn.execute(
-                        "UPDATE sources SET last_indexed_at = ? WHERE id = ?",
-                        (now, source_id),
-                    )
-                else:
-                    cursor = conn.execute(
-                        "INSERT INTO sources (collection_id, source_type, source_path, "
-                        "file_hash, file_modified_at, last_indexed_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (
-                            collection_id,
-                            "commit",
-                            source_path,
-                            commit.sha,
-                            commit.author_date,
-                            now,
-                        ),
-                    )
-                    source_id = cursor.lastrowid
-
-                # Insert documents and embeddings
-                for chunk, embedding in zip(chunks, embeddings):
-                    metadata_json = (
-                        json.dumps(chunk.metadata) if chunk.metadata else None
-                    )
-                    cursor = conn.execute(
-                        "INSERT INTO documents (source_id, collection_id, chunk_index, "
-                        "title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-                        (
-                            source_id,
-                            collection_id,
-                            chunk.chunk_index,
-                            chunk.title,
-                            chunk.text,
-                            metadata_json,
-                        ),
-                    )
-                    doc_id = cursor.lastrowid
-                    conn.execute(
-                        "INSERT INTO vec_documents (embedding, document_id) "
-                        "VALUES (?, ?)",
-                        (serialize_float32(embedding), doc_id),
-                    )
-
-                conn.commit()
+                upsert_source_with_chunks(
+                    conn,
+                    collection_id=collection_id,
+                    source_path=source_path,
+                    source_type="commit",
+                    chunks=chunks,
+                    embeddings=embeddings,
+                    file_hash=commit.sha,
+                    file_modified_at=commit.author_date,
+                )
                 indexed += 1
 
                 logger.info(
@@ -976,9 +840,7 @@ class GitRepoIndexer(BaseIndexer):
                 )
 
             except Exception as e:
-                logger.error(
-                    "Error indexing commit %s: %s", commit.sha[:12], e
-                )
+                logger.error("Error indexing commit %s: %s", commit.sha[:12], e)
                 errors += 1
 
         # Update history watermark

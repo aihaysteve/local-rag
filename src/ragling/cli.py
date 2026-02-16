@@ -132,8 +132,8 @@ def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) ->
     conn = _get_db(config, group)
     doc_store = DocStore(config.shared_db_path)
     try:
-        indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders)
-        result = indexer.index(conn, config, force=force, doc_store=doc_store)
+        indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders, doc_store=doc_store)
+        result = indexer.index(conn, config, force=force)
         _print_index_result("Obsidian", result)
     finally:
         doc_store.close()
@@ -292,6 +292,7 @@ def index_all(ctx: click.Context, force: bool) -> None:
     has no paths configured.
     """
     from ragling.doc_store import DocStore
+    from ragling.indexers.base import BaseIndexer
     from ragling.indexers.calibre_indexer import CalibreIndexer
     from ragling.indexers.email_indexer import EmailIndexer
     from ragling.indexers.git_indexer import GitRepoIndexer
@@ -303,11 +304,16 @@ def index_all(ctx: click.Context, force: bool) -> None:
     conn = _get_db(config, group)
     doc_store = DocStore(config.shared_db_path)
 
-    sources: list[tuple[str, object]] = []
+    sources: list[tuple[str, BaseIndexer]] = []
 
     if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
         sources.append(
-            ("obsidian", ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders))
+            (
+                "obsidian",
+                ObsidianIndexer(
+                    config.obsidian_vaults, config.obsidian_exclude_folders, doc_store=doc_store
+                ),
+            )
         )
 
     if (
@@ -348,9 +354,8 @@ def index_all(ctx: click.Context, force: bool) -> None:
             click.echo(f"  {label}...")
             try:
                 if label in git_indexers:
+                    assert isinstance(indexer, GitRepoIndexer)
                     result = indexer.index(conn, config, force=force, index_history=True)
-                elif label == "obsidian":
-                    result = indexer.index(conn, config, force=force, doc_store=doc_store)
                 else:
                     result = indexer.index(conn, config, force=force)
                 summary_rows.append(
@@ -699,6 +704,7 @@ def serve(ctx: click.Context, port: int | None) -> None:
 
     if port:
         click.echo(f"Starting MCP server on port {port} (group: {group})...")
-        server.run(transport="sse", port=port)
+        server.settings.port = port
+        server.run(transport="sse")
     else:
         server.run(transport="stdio")

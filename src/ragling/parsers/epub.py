@@ -114,8 +114,8 @@ def _parse_opf_spine(zf: zipfile.ZipFile, opf_path: str) -> list[str]:
     if root.tag.startswith("{"):
         ns_opf = root.tag.split("}")[0] + "}"
 
-    # Build manifest: id -> href
-    manifest: dict[str, str] = {}
+    # Build manifest: id -> (href, media_type)
+    manifest: dict[str, tuple[str, str]] = {}
     for item in root.iter(f"{ns_opf}item"):
         item_id = item.get("id", "")
         href = item.get("href", "")

@@ -5,18 +5,18 @@ system collection. Discovers account directories automatically and opens
 all databases in read-only mode with retry logic for handling lock contention.
 """
 
-import json
 import logging
 import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
 
-from ragling.chunker import chunk_email
 from ragling.config import Config
+from ragling.docling_bridge import rss_to_docling_doc
+from ragling.docling_convert import chunk_with_hybrid
 from ragling.db import get_or_create_collection
-from ragling.embeddings import get_embeddings, serialize_float32
-from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.embeddings import get_embeddings
+from ragling.indexers.base import BaseIndexer, IndexResult, upsert_source_with_chunks
 from ragling.parsers.rss import Article, find_account_dirs, parse_articles
 
 logger = logging.getLogger(__name__)
@@ -38,9 +38,7 @@ class RSSIndexer(BaseIndexer):
         """
         self._explicit_db_path = db_path
 
-    def index(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
-    ) -> IndexResult:
+    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
         """Index RSS articles from NetNewsWire into the "rss" collection.
 
         Discovers all account directories and indexes articles from each.
@@ -204,9 +202,7 @@ class RSSIndexer(BaseIndexer):
 
         return result, latest_ts
 
-    def _parse_with_retry(
-        self, account_dir: Path, since_ts: float | None
-    ) -> list[Article] | None:
+    def _parse_with_retry(self, account_dir: Path, since_ts: float | None) -> list[Article] | None:
         """Try to parse articles with retry on database lock."""
         for attempt in range(1, MAX_LOCK_RETRIES + 1):
             try:
@@ -216,8 +212,7 @@ class RSSIndexer(BaseIndexer):
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < MAX_LOCK_RETRIES:
                         logger.warning(
-                            "NetNewsWire database is locked (attempt %d/%d), "
-                            "retrying in %ds...",
+                            "NetNewsWire database is locked (attempt %d/%d), retrying in %ds...",
                             attempt,
                             MAX_LOCK_RETRIES,
                             LOCK_RETRY_DELAY,
@@ -236,9 +231,7 @@ class RSSIndexer(BaseIndexer):
 
         return None
 
-    def _is_indexed(
-        self, conn: sqlite3.Connection, collection_id: int, article_id: str
-    ) -> bool:
+    def _is_indexed(self, conn: sqlite3.Connection, collection_id: int, article_id: str) -> bool:
         """Check if an article is already indexed."""
         row = conn.execute(
             "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
@@ -258,83 +251,48 @@ class RSSIndexer(BaseIndexer):
         Returns:
             Number of chunks indexed.
         """
-        # Reuse the email chunker — RSS articles have a similar structure
-        # (title + body text, usually short-to-medium length)
-        chunks = chunk_email(
-            subject=article.title,
-            body=article.body_text,
-            chunk_size=config.chunk_size_tokens,
-            overlap=config.chunk_overlap_tokens,
+        # Build DoclingDocument via bridge and chunk with HybridChunker
+        doc = rss_to_docling_doc(article.title, article.body_text)
+        extra_metadata: dict = {
+            "url": article.url,
+            "feed_name": article.feed_name,
+            "date": article.date_published,
+        }
+        if article.feed_category:
+            extra_metadata["feed_category"] = article.feed_category
+        if article.authors:
+            extra_metadata["authors"] = article.authors
+
+        chunks = chunk_with_hybrid(
+            doc,
+            title=article.title or "(no title)",
+            source_path=article.article_id,
+            extra_metadata=extra_metadata,
         )
 
         if not chunks:
+            logger.warning(
+                "No chunks produced for article '%s' (article_id=%s)",
+                article.title or "(no title)",
+                article.article_id,
+            )
             return 0
 
         # Embed all chunks
         chunk_texts = [c.text for c in chunks]
         embeddings = get_embeddings(chunk_texts, config)
 
-        # Build metadata
-        metadata: dict = {
-            "url": article.url,
-            "feed_name": article.feed_name,
-            "date": article.date_published,
-        }
-        if article.feed_category:
-            metadata["feed_category"] = article.feed_category
-        if article.authors:
-            metadata["authors"] = article.authors
-
-        metadata_json = json.dumps(metadata)
-
-        now = datetime.now().isoformat()
-
-        # Delete existing source if re-indexing (force mode)
-        conn.execute(
-            "DELETE FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, article.article_id),
+        upsert_source_with_chunks(
+            conn,
+            collection_id=collection_id,
+            source_path=article.article_id,
+            source_type="rss",
+            chunks=chunks,
+            embeddings=embeddings,
         )
-
-        # Insert source
-        cursor = conn.execute(
-            """
-            INSERT INTO sources (collection_id, source_type, source_path, last_indexed_at)
-            VALUES (?, 'rss', ?, ?)
-            """,
-            (collection_id, article.article_id, now),
-        )
-        source_id = cursor.lastrowid
-
-        # Insert documents and vectors
-        for chunk, embedding in zip(chunks, embeddings):
-            doc_cursor = conn.execute(
-                """
-                INSERT INTO documents (source_id, collection_id, chunk_index,
-                                       title, content, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    source_id,
-                    collection_id,
-                    chunk.chunk_index,
-                    article.title or "(no title)",
-                    chunk.text,
-                    metadata_json,
-                ),
-            )
-            doc_id = doc_cursor.lastrowid
-
-            conn.execute(
-                "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-                (doc_id, serialize_float32(embedding), doc_id),
-            )
-
-        conn.commit()
         return len(chunks)
 
-    def _get_watermark(
-        self, conn: sqlite3.Connection, collection_id: int
-    ) -> float | None:
+    def _get_watermark(self, conn: sqlite3.Connection, collection_id: int) -> float | None:
         """Get the latest indexed article timestamp for incremental updates."""
         row = conn.execute(
             """
@@ -351,12 +309,14 @@ class RSSIndexer(BaseIndexer):
                 dt = datetime.fromisoformat(row["latest_date"])
                 return dt.timestamp()
             except (ValueError, OSError):
+                logger.warning(
+                    "Failed to parse watermark date '%s', starting full index",
+                    row["latest_date"],
+                )
                 return None
         return None
 
-    def _set_watermark(
-        self, conn: sqlite3.Connection, collection_id: int, ts: float
-    ) -> None:
+    def _set_watermark(self, conn: sqlite3.Connection, collection_id: int, ts: float) -> None:
         """Store the watermark timestamp in the collection description."""
         from ragling.parsers.rss import _ts_to_iso
 

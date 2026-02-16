@@ -305,6 +305,7 @@ def create_server(group_name: str = "default") -> FastMCP:
         from pathlib import Path as P
 
         from ragling.doc_store import DocStore
+        from ragling.indexers.base import BaseIndexer
         from ragling.indexers.calibre_indexer import CalibreIndexer
         from ragling.indexers.email_indexer import EmailIndexer
         from ragling.indexers.git_indexer import GitRepoIndexer
@@ -322,9 +323,12 @@ def create_server(group_name: str = "default") -> FastMCP:
             if not config.is_collection_enabled(collection):
                 return {"error": f"Collection '{collection}' is disabled in config."}
 
+            indexer: BaseIndexer
             if collection == "obsidian":
-                indexer = ObsidianIndexer(config.obsidian_vaults, config.obsidian_exclude_folders)
-                result = indexer.index(conn, config, doc_store=doc_store)
+                indexer = ObsidianIndexer(
+                    config.obsidian_vaults, config.obsidian_exclude_folders, doc_store=doc_store
+                )
+                result = indexer.index(conn, config)
             elif collection == "email":
                 indexer = EmailIndexer(str(config.emclient_db_path))
                 result = indexer.index(conn, config)

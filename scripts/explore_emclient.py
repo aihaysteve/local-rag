@@ -87,9 +87,7 @@ def _print_schema(conn: sqlite3.Connection, db_name: str) -> None:
         table_name = t["name"]
         columns = conn.execute(f"PRAGMA table_info([{table_name}])").fetchall()
         try:
-            count = conn.execute(
-                f"SELECT COUNT(*) as cnt FROM [{table_name}]"
-            ).fetchone()
+            count = conn.execute(f"SELECT COUNT(*) as cnt FROM [{table_name}]").fetchone()
             row_count = count["cnt"]
         except sqlite3.OperationalError:
             row_count = "?"
@@ -120,8 +118,7 @@ def _explore_mail_index(conn: sqlite3.Connection) -> None:
     # Address type distribution
     print("  --- MailAddresses type distribution ---")
     rows = conn.execute(
-        "SELECT type, COUNT(*) as cnt FROM MailAddresses "
-        "GROUP BY type ORDER BY type"
+        "SELECT type, COUNT(*) as cnt FROM MailAddresses GROUP BY type ORDER BY type"
     ).fetchall()
     type_labels = {1: "From", 2: "Sender", 3: "Reply-To", 4: "To", 5: "CC", 6: "BCC"}
     for r in rows:
@@ -154,10 +151,7 @@ def _explore_fti(conn: sqlite3.Connection) -> None:
         "FROM LocalMailsIndex3 LIMIT 6"
     ).fetchall()
     for r in rows:
-        print(
-            f"    id={r['id']}, partName={r['partName']}, "
-            f"len={r['content_len']}"
-        )
+        print(f"    id={r['id']}, partName={r['partName']}, len={r['content_len']}")
         print(f"      {(r['preview'] or '')[:120]}")
         print()
 
@@ -165,9 +159,7 @@ def _explore_fti(conn: sqlite3.Connection) -> None:
 def _explore_folders(conn: sqlite3.Connection) -> None:
     """Print folder tree from folders.dat."""
     print("  --- Folders ---")
-    rows = conn.execute(
-        "SELECT id, name, path FROM Folders ORDER BY id"
-    ).fetchall()
+    rows = conn.execute("SELECT id, name, path FROM Folders ORDER BY id").fetchall()
     for r in rows:
         print(f"    id={r['id']}: {r['path'] or '/'} ({r['name']})")
     print()
@@ -175,9 +167,9 @@ def _explore_folders(conn: sqlite3.Connection) -> None:
 
 def explore_account(account_dir: Path) -> None:
     """Explore all database files in a single account directory."""
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"Account directory: {account_dir}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     # List which .dat files exist and their sizes
     print("\n  Database files:")

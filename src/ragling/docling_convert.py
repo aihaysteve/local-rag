@@ -189,6 +189,9 @@ def chunk_with_hybrid(
     chunker = HybridChunker(tokenizer=tokenizer)
     doc_chunks = list(chunker.chunk(doc))
 
+    if not doc_chunks:
+        logger.debug("HybridChunker produced 0 chunks for '%s' (%s)", title, source_path)
+
     chunks: list[Chunk] = []
     for i, dc in enumerate(doc_chunks):
         headings: list[str] = getattr(dc.meta, "headings", None) or []

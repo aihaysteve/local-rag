@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def _extract_frontmatter(text: str) -> tuple[dict, str]:
         return {}, text
 
     yaml_str = match.group(1)
-    remaining = text[match.end():]
+    remaining = text[match.end() :]
 
     try:
         fm = yaml.safe_load(yaml_str)

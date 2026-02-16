@@ -1,5 +1,7 @@
 """Tests for ragling CLI."""
 
+from pathlib import Path
+
 from click.testing import CliRunner
 
 from ragling.cli import main
@@ -90,3 +92,128 @@ class TestMcpServer:
         tools = asyncio.run(server.list_tools())
         tool_names = [t.name for t in tools]
         assert "rag_doc_store_info" in tool_names
+
+    def test_all_expected_tools_registered(self) -> None:
+        """All expected tools should be registered on the server."""
+        import asyncio
+
+        from ragling.mcp_server import create_server
+
+        server = create_server(group_name="test-group")
+        tools = asyncio.run(server.list_tools())
+        tool_names = {t.name for t in tools}
+        expected = {
+            "rag_search",
+            "rag_list_collections",
+            "rag_index",
+            "rag_doc_store_info",
+            "rag_collection_info",
+        }
+        assert expected.issubset(tool_names)
+
+
+class TestBuildSourceUri:
+    """Tests for _build_source_uri in mcp_server."""
+
+    def test_rss_returns_url_from_metadata(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri("art-123", "rss", {"url": "https://example.com/article"}, "rss")
+        assert uri == "https://example.com/article"
+
+    def test_rss_without_url_returns_none(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri("art-123", "rss", {}, "rss")
+        assert uri is None
+
+    def test_email_returns_none(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri("msg-123", "email", {}, "email")
+        assert uri is None
+
+    def test_commit_returns_none(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri("git://sha", "commit", {}, "my-org")
+        assert uri is None
+
+    def test_code_returns_vscode_uri(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri("/home/user/repo/main.py", "code", {"start_line": 42}, "my-org")
+        assert uri is not None
+        assert uri.startswith("vscode://file")
+        assert "main.py" in uri
+        assert ":42" in uri
+
+    def test_file_returns_file_uri(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri("/home/user/docs/report.pdf", "pdf", {}, "my-project")
+        assert uri is not None
+        assert uri.startswith("file://")
+        assert "report.pdf" in uri
+
+    def test_calibre_virtual_path_returns_none(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri(
+            "calibre:///Library/Author/book", "calibre-description", {}, "calibre"
+        )
+        assert uri is None
+
+    def test_obsidian_returns_obsidian_uri(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        vault = tmp_path / "MyVault"
+        vault.mkdir()
+        note = vault / "notes" / "test.md"
+        note.parent.mkdir()
+        note.write_text("test")
+
+        uri = _build_source_uri(str(note), "markdown", {}, "obsidian", obsidian_vaults=[vault])
+        assert uri is not None
+        assert uri.startswith("obsidian://open")
+        assert "MyVault" in uri
+
+
+class TestGetDb:
+    """Tests for _get_db group routing."""
+
+    def test_get_db_sets_group_name_on_config(self) -> None:
+        """_get_db should set config.group_name before connecting."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _get_db
+        from ragling.config import Config
+
+        config = Config(embedding_dimensions=4)
+
+        with (
+            patch("ragling.db.get_connection") as mock_conn,
+            patch("ragling.db.init_db"),
+        ):
+            mock_conn.return_value = MagicMock()
+            _get_db(config, "my-group")
+
+        assert config.group_name == "my-group"
+
+    def test_get_db_uses_default_group(self) -> None:
+        """_get_db with no group argument should use 'default'."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _get_db
+        from ragling.config import Config
+
+        config = Config(embedding_dimensions=4)
+
+        with (
+            patch("ragling.db.get_connection") as mock_conn,
+            patch("ragling.db.init_db"),
+        ):
+            mock_conn.return_value = MagicMock()
+            _get_db(config)
+
+        assert config.group_name == "default"

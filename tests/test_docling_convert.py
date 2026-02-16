@@ -80,9 +80,7 @@ class TestConvertAndChunk:
             mc.meta.headings = [f"Section {i}"]
         mock_chunker = MagicMock()
         mock_chunker.chunk.return_value = chunks_data
-        mock_chunker.contextualize.side_effect = [
-            f"Section {i}\ntext {i}" for i in range(3)
-        ]
+        mock_chunker.contextualize.side_effect = [f"Section {i}\ntext {i}" for i in range(3)]
 
         with (
             patch("ragling.docling_convert._convert_with_docling") as mock_convert,

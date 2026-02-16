@@ -3,7 +3,7 @@
 import datetime
 from pathlib import Path
 
-from ragling.parsers.markdown import MarkdownDocument, parse_markdown
+from ragling.parsers.markdown import parse_markdown
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -48,9 +48,7 @@ class TestFrontmatter:
         assert doc.title == "bad"
 
     def test_comma_separated_tags(self):
-        doc = parse_markdown(
-            "---\ntags: alpha, beta, gamma\n---\nBody.", "note.md"
-        )
+        doc = parse_markdown("---\ntags: alpha, beta, gamma\n---\nBody.", "note.md")
         assert "alpha" in doc.tags
         assert "beta" in doc.tags
         assert "gamma" in doc.tags
@@ -71,9 +69,7 @@ class TestWikilinks:
         assert "[[" not in doc.body_text
 
     def test_multiple_wikilinks(self):
-        doc = parse_markdown(
-            "See [[Note A]] and [[Note B|B link]].", "note.md"
-        )
+        doc = parse_markdown("See [[Note A]] and [[Note B|B link]].", "note.md")
         assert "Note A" in doc.links
         assert "Note B" in doc.links
         assert len(doc.links) == 2
@@ -88,15 +84,11 @@ class TestEmbeds:
         assert "After" in doc.body_text
 
     def test_multiple_embeds(self):
-        doc = parse_markdown(
-            "Text\n![[file1.pdf]]\nMore\n![[file2.png]]", "note.md"
-        )
+        doc = parse_markdown("Text\n![[file1.pdf]]\nMore\n![[file2.png]]", "note.md")
         assert "![[" not in doc.body_text
 
     def test_embed_not_confused_with_wikilink(self):
-        doc = parse_markdown(
-            "See [[Real Link]] and ![[embedded.png]]", "note.md"
-        )
+        doc = parse_markdown("See [[Real Link]] and ![[embedded.png]]", "note.md")
         assert "Real Link" in doc.links
         assert "embedded.png" not in doc.body_text
 
@@ -137,16 +129,14 @@ class TestTags:
         assert "inline-tag" in doc.tags
 
     def test_no_duplicate_tags(self):
-        doc = parse_markdown(
-            "---\ntags:\n  - dup\n---\nText with #dup again.", "note.md"
-        )
+        doc = parse_markdown("---\ntags:\n  - dup\n---\nText with #dup again.", "note.md")
         assert doc.tags.count("dup") == 1
 
 
 class TestDataviewBlocks:
     def test_dataview_stripped(self):
         doc = parse_markdown(
-            "Before\n\n```dataview\nTABLE file.mtime\nFROM \"Notes\"\n```\n\nAfter",
+            'Before\n\n```dataview\nTABLE file.mtime\nFROM "Notes"\n```\n\nAfter',
             "note.md",
         )
         assert "dataview" not in doc.body_text
@@ -161,15 +151,11 @@ class TestTitleFallback:
         assert doc.title == "My Great Note"
 
     def test_frontmatter_title_takes_precedence(self):
-        doc = parse_markdown(
-            "---\ntitle: Explicit Title\n---\nBody.", "fallback.md"
-        )
+        doc = parse_markdown("---\ntitle: Explicit Title\n---\nBody.", "fallback.md")
         assert doc.title == "Explicit Title"
 
     def test_empty_frontmatter_title_falls_back(self):
-        doc = parse_markdown(
-            "---\ntitle:\n---\nBody.", "fallback.md"
-        )
+        doc = parse_markdown("---\ntitle:\n---\nBody.", "fallback.md")
         assert doc.title == "fallback"
 
 

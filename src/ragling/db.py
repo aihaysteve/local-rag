@@ -3,7 +3,7 @@
 import logging
 import sqlite3
 
-import sqlite_vec
+import sqlite_vec  # type: ignore[import-untyped]
 
 from ragling.config import Config
 
@@ -204,6 +204,6 @@ def get_or_create_collection(
         (name, collection_type, description),
     )
     conn.commit()
-    collection_id = cursor.lastrowid
-    logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, collection_id)
-    return collection_id
+    assert cursor.lastrowid is not None
+    logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, cursor.lastrowid)
+    return cursor.lastrowid

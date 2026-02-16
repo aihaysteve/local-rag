@@ -171,3 +171,58 @@ class TestConfigHashCaching:
         converter = MagicMock(return_value={"text": "data"})
         result = store.get_or_convert(sample_file, converter)
         assert result == {"text": "data"}
+
+
+class TestMigrateConfigHash:
+    """Tests for _migrate_config_hash upgrade path."""
+
+    def test_adds_config_hash_column_if_missing(self, tmp_path: Path) -> None:
+        """Opening a DB without config_hash column should add it automatically."""
+        db_path = tmp_path / "legacy_store.sqlite"
+
+        # Create a legacy DB without config_hash column
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_path TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                file_size INTEGER,
+                file_modified_at TEXT,
+                discovered_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(source_path)
+            );
+            CREATE TABLE IF NOT EXISTS converted_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                content_hash TEXT NOT NULL,
+                docling_json TEXT NOT NULL,
+                format TEXT NOT NULL,
+                page_count INTEGER,
+                conversion_time_ms INTEGER,
+                converted_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(source_id, content_hash)
+            );
+        """)
+        conn.commit()
+
+        # Verify config_hash column does NOT exist
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(converted_documents)").fetchall()}
+        assert "config_hash" not in cols
+        conn.close()
+
+        # Open with DocStore — migration should add the column
+        store = DocStore(db_path)
+
+        # Verify config_hash column now exists
+        inner_conn = sqlite3.connect(str(db_path))
+        cols = {
+            row[1]
+            for row in inner_conn.execute("PRAGMA table_info(converted_documents)").fetchall()
+        }
+        inner_conn.close()
+        store.close()
+
+        assert "config_hash" in cols

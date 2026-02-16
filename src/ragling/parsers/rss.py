@@ -191,9 +191,7 @@ def _load_opml_names(account_dir: Path) -> dict[str, str]:
             for feed_outline in outline:
                 feed_url = feed_outline.get("xmlUrl")
                 if feed_url:
-                    names[feed_url] = feed_outline.get(
-                        "text", feed_outline.get("title", "")
-                    )
+                    names[feed_url] = feed_outline.get("text", feed_outline.get("title", ""))
 
     return names
 
@@ -225,9 +223,7 @@ def _load_authors(conn: sqlite3.Connection) -> dict[str, list[str]]:
     return authors
 
 
-def parse_articles(
-    account_dir: str | Path, since_ts: float | None = None
-) -> Iterator[Article]:
+def parse_articles(account_dir: str | Path, since_ts: float | None = None) -> Iterator[Article]:
     """Parse articles from a NetNewsWire account directory.
 
     Opens the database in read-only mode.
@@ -289,9 +285,7 @@ def parse_articles(
             except Exception as e:
                 error_count += 1
                 if error_count <= 10:
-                    logger.warning(
-                        "Error parsing article %s: %s", row["articleID"], e
-                    )
+                    logger.warning("Error parsing article %s: %s", row["articleID"], e)
                 elif error_count == 11:
                     logger.warning("Suppressing further article parse errors...")
 
@@ -301,7 +295,6 @@ def parse_articles(
         logger.error("Error reading DB.sqlite3: %s", e)
     finally:
         conn.close()
-
 
 
 def _row_to_article(
@@ -332,9 +325,7 @@ def _row_to_article(
         return None
 
     # Feed info
-    feed_name, feed_category = feed_id_map.get(
-        row["feedID"], (row["feedID"], "")
-    )
+    feed_name, feed_category = feed_id_map.get(row["feedID"], (row["feedID"], ""))
 
     # Authors
     authors = authors_map.get(article_id, [])

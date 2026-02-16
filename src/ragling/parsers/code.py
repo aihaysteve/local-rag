@@ -98,10 +98,20 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
         "trait_item",
         "mod_item",
     },
-    "java": {"class_declaration", "interface_declaration", "enum_declaration", "method_declaration"},
+    "java": {
+        "class_declaration",
+        "interface_declaration",
+        "enum_declaration",
+        "method_declaration",
+    },
     "c": {"function_definition", "struct_specifier", "enum_specifier"},
     "cpp": {"function_definition", "class_specifier", "struct_specifier", "enum_specifier"},
-    "csharp": {"class_declaration", "interface_declaration", "method_declaration", "enum_declaration"},
+    "csharp": {
+        "class_declaration",
+        "interface_declaration",
+        "method_declaration",
+        "enum_declaration",
+    },
     "ruby": {"method", "class", "module"},
     "bash": {"function_definition"},
     "yaml": set(),  # no structural splitting for YAML
@@ -276,9 +286,7 @@ def _node_symbol_type(node_type: str, language: str) -> str:
     return result
 
 
-def parse_code_file(
-    file_path: Path, language: str, relative_path: str
-) -> CodeDocument | None:
+def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeDocument | None:
     """Parse a source code file into structural blocks using tree-sitter.
 
     Args:
@@ -296,7 +304,7 @@ def parse_code_file(
         return None
 
     try:
-        parser = get_parser(language)
+        parser = get_parser(language)  # type: ignore[arg-type]
     except Exception as e:
         logger.error("Unsupported language '%s': %s", language, e)
         return None
@@ -352,7 +360,7 @@ def parse_code_file(
         if child.type in split_types:
             _flush_top_level()
 
-            node_text = child.text.decode("utf-8", errors="replace")
+            node_text = (child.text or b"").decode("utf-8", errors="replace")
             start_line = child.start_point.row + 1  # convert 0-based to 1-based
             end_line = child.end_point.row + 1
 
@@ -382,7 +390,7 @@ def parse_code_file(
             )
         else:
             # Accumulate into top-level block
-            node_text = child.text.decode("utf-8", errors="replace")
+            node_text = (child.text or b"").decode("utf-8", errors="replace")
             start = child.start_point.row + 1
             end = child.end_point.row + 1
             if top_start_line is None:

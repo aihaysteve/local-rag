@@ -66,3 +66,59 @@ class TestGetConnection:
             assert mode == "wal"
         finally:
             conn.close()
+
+
+class TestInitDbThroughGroupConnection:
+    """Tests for init_db working through per-group connections."""
+
+    def test_group_connection_creates_tables(self, tmp_path: Path) -> None:
+        """init_db through group connection creates all required tables."""
+        from ragling.db import get_connection, init_db
+
+        config = Config(
+            group_name="table-test",
+            group_db_dir=tmp_path / "groups",
+            embedding_dimensions=4,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+        try:
+            # Verify core tables exist
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            assert "collections" in tables
+            assert "sources" in tables
+            assert "documents" in tables
+            assert "documents_fts" in tables
+        finally:
+            conn.close()
+
+    def test_different_groups_get_different_dbs(self, tmp_path: Path) -> None:
+        """Two groups should produce different database files."""
+        from ragling.db import get_connection
+
+        config1 = Config(
+            group_name="group-a",
+            group_db_dir=tmp_path / "groups",
+            embedding_dimensions=4,
+        )
+        config2 = Config(
+            group_name="group-b",
+            group_db_dir=tmp_path / "groups",
+            embedding_dimensions=4,
+        )
+        conn1 = get_connection(config1)
+        conn2 = get_connection(config2)
+        try:
+            path_a = tmp_path / "groups" / "group-a" / "index.db"
+            path_b = tmp_path / "groups" / "group-b" / "index.db"
+            assert path_a.exists()
+            assert path_b.exists()
+            assert path_a != path_b
+        finally:
+            conn1.close()
+            conn2.close()

@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 from ragling.chunker import Chunk
@@ -17,8 +16,8 @@ from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
 from ragling.docling_bridge import epub_to_docling_doc, plaintext_to_docling_doc
 from ragling.docling_convert import chunk_with_hybrid, convert_and_chunk
-from ragling.embeddings import get_embeddings, serialize_float32
-from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.embeddings import get_embeddings
+from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
 from ragling.parsers.calibre import CalibreBook, get_book_file_path, parse_calibre_library
 
 logger = logging.getLogger(__name__)
@@ -92,15 +91,6 @@ class CalibreIndexer(BaseIndexer):
         return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
 
-def _file_hash(file_path: Path) -> str:
-    """Compute SHA256 hash of file content."""
-    h = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for block in iter(lambda: f.read(8192), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
 def _build_book_metadata(book: CalibreBook, library_path: Path, fmt: str | None) -> dict:
     """Build the metadata dict to attach to every chunk of a book."""
     meta: dict = {}
@@ -148,7 +138,7 @@ def _index_book(
     if file_info:
         file_path, fmt = file_info
         source_path = str(file_path)
-        content_hash = _file_hash(file_path)
+        content_hash = file_hash(file_path)
         source_type = fmt  # "epub" or "pdf"
     else:
         # No EPUB or PDF available — index description only if available
@@ -188,55 +178,16 @@ def _index_book(
     chunk_texts = [c.text for c in chunks]
     embeddings = get_embeddings(chunk_texts, config)
 
-    now = datetime.now(tz=timezone.utc).isoformat()
-
-    # Upsert source
-    existing = conn.execute(
-        "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-        (collection_id, source_path),
-    ).fetchone()
-
-    if existing:
-        source_id = existing["id"]
-        # Delete old documents and vectors
-        old_doc_ids = [
-            r["id"]
-            for r in conn.execute(
-                "SELECT id FROM documents WHERE source_id = ?", (source_id,)
-            ).fetchall()
-        ]
-        if old_doc_ids:
-            conn.execute(
-                f"DELETE FROM vec_documents WHERE document_id IN ({','.join('?' * len(old_doc_ids))})",
-                old_doc_ids,
-            )
-            conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
-
-        conn.execute(
-            "UPDATE sources SET file_hash = ?, file_modified_at = ?, last_indexed_at = ?, source_type = ? WHERE id = ?",
-            (content_hash, book.last_modified, now, source_type, source_id),
-        )
-    else:
-        cursor = conn.execute(
-            "INSERT INTO sources (collection_id, source_type, source_path, file_hash, file_modified_at, last_indexed_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (collection_id, source_type, source_path, content_hash, book.last_modified, now),
-        )
-        source_id = cursor.lastrowid
-
-    # Insert new documents and vectors
-    for chunk, embedding in zip(chunks, embeddings):
-        metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            (source_id, collection_id, chunk.chunk_index, chunk.title, chunk.text, metadata_json),
-        )
-        doc_id = cursor.lastrowid
-        conn.execute(
-            "INSERT INTO vec_documents (embedding, document_id) VALUES (?, ?)",
-            (serialize_float32(embedding), doc_id),
-        )
-
-    conn.commit()
+    upsert_source_with_chunks(
+        conn,
+        collection_id=collection_id,
+        source_path=source_path,
+        source_type=source_type,
+        chunks=chunks,
+        embeddings=embeddings,
+        file_hash=content_hash,
+        file_modified_at=book.last_modified,
+    )
     logger.info("Indexed book: %s [%s] (%d chunks)", book.title, source_type, len(chunks))
     return "indexed"
 
@@ -257,7 +208,9 @@ def _extract_and_chunk_book(
 
         if doc_store is not None and fmt == "pdf":
             # Use Docling for PDF conversion via shared doc store
-            docling_chunks = convert_and_chunk(file_path, doc_store, chunk_max_tokens=config.chunk_size_tokens)
+            docling_chunks = convert_and_chunk(
+                file_path, doc_store, chunk_max_tokens=config.chunk_size_tokens
+            )
             for chunk in docling_chunks:
                 chunk.chunk_index = chunk_idx
                 meta = dict(book_meta)
@@ -285,8 +238,15 @@ def _extract_and_chunk_book(
                 chunks.append(chunk)
                 chunk_idx += 1
         elif fmt == "pdf" and doc_store is None:
+            logger.error(
+                "PDF format requires doc_store for Docling conversion but none was provided "
+                "— this indicates a configuration error. Skipping book file content for '%s'",
+                book.title,
+            )
+        else:
             logger.warning(
-                "No doc_store available for PDF conversion of '%s', skipping book file content",
+                "Unexpected format '%s' for book '%s', skipping file content",
+                fmt,
                 book.title,
             )
 

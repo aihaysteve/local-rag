@@ -1,7 +1,8 @@
 """Bridge between legacy parsers and DoclingDocument for unified chunking.
 
-Converts parsed markdown, epub, and plaintext content into DoclingDocument
-objects so all formats can be chunked by HybridChunker with contextualize().
+Converts parsed markdown, epub, plaintext, email, and RSS content into
+DoclingDocument objects so all formats can be chunked by HybridChunker
+with contextualize().
 """
 
 import re
@@ -12,9 +13,7 @@ from docling_core.types.doc.document import NodeItem
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
 
-def _add_paragraphs(
-    doc: DoclingDocument, text: str, parent: NodeItem | None = None
-) -> None:
+def _add_paragraphs(doc: DoclingDocument, text: str, parent: NodeItem | None = None) -> None:
     """Split text on double newlines and add non-empty paragraphs to doc."""
     for para in re.split(r"\n\s*\n", text.strip()):
         para = para.strip()
@@ -130,4 +129,46 @@ def plaintext_to_docling_doc(text: str, title: str) -> DoclingDocument:
 
     _add_paragraphs(doc, text)
 
+    return doc
+
+
+def email_to_docling_doc(subject: str, body: str) -> DoclingDocument:
+    """Convert an email into a DoclingDocument.
+
+    Args:
+        subject: The email subject line.
+        body: The email body text (HTML already stripped).
+
+    Returns:
+        A DoclingDocument with the subject as name and body as paragraphs.
+    """
+    name = subject or "(no subject)"
+    doc = DoclingDocument(name=name)
+
+    if not body or not body.strip():
+        doc.add_text(label=DocItemLabel.PARAGRAPH, text=f"Subject: {subject}")
+        return doc
+
+    _add_paragraphs(doc, body)
+    return doc
+
+
+def rss_to_docling_doc(title: str, body: str) -> DoclingDocument:
+    """Convert an RSS article into a DoclingDocument.
+
+    Args:
+        title: The article title.
+        body: The article body text (HTML already stripped).
+
+    Returns:
+        A DoclingDocument with the title as name and body as paragraphs.
+    """
+    name = title or "(untitled)"
+    doc = DoclingDocument(name=name)
+
+    if not body or not body.strip():
+        doc.add_text(label=DocItemLabel.PARAGRAPH, text=f"Title: {title}")
+        return doc
+
+    _add_paragraphs(doc, body)
     return doc

@@ -43,9 +43,7 @@ _ADDR_TYPE_CC = 5
 
 # Patterns for stripping quoted reply chains
 _QUOTED_LINE_RE = re.compile(r"^>.*$", re.MULTILINE)
-_ON_WROTE_RE = re.compile(
-    r"^On\s+.{10,80}\s+wrote:\s*$", re.MULTILINE | re.IGNORECASE
-)
+_ON_WROTE_RE = re.compile(r"^On\s+.{10,80}\s+wrote:\s*$", re.MULTILINE | re.IGNORECASE)
 # Signature delimiter: "-- " on its own line (RFC 3676)
 _SIG_DELIMITER_RE = re.compile(r"^-- $", re.MULTILINE)
 # Common signature patterns
@@ -164,10 +162,7 @@ def _load_folders(account_dir: Path) -> dict[int, str]:
 
     try:
         rows = conn.execute("SELECT id, path, name FROM Folders").fetchall()
-        return {
-            row["id"]: row["path"] or row["name"] or ""
-            for row in rows
-        }
+        return {row["id"]: row["path"] or row["name"] or "" for row in rows}
     except sqlite3.OperationalError as e:
         logger.warning("Cannot read folders.dat: %s", e)
         return {}
@@ -191,8 +186,7 @@ def _load_fti_content(account_dir: Path) -> dict[int, str]:
     try:
         # Fetch all content, ordered so partName=1 comes first per id
         rows = conn.execute(
-            "SELECT id, partName, content FROM LocalMailsIndex3 "
-            "ORDER BY id, partName"
+            "SELECT id, partName, content FROM LocalMailsIndex3 ORDER BY id, partName"
         ).fetchall()
     except sqlite3.OperationalError as e:
         logger.warning("Cannot read mail_fti.dat: %s", e)
@@ -250,9 +244,7 @@ def _load_addresses(
     return addresses
 
 
-def parse_emails(
-    account_dir: str | Path, since_date: str | None = None
-) -> Iterator[EmailMessage]:
+def parse_emails(account_dir: str | Path, since_date: str | None = None) -> Iterator[EmailMessage]:
     """Parse emails from an eM Client account directory.
 
     Opens databases in read-only mode to prevent any accidental writes.

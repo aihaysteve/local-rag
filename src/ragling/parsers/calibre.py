@@ -2,7 +2,7 @@
 
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -201,9 +201,7 @@ def _load_book_languages(conn: sqlite3.Connection) -> dict[int, list[str]]:
 def _load_book_identifiers(conn: sqlite3.Connection) -> dict[int, dict[str, str]]:
     """Load identifiers grouped by book ID."""
     result: dict[int, dict[str, str]] = {}
-    rows = conn.execute(
-        "SELECT book, type, val FROM identifiers"
-    ).fetchall()
+    rows = conn.execute("SELECT book, type, val FROM identifiers").fetchall()
     for row in rows:
         result.setdefault(row["book"], {})[row["type"]] = row["val"]
     return result
@@ -212,9 +210,7 @@ def _load_book_identifiers(conn: sqlite3.Connection) -> dict[int, dict[str, str]
 def _load_book_comments(conn: sqlite3.Connection) -> dict[int, str]:
     """Load comments (descriptions) grouped by book ID."""
     result: dict[int, str] = {}
-    rows = conn.execute(
-        "SELECT book, text FROM comments"
-    ).fetchall()
+    rows = conn.execute("SELECT book, text FROM comments").fetchall()
     for row in rows:
         result[row["book"]] = row["text"]
     return result
@@ -223,9 +219,7 @@ def _load_book_comments(conn: sqlite3.Connection) -> dict[int, str]:
 def _load_book_formats(conn: sqlite3.Connection) -> dict[int, dict[str, str]]:
     """Load available formats grouped by book ID. Returns {format: filename_without_ext}."""
     result: dict[int, dict[str, str]] = {}
-    rows = conn.execute(
-        "SELECT book, format, name FROM data"
-    ).fetchall()
+    rows = conn.execute("SELECT book, format, name FROM data").fetchall()
     for row in rows:
         result.setdefault(row["book"], {})[row["format"]] = row["name"]
     return result
