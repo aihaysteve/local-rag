@@ -129,6 +129,8 @@ class TestDoclingFormats:
             "image",
             "csv",
             "asciidoc",
+            "vtt",
+            "audio",
         }
         assert DOCLING_FORMATS == expected
 

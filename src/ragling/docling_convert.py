@@ -33,6 +33,8 @@ DOCLING_FORMATS: frozenset[str] = frozenset(
         "image",
         "csv",
         "asciidoc",
+        "vtt",
+        "audio",
     }
 )
 

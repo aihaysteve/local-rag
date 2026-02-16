@@ -39,8 +39,13 @@ _EXTENSION_MAP: dict[str, str] = {
     ".jpg": "image",
     ".jpeg": "image",
     ".tiff": "image",
+    ".bmp": "image",
+    ".webp": "image",
     ".csv": "csv",
     ".adoc": "asciidoc",
+    ".vtt": "vtt",
+    ".mp3": "audio",
+    ".wav": "audio",
     # Legacy-handled formats
     ".md": "markdown",
     ".json": "plaintext",
