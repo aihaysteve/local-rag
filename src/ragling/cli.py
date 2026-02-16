@@ -728,20 +728,15 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     # Create shared indexing status
     indexing_status = IndexingStatus()
 
-    # Start startup sync if home/global paths configured
-    sync_done = None
-
+    # Start startup sync and file watcher if home/global paths configured
     if config.home or config.global_paths:
         import threading
 
         from ragling.sync import run_startup_sync
+        from ragling.watcher import start_watcher
 
         sync_done = threading.Event()
         run_startup_sync(config, indexing_status, done_event=sync_done)
-
-    # Start file watcher after sync completes
-    if config.home or config.global_paths:
-        from ragling.watcher import start_watcher
 
         def _on_files_changed(files: list[Path]) -> None:
             from ragling.sync import _index_file
@@ -754,8 +749,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
                     logger.exception("Error indexing changed file: %s", file_path)
 
         # Wait for initial sync before starting watcher
-        if sync_done is not None:
-            sync_done.wait()
+        sync_done.wait()
 
         start_watcher(config, _on_files_changed)
 
