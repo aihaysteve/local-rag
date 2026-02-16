@@ -5,6 +5,8 @@ HybridChunker for structure-aware chunking. Integrates with
 DocStore for content-addressed caching.
 """
 
+import hashlib as _hashlib
+import json as _json
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -37,6 +39,39 @@ DOCLING_FORMATS: frozenset[str] = frozenset(
         "audio",
     }
 )
+
+
+def converter_config_hash(
+    *,
+    do_picture_description: bool,
+    do_code_enrichment: bool,
+    do_formula_enrichment: bool,
+    table_mode: str,
+) -> str:
+    """Deterministic hash of converter pipeline configuration.
+
+    Used as part of the doc_store cache key so that changing
+    enrichment settings automatically invalidates cached conversions.
+
+    Args:
+        do_picture_description: Whether VLM picture descriptions are enabled.
+        do_code_enrichment: Whether code block extraction is enabled.
+        do_formula_enrichment: Whether formula LaTeX extraction is enabled.
+        table_mode: Table extraction mode (e.g. ``"accurate"`` or ``"fast"``).
+
+    Returns:
+        A 16-character hex string derived from SHA-256.
+    """
+    config_repr = _json.dumps(
+        {
+            "do_picture_description": do_picture_description,
+            "do_code_enrichment": do_code_enrichment,
+            "do_formula_enrichment": do_formula_enrichment,
+            "table_mode": table_mode,
+        },
+        sort_keys=True,
+    )
+    return _hashlib.sha256(config_repr.encode()).hexdigest()[:16]
 
 
 @lru_cache
