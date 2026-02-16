@@ -25,6 +25,15 @@ class SearchDefaults:
 
 
 @dataclass
+class UserConfig:
+    """Per-user configuration for SSE access control."""
+
+    api_key: str
+    system_collections: list[str] = field(default_factory=list)
+    path_mappings: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class Config:
     """Application configuration."""
 
@@ -60,6 +69,9 @@ class Config:
     shared_db_path: Path = field(default_factory=lambda: DEFAULT_SHARED_DB_PATH)
     group_name: str = "default"
     group_db_dir: Path = field(default_factory=lambda: DEFAULT_GROUP_DB_DIR)
+    home: Path | None = None
+    global_paths: list[Path] = field(default_factory=list)
+    users: dict[str, UserConfig] = field(default_factory=dict)
 
     @property
     def group_index_db_path(self) -> Path:
@@ -82,6 +94,14 @@ class Config:
 def _expand_path(p: str | Path) -> Path:
     """Expand ~ and resolve a path."""
     return Path(p).expanduser()
+
+
+def _expand_path_str(p: str) -> str:
+    """Expand ~ in a string path, preserving trailing slashes."""
+    expanded = str(Path(p).expanduser())
+    if p.endswith("/") and not expanded.endswith("/"):
+        expanded += "/"
+    return expanded
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -114,13 +134,77 @@ def load_config(path: Path | None = None) -> Config:
         fts_weight=search_data.get("fts_weight", 0.3),
     )
 
-    obsidian_vaults = [_expand_path(v) for v in data.get("obsidian_vaults", [])]
+    # system_sources provides an alternative location for source config fields,
+    # with top-level keys taking precedence for backwards compatibility.
+    system_sources = data.get("system_sources", {})
+
+    obsidian_vaults_raw = (
+        data["obsidian_vaults"]
+        if "obsidian_vaults" in data
+        else system_sources.get("obsidian_vaults", [])
+    )
+    obsidian_vaults = [_expand_path(v) for v in obsidian_vaults_raw]
     obsidian_exclude_folders = data.get("obsidian_exclude_folders", [])
-    calibre_libraries = [_expand_path(v) for v in data.get("calibre_libraries", [])]
+
+    calibre_raw = (
+        data["calibre_libraries"]
+        if "calibre_libraries" in data
+        else system_sources.get("calibre_libraries", [])
+    )
+    calibre_libraries = [_expand_path(v) for v in calibre_raw]
+
     code_groups: dict[str, list[Path]] = {}
     for cg_name, paths in data.get("code_groups", {}).items():
         code_groups[cg_name] = [_expand_path(p) for p in paths]
     disabled_collections = set(data.get("disabled_collections", []))
+
+    # Parse home
+    home_raw = data.get("home")
+    home = _expand_path(home_raw) if home_raw is not None else None
+
+    # Parse global_paths
+    global_paths = [_expand_path(p) for p in data.get("global_paths", [])]
+
+    # Parse users
+    users: dict[str, UserConfig] = {}
+    for user_name, user_data in data.get("users", {}).items():
+        if "api_key" not in user_data:
+            raise ValueError(f"User '{user_name}' missing required 'api_key' field in config")
+        raw_mappings = user_data.get("path_mappings", {})
+        expanded_mappings = {_expand_path_str(k): v for k, v in raw_mappings.items()}
+        users[user_name] = UserConfig(
+            api_key=user_data["api_key"],
+            system_collections=user_data.get("system_collections", []),
+            path_mappings=expanded_mappings,
+        )
+
+    # emclient_db_path: top-level > system_sources > default
+    emclient_raw = (
+        data["emclient_db_path"]
+        if "emclient_db_path" in data
+        else system_sources.get("emclient_db_path")
+    )
+    emclient_default = str(Path.home() / "Library" / "Application Support" / "eM Client")
+    emclient_db_path = _expand_path(emclient_raw if emclient_raw is not None else emclient_default)
+
+    # netnewswire_db_path: top-level > system_sources > default
+    nnw_raw = (
+        data["netnewswire_db_path"]
+        if "netnewswire_db_path" in data
+        else system_sources.get("netnewswire_db_path")
+    )
+    nnw_default = str(
+        Path.home()
+        / "Library"
+        / "Containers"
+        / "com.ranchero.NetNewsWire-Evergreen"
+        / "Data"
+        / "Library"
+        / "Application Support"
+        / "NetNewsWire"
+        / "Accounts"
+    )
+    netnewswire_db_path = _expand_path(nnw_raw if nnw_raw is not None else nnw_default)
 
     config = Config(
         db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
@@ -130,29 +214,9 @@ def load_config(path: Path | None = None) -> Config:
         chunk_overlap_tokens=data.get("chunk_overlap_tokens", 50),
         obsidian_vaults=obsidian_vaults,
         obsidian_exclude_folders=obsidian_exclude_folders,
-        emclient_db_path=_expand_path(
-            data.get(
-                "emclient_db_path",
-                str(Path.home() / "Library" / "Application Support" / "eM Client"),
-            )
-        ),
+        emclient_db_path=emclient_db_path,
         calibre_libraries=calibre_libraries,
-        netnewswire_db_path=_expand_path(
-            data.get(
-                "netnewswire_db_path",
-                str(
-                    Path.home()
-                    / "Library"
-                    / "Containers"
-                    / "com.ranchero.NetNewsWire-Evergreen"
-                    / "Data"
-                    / "Library"
-                    / "Application Support"
-                    / "NetNewsWire"
-                    / "Accounts"
-                ),
-            )
-        ),
+        netnewswire_db_path=netnewswire_db_path,
         code_groups=code_groups,
         disabled_collections=disabled_collections,
         git_history_in_months=data.get("git_history_in_months", 6),
@@ -161,6 +225,9 @@ def load_config(path: Path | None = None) -> Config:
         shared_db_path=_expand_path(data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH))),
         group_name=data.get("group_name", "default"),
         group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR))),
+        home=home,
+        global_paths=global_paths,
+        users=users,
     )
 
     return config

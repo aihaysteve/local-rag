@@ -60,13 +60,22 @@ def _get_db(config: Config, group: str = "default"):
 @click.option(
     "--group", "-g", default="default", show_default=True, help="Group name for per-group indexes."
 )
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to config file.",
+)
 @click.pass_context
-def main(ctx: click.Context, verbose: bool, group: str) -> None:
+def main(ctx: click.Context, verbose: bool, group: str, config_path: Path | None) -> None:
     """ragling: Docling-powered local RAG with shared document cache."""
     _setup_logging(verbose)
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["group"] = group
+    ctx.obj["config_path"] = config_path
 
 
 # ── Index commands ──────────────────────────────────────────────────────
@@ -117,7 +126,7 @@ def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) ->
     from ragling.doc_store import DocStore
     from ragling.indexers.obsidian import ObsidianIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "obsidian")
     vault_paths = list(vaults) if vaults else config.obsidian_vaults
 
@@ -147,7 +156,7 @@ def index_email(ctx: click.Context, force: bool) -> None:
     """Index eM Client emails."""
     from ragling.indexers.email_indexer import EmailIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "email")
     group = ctx.obj["group"]
     conn = _get_db(config, group)
@@ -175,7 +184,7 @@ def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) 
     from ragling.doc_store import DocStore
     from ragling.indexers.calibre_indexer import CalibreIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "calibre")
     library_paths = list(libraries) if libraries else config.calibre_libraries
 
@@ -205,7 +214,7 @@ def index_rss(ctx: click.Context, force: bool) -> None:
     """Index NetNewsWire RSS articles."""
     from ragling.indexers.rss_indexer import RSSIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "rss")
     group = ctx.obj["group"]
     conn = _get_db(config, group)
@@ -227,7 +236,7 @@ def index_project(ctx: click.Context, name: str, paths: tuple[Path, ...], force:
     from ragling.doc_store import DocStore
     from ragling.indexers.project import ProjectIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, name)
     group = ctx.obj["group"]
     conn = _get_db(config, group)
@@ -254,7 +263,7 @@ def index_group(ctx: click.Context, name: str | None, force: bool, history: bool
     """
     from ragling.indexers.git_indexer import GitRepoIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
 
     if name:
         if name not in config.code_groups:
@@ -299,7 +308,7 @@ def index_all(ctx: click.Context, force: bool) -> None:
     from ragling.indexers.obsidian import ObsidianIndexer
     from ragling.indexers.rss_indexer import RSSIndexer
 
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     group = ctx.obj["group"]
     conn = _get_db(config, group)
     doc_store = DocStore(config.shared_db_path)
@@ -491,7 +500,7 @@ def collections() -> None:
 @click.pass_context
 def collections_list(ctx: click.Context) -> None:
     """List all collections with document counts."""
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     group = ctx.obj["group"]
     conn = _get_db(config, group)
     try:
@@ -533,7 +542,7 @@ def collections_list(ctx: click.Context) -> None:
 @click.pass_context
 def collections_info(ctx: click.Context, name: str) -> None:
     """Show detailed info about a collection."""
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     group = ctx.obj["group"]
     conn = _get_db(config, group)
     try:
@@ -603,7 +612,7 @@ def collections_info(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
     """Delete a collection and all its data."""
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     group = ctx.obj["group"]
     conn = _get_db(config, group)
     try:
@@ -644,7 +653,7 @@ def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """Show overall RAG status and statistics."""
-    config = load_config()
+    config = load_config(ctx.obj.get("config_path"))
     group = ctx.obj["group"]
     config.group_name = group
 

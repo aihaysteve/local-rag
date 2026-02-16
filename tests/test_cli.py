@@ -65,6 +65,15 @@ class TestGroupFlag:
         assert result.exit_code == 0
 
 
+class TestConfigFlag:
+    """Tests for the --config CLI option."""
+
+    def test_main_has_config_option(self) -> None:
+        """--config flag is accepted on the main group."""
+        param_names = [p.name for p in main.params]
+        assert "config_path" in param_names
+
+
 class TestMcpServer:
     """Tests for the MCP server factory."""
 

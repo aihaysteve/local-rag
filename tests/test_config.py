@@ -70,3 +70,94 @@ class TestConfigFromJson:
         config = load_config(config_file)
         assert "~" not in str(config.shared_db_path)
         assert "~" not in str(config.group_db_dir)
+
+
+class TestUserConfig:
+    """Tests for user/home/global config fields."""
+
+    def test_default_home_is_none(self) -> None:
+        config = Config()
+        assert config.home is None
+
+    def test_default_global_paths_is_empty(self) -> None:
+        config = Config()
+        assert config.global_paths == []
+
+    def test_default_users_is_empty(self) -> None:
+        config = Config()
+        assert config.users == {}
+
+    def test_loads_home_from_json(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"home": str(tmp_path / "groups")}))
+        config = load_config(config_file)
+        assert config.home == tmp_path / "groups"
+
+    def test_loads_global_paths_from_json(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        global_dir = tmp_path / "global"
+        config_file.write_text(json.dumps({"global_paths": [str(global_dir)]}))
+        config = load_config(config_file)
+        assert config.global_paths == [global_dir]
+
+    def test_loads_users_from_json(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "users": {
+                        "kitchen": {
+                            "api_key": "rag_test123",
+                            "system_collections": ["obsidian"],
+                            "path_mappings": {"/host/path/": "/container/path/"},
+                        }
+                    }
+                }
+            )
+        )
+        config = load_config(config_file)
+        assert "kitchen" in config.users
+        assert config.users["kitchen"].api_key == "rag_test123"
+        assert config.users["kitchen"].system_collections == ["obsidian"]
+        assert config.users["kitchen"].path_mappings == {"/host/path/": "/container/path/"}
+
+    def test_system_sources_wraps_existing_fields(self, tmp_path: Path) -> None:
+        """system_sources in JSON maps to existing Config fields."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "system_sources": {
+                        "obsidian_vaults": [str(tmp_path / "vault")],
+                        "calibre_libraries": [str(tmp_path / "calibre")],
+                    }
+                }
+            )
+        )
+        config = load_config(config_file)
+        assert config.obsidian_vaults == [tmp_path / "vault"]
+        assert config.calibre_libraries == [tmp_path / "calibre"]
+
+    def test_tilde_expansion_in_home(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"home": "~/NanoClaw/groups"}))
+        config = load_config(config_file)
+        assert "~" not in str(config.home)
+
+    def test_tilde_expansion_in_path_mappings(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "users": {
+                        "test": {
+                            "api_key": "rag_abc",
+                            "path_mappings": {"~/groups/test/": "/workspace/group/"},
+                        }
+                    }
+                }
+            )
+        )
+        config = load_config(config_file)
+        mapping_keys = list(config.users["test"].path_mappings.keys())
+        assert not any("~" in k for k in mapping_keys)
