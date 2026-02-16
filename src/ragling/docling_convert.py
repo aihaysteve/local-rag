@@ -1,0 +1,121 @@
+"""Docling document conversion and chunking wrapper.
+
+Wraps Docling's DocumentConverter for format conversion and
+HybridChunker for structure-aware chunking. Integrates with
+DocStore for content-addressed caching.
+"""
+
+import logging
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from docling.document_converter import DocumentConverter
+from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from docling_core.types.doc import DoclingDocument
+from transformers import AutoTokenizer
+
+from ragling.chunker import Chunk
+from ragling.doc_store import DocStore
+
+logger = logging.getLogger(__name__)
+
+# Formats that Docling handles (vs. legacy parsers)
+DOCLING_FORMATS: frozenset[str] = frozenset(
+    {
+        "pdf",
+        "docx",
+        "pptx",
+        "xlsx",
+        "html",
+        "epub",
+        "plaintext",
+        "latex",
+        "image",
+        "csv",
+        "asciidoc",
+    }
+)
+
+
+@lru_cache
+def get_converter() -> DocumentConverter:
+    """Get or create the Docling DocumentConverter singleton."""
+    return DocumentConverter()
+
+
+@lru_cache
+def _get_tokenizer(model_id: str, max_tokens: int) -> HuggingFaceTokenizer:
+    """Create and cache a HuggingFace tokenizer wrapper for chunking.
+
+    Args:
+        model_id: HuggingFace model ID (e.g. ``BAAI/bge-m3``).
+        max_tokens: Maximum tokens per chunk.
+
+    Returns:
+        A ``HuggingFaceTokenizer`` instance for use with ``HybridChunker``.
+    """
+    hf_tok = AutoTokenizer.from_pretrained(model_id)
+    return HuggingFaceTokenizer(tokenizer=hf_tok, max_tokens=max_tokens)
+
+
+def _convert_with_docling(path: Path) -> dict[str, Any]:
+    """Convert a file using Docling and return serializable dict.
+
+    Args:
+        path: Path to the document file.
+
+    Returns:
+        A JSON-serializable dict representation of the DoclingDocument.
+    """
+    result = get_converter().convert(str(path))
+    doc = result.document
+    return doc.model_dump()
+
+
+def convert_and_chunk(
+    path: Path,
+    doc_store: DocStore,
+    chunk_max_tokens: int = 256,
+    embedding_model_id: str = "BAAI/bge-m3",
+) -> list[Chunk]:
+    """Convert a document via Docling (cached in doc_store), chunk with HybridChunker.
+
+    Args:
+        path: Path to the source document.
+        doc_store: Shared document store for caching conversions.
+        chunk_max_tokens: Maximum tokens per chunk.
+        embedding_model_id: HuggingFace model ID for tokenizer alignment.
+
+    Returns:
+        List of Chunk dataclass instances ready for embedding.
+    """
+    # 1. Get or convert (content-addressed via doc_store)
+    doc_data = doc_store.get_or_convert(path, _convert_with_docling)
+
+    # 2. Reconstruct DoclingDocument from cached data
+    doc = DoclingDocument.model_validate(doc_data)
+
+    # 3. Chunk with HybridChunker
+    tokenizer = _get_tokenizer(embedding_model_id, chunk_max_tokens)
+    chunker = HybridChunker(tokenizer=tokenizer)
+    doc_chunks = list(chunker.chunk(doc))
+
+    # 4. Map to ragling Chunk format
+    chunks: list[Chunk] = []
+    for i, dc in enumerate(doc_chunks):
+        headings: list[str] = getattr(dc.meta, "headings", None) or []
+        chunks.append(
+            Chunk(
+                text=chunker.contextualize(dc),
+                title=path.name,
+                metadata={
+                    "headings": headings,
+                    "source_path": str(path),
+                },
+                chunk_index=i,
+            )
+        )
+
+    return chunks

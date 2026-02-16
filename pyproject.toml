@@ -19,6 +19,8 @@ dependencies = [
     "mcp>=1.0.0",
     "tree-sitter-language-pack>=0.7.0",
     "rich>=13.0",
+    "docling>=2.66.0",
+    "docling-core>=2.56.0",
 ]
 
 [project.scripts]
