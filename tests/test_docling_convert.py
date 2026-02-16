@@ -283,6 +283,59 @@ class TestEnrichmentMetadata:
         assert chunks[0].metadata["code_language"] == "python"
 
 
+class TestChunkWithHybrid:
+    """Tests for the shared chunk_with_hybrid function."""
+
+    def test_returns_list_of_chunks(self) -> None:
+        from ragling.docling_convert import chunk_with_hybrid
+
+        mock_doc = MagicMock()
+        with patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()):
+            with patch("ragling.docling_convert.HybridChunker") as mock_cls:
+                mc = MagicMock()
+                mc.meta.headings = ["H1"]
+                mc.meta.doc_items = []
+                mock_chunker = MagicMock()
+                mock_chunker.chunk.return_value = [mc]
+                mock_chunker.contextualize.return_value = "contextualized text"
+                mock_cls.return_value = mock_chunker
+
+                chunks = chunk_with_hybrid(
+                    mock_doc,
+                    title="test.md",
+                    source_path="/tmp/test.md",
+                )
+
+        assert len(chunks) == 1
+        assert isinstance(chunks[0], Chunk)
+        assert chunks[0].text == "contextualized text"
+        assert chunks[0].metadata["source_path"] == "/tmp/test.md"
+
+    def test_merges_extra_metadata(self) -> None:
+        from ragling.docling_convert import chunk_with_hybrid
+
+        mock_doc = MagicMock()
+        with patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()):
+            with patch("ragling.docling_convert.HybridChunker") as mock_cls:
+                mc = MagicMock()
+                mc.meta.headings = []
+                mc.meta.doc_items = []
+                mock_chunker = MagicMock()
+                mock_chunker.chunk.return_value = [mc]
+                mock_chunker.contextualize.return_value = "text"
+                mock_cls.return_value = mock_chunker
+
+                chunks = chunk_with_hybrid(
+                    mock_doc,
+                    title="note.md",
+                    source_path="/tmp/note.md",
+                    extra_metadata={"tags": ["python", "rag"], "links": ["Other Note"]},
+                )
+
+        assert chunks[0].metadata["tags"] == ["python", "rag"]
+        assert chunks[0].metadata["links"] == ["Other Note"]
+
+
 class TestConfigHashPassthrough:
     """Tests that convert_and_chunk passes config_hash to doc_store."""
 

@@ -160,6 +160,75 @@ def _is_code_item(item: object) -> bool:
     return isinstance(item, CodeItem)
 
 
+def chunk_with_hybrid(
+    doc: DoclingDocument,
+    *,
+    title: str,
+    source_path: str,
+    extra_metadata: dict[str, Any] | None = None,
+    chunk_max_tokens: int = 256,
+    embedding_model_id: str = "BAAI/bge-m3",
+) -> list[Chunk]:
+    """Chunk a DoclingDocument using HybridChunker with contextualize().
+
+    Shared by both the Docling conversion path and the legacy-parser bridge path.
+
+    Args:
+        doc: A DoclingDocument (from Docling conversion or built via bridge).
+        title: Title to use for each Chunk.
+        source_path: Source file path stored in chunk metadata.
+        extra_metadata: Additional metadata to merge into every chunk
+            (e.g. Obsidian tags, wikilinks).
+        chunk_max_tokens: Maximum tokens per chunk.
+        embedding_model_id: HuggingFace model ID for tokenizer alignment.
+
+    Returns:
+        List of Chunk dataclass instances.
+    """
+    tokenizer = _get_tokenizer(embedding_model_id, chunk_max_tokens)
+    chunker = HybridChunker(tokenizer=tokenizer)
+    doc_chunks = list(chunker.chunk(doc))
+
+    chunks: list[Chunk] = []
+    for i, dc in enumerate(doc_chunks):
+        headings: list[str] = getattr(dc.meta, "headings", None) or []
+        metadata: dict[str, Any] = {
+            "headings": headings,
+            "source_path": source_path,
+        }
+
+        # Extract enrichment metadata from doc_items (only present for Docling-converted docs)
+        for doc_item in getattr(dc.meta, "doc_items", []):
+            if _is_picture_item(doc_item):
+                caption = doc_item.caption_text(doc)
+                if caption:
+                    metadata.setdefault("captions", []).append(caption)
+                if getattr(doc_item, "meta", None) and getattr(doc_item.meta, "description", None):
+                    metadata["picture_description"] = doc_item.meta.description.text
+            elif _is_table_item(doc_item):
+                caption = doc_item.caption_text(doc)
+                if caption:
+                    metadata.setdefault("captions", []).append(caption)
+            elif _is_code_item(doc_item):
+                lang = getattr(doc_item, "code_language", None)
+                if lang:
+                    metadata["code_language"] = lang.value
+
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        chunks.append(
+            Chunk(
+                text=chunker.contextualize(dc),
+                title=title,
+                metadata=metadata,
+                chunk_index=i,
+            )
+        )
+
+    return chunks
+
+
 def convert_and_chunk(
     path: Path,
     doc_store: DocStore,
@@ -177,7 +246,6 @@ def convert_and_chunk(
     Returns:
         List of Chunk dataclass instances ready for embedding.
     """
-    # 1. Get or convert (content-addressed via doc_store)
     config_hash = converter_config_hash(
         do_picture_description=True,
         do_code_enrichment=True,
@@ -185,50 +253,12 @@ def convert_and_chunk(
         table_mode="accurate",
     )
     doc_data = doc_store.get_or_convert(path, _convert_with_docling, config_hash=config_hash)
-
-    # 2. Reconstruct DoclingDocument from cached data
     doc = DoclingDocument.model_validate(doc_data)
 
-    # 3. Chunk with HybridChunker
-    tokenizer = _get_tokenizer(embedding_model_id, chunk_max_tokens)
-    chunker = HybridChunker(tokenizer=tokenizer)
-    doc_chunks = list(chunker.chunk(doc))
-
-    # 4. Map to ragling Chunk format with enrichment metadata
-    chunks: list[Chunk] = []
-    for i, dc in enumerate(doc_chunks):
-        headings: list[str] = getattr(dc.meta, "headings", None) or []
-        metadata: dict[str, Any] = {
-            "headings": headings,
-            "source_path": str(path),
-        }
-
-        # Extract enrichment metadata from source doc_items
-        for doc_item in getattr(dc.meta, "doc_items", []):
-            if _is_picture_item(doc_item):
-                caption = doc_item.caption_text(doc)
-                if caption:
-                    metadata.setdefault("captions", []).append(caption)
-                if getattr(doc_item, "meta", None) and getattr(doc_item.meta, "description", None):
-                    metadata["picture_description"] = doc_item.meta.description.text
-
-            elif _is_table_item(doc_item):
-                caption = doc_item.caption_text(doc)
-                if caption:
-                    metadata.setdefault("captions", []).append(caption)
-
-            elif _is_code_item(doc_item):
-                lang = getattr(doc_item, "code_language", None)
-                if lang:
-                    metadata["code_language"] = lang.value
-
-        chunks.append(
-            Chunk(
-                text=chunker.contextualize(dc),
-                title=path.name,
-                metadata=metadata,
-                chunk_index=i,
-            )
-        )
-
-    return chunks
+    return chunk_with_hybrid(
+        doc,
+        title=path.name,
+        source_path=str(path),
+        chunk_max_tokens=chunk_max_tokens,
+        embedding_model_id=embedding_model_id,
+    )
