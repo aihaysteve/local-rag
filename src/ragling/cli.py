@@ -750,13 +750,17 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     )
 
     if sse and not no_stdio:
-        # Both transports requested. For now, run SSE only since
-        # server.run() is blocking (stdio + SSE simultaneously
-        # needs custom implementation).
-        logger.warning("Simultaneous stdio + SSE is not yet supported; starting SSE only.")
-        click.echo(f"Starting MCP server on port {port} (SSE, group: {group})...")
+        import anyio
+
+        click.echo(f"Starting MCP server (stdio + SSE on port {port}, group: {group})...")
         server.settings.port = port
-        server.run(transport="sse")
+
+        async def _run_both() -> None:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(server.run_sse_async)
+                tg.start_soon(server.run_stdio_async)
+
+        anyio.run(_run_both)
     elif sse:
         click.echo(f"Starting MCP server on port {port} (SSE only, group: {group})...")
         server.settings.port = port
