@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ragling.config import Config
 from ragling.db import get_or_create_collection
+from ragling.doc_store import DocStore
 from ragling.embeddings import get_embeddings, serialize_float32
 from ragling.indexers.base import BaseIndexer, IndexResult
 from ragling.indexers.project import _EXTENSION_MAP, _parse_and_chunk
@@ -31,7 +32,11 @@ class ObsidianIndexer(BaseIndexer):
         self.exclude_folders = set(exclude_folders or [])
 
     def index(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        doc_store: DocStore | None = None,
     ) -> IndexResult:
         """Index all configured Obsidian vaults.
 
@@ -39,6 +44,7 @@ class ObsidianIndexer(BaseIndexer):
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all files regardless of hash match.
+            doc_store: Optional shared document store for Docling conversion caching.
 
         Returns:
             IndexResult with counts of indexed/skipped/errored files.
@@ -64,7 +70,9 @@ class ObsidianIndexer(BaseIndexer):
 
             for file_path in files:
                 try:
-                    result = _index_file(conn, config, collection_id, file_path, force)
+                    result = _index_file(
+                        conn, config, collection_id, file_path, force, doc_store=doc_store
+                    )
                     if result == "indexed":
                         indexed += 1
                     elif result == "skipped":
@@ -75,7 +83,10 @@ class ObsidianIndexer(BaseIndexer):
 
         logger.info(
             "Obsidian indexing complete: %d found, %d indexed, %d skipped, %d errors",
-            total_found, indexed, skipped, errors,
+            total_found,
+            indexed,
+            skipped,
+            errors,
         )
         return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
@@ -89,7 +100,9 @@ def _walk_vault(vault_path: Path, exclude_folders: set[str] | None = None) -> li
             continue
         # Skip files in hidden, system, or user-excluded directories
         parts = item.relative_to(vault_path).parts
-        if any(part.startswith(".") or part in _SKIP_DIRS or part in exclude for part in parts[:-1]):
+        if any(
+            part.startswith(".") or part in _SKIP_DIRS or part in exclude for part in parts[:-1]
+        ):
             continue
         # Skip hidden files
         if item.name.startswith("."):
@@ -114,6 +127,7 @@ def _index_file(
     collection_id: int,
     file_path: Path,
     force: bool,
+    doc_store: DocStore | None = None,
 ) -> str:
     """Index a single file of any supported type.
 
@@ -136,7 +150,7 @@ def _index_file(
             return "skipped"
 
     # Parse and chunk using the shared dispatch from project indexer
-    chunks = _parse_and_chunk(file_path, source_type, config)
+    chunks = _parse_and_chunk(file_path, source_type, config, doc_store=doc_store)
     if not chunks:
         logger.warning("No content extracted from %s, skipping", file_path)
         return "skipped"
