@@ -1,7 +1,11 @@
 """Tests for ragling.indexers.project module -- format routing."""
 
 import inspect
+from pathlib import Path
+from unittest.mock import patch
 
+from ragling.chunker import Chunk
+from ragling.config import Config
 from ragling.indexers.project import _EXTENSION_MAP
 
 
@@ -112,3 +116,70 @@ class TestObsidianDoclingRouting:
 
         sig = inspect.signature(ObsidianIndexer.index)
         assert "doc_store" in sig.parameters
+
+
+class TestParseAndChunkUnifiedChunking:
+    """Tests that _parse_and_chunk uses HybridChunker for all formats."""
+
+    def test_markdown_uses_hybrid_chunker(self, tmp_path: Path) -> None:
+        from ragling.indexers.project import _parse_and_chunk
+
+        md_file = tmp_path / "note.md"
+        md_file.write_text("# Heading\n\nBody text here.")
+        config = Config(chunk_size_tokens=256)
+
+        with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+            mock_hybrid.return_value = [
+                Chunk(text="contextualized", title="note.md", chunk_index=0)
+            ]
+            chunks = _parse_and_chunk(md_file, "markdown", config)
+
+        mock_hybrid.assert_called_once()
+        assert len(chunks) == 1
+
+    def test_markdown_preserves_obsidian_metadata(self, tmp_path: Path) -> None:
+        from ragling.indexers.project import _parse_and_chunk
+
+        md_file = tmp_path / "note.md"
+        md_file.write_text("---\ntags: [python]\n---\n# Heading\n\nBody with [[Link]].")
+        config = Config(chunk_size_tokens=256)
+
+        with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+            mock_hybrid.return_value = [Chunk(text="text", title="note.md", chunk_index=0)]
+            _parse_and_chunk(md_file, "markdown", config)
+
+        # Verify extra_metadata was passed with tags and links
+        call_kwargs = mock_hybrid.call_args.kwargs
+        extra = call_kwargs.get("extra_metadata", {})
+        assert "tags" in extra
+        assert "python" in extra["tags"]
+
+    def test_epub_uses_hybrid_chunker(self, tmp_path: Path) -> None:
+        from ragling.indexers.project import _parse_and_chunk
+
+        epub_file = tmp_path / "book.epub"
+        epub_file.write_bytes(b"fake epub")
+        config = Config(chunk_size_tokens=256)
+
+        with patch("ragling.indexers.project.parse_epub") as mock_parse:
+            mock_parse.return_value = [(1, "Chapter text.")]
+            with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+                mock_hybrid.return_value = [Chunk(text="text", title="book.epub", chunk_index=0)]
+                chunks = _parse_and_chunk(epub_file, "epub", config)
+
+        mock_hybrid.assert_called_once()
+        assert len(chunks) == 1
+
+    def test_plaintext_uses_hybrid_chunker(self, tmp_path: Path) -> None:
+        from ragling.indexers.project import _parse_and_chunk
+
+        txt_file = tmp_path / "notes.txt"
+        txt_file.write_text("Plain text content.")
+        config = Config(chunk_size_tokens=256)
+
+        with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+            mock_hybrid.return_value = [Chunk(text="text", title="notes.txt", chunk_index=0)]
+            chunks = _parse_and_chunk(txt_file, "plaintext", config)
+
+        mock_hybrid.assert_called_once()
+        assert len(chunks) == 1

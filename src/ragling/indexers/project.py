@@ -11,13 +11,19 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ragling.chunker import Chunk, chunk_markdown, chunk_plain
+from ragling.chunker import Chunk
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
-from ragling.docling_convert import DOCLING_FORMATS, convert_and_chunk
+from ragling.docling_bridge import (
+    epub_to_docling_doc,
+    markdown_to_docling_doc,
+    plaintext_to_docling_doc,
+)
+from ragling.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings, serialize_float32
 from ragling.indexers.base import BaseIndexer, IndexResult
+from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
 
 logger = logging.getLogger(__name__)
@@ -107,41 +113,45 @@ def _parse_and_chunk(
     if source_type in DOCLING_FORMATS and doc_store is not None:
         return convert_and_chunk(path, doc_store)
 
-    # Legacy markdown path (Obsidian-flavored, handles wikilinks/frontmatter)
+    # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker
     if source_type == "markdown":
-        chunk_size = config.chunk_size_tokens
-        overlap = config.chunk_overlap_tokens
         text = path.read_text(encoding="utf-8", errors="replace")
         doc = parse_markdown(text, path.name)
-        chunks = chunk_markdown(doc.body_text, doc.title, chunk_size, overlap)
-        for chunk in chunks:
-            if doc.tags:
-                chunk.metadata["tags"] = doc.tags
-            if doc.links:
-                chunk.metadata["links"] = doc.links
-        return chunks
+        docling_doc = markdown_to_docling_doc(doc.body_text, doc.title)
+        extra_metadata: dict[str, list[str]] = {}
+        if doc.tags:
+            extra_metadata["tags"] = doc.tags
+        if doc.links:
+            extra_metadata["links"] = doc.links
+        return chunk_with_hybrid(
+            docling_doc,
+            title=doc.title,
+            source_path=str(path),
+            extra_metadata=extra_metadata or None,
+            chunk_max_tokens=config.chunk_size_tokens,
+        )
 
-    # EPUB fallback (Docling doesn't support epub)
+    # EPUB: parse with legacy parser, chunk with HybridChunker
     if source_type == "epub":
-        from ragling.parsers.epub import parse_epub
-
         chapters = parse_epub(path)
-        chunks: list[Chunk] = []
-        chunk_idx = 0
-        for _chapter_num, text in chapters:
-            chapter_chunks = chunk_plain(
-                text, path.name, config.chunk_size_tokens, config.chunk_overlap_tokens
-            )
-            for chunk in chapter_chunks:
-                chunk.chunk_index = chunk_idx
-                chunk_idx += 1
-                chunks.append(chunk)
-        return chunks
+        docling_doc = epub_to_docling_doc(chapters, path.name)
+        return chunk_with_hybrid(
+            docling_doc,
+            title=path.name,
+            source_path=str(path),
+            chunk_max_tokens=config.chunk_size_tokens,
+        )
 
-    # Plain text fallback (.txt, .json, .yaml, .yml)
+    # Plaintext: build minimal DoclingDocument, chunk with HybridChunker
     if source_type == "plaintext":
         text = path.read_text(encoding="utf-8", errors="replace")
-        return chunk_plain(text, path.name, config.chunk_size_tokens, config.chunk_overlap_tokens)
+        docling_doc = plaintext_to_docling_doc(text, path.name)
+        return chunk_with_hybrid(
+            docling_doc,
+            title=path.name,
+            source_path=str(path),
+            chunk_max_tokens=config.chunk_size_tokens,
+        )
 
     logger.warning("Unknown source type '%s' for %s", source_type, path)
     return []
