@@ -2,10 +2,9 @@
 
 import json
 import sqlite3
+from unittest.mock import patch
 
 import pytest
-
-from unittest.mock import patch
 
 from ragling.config import Config
 from ragling.search import SearchFilters, SearchResult, _escape_fts_query, perform_search, rrf_merge
