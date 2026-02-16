@@ -6,13 +6,14 @@ import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 
+from ragling.auth import UserContext
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
 
 if TYPE_CHECKING:
-    from ragling.auth import UserContext
     from ragling.indexing_status import IndexingStatus
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,37 @@ def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:
         return f"Error converting {file_path}: {e}"
 
 
+def _get_user_context(config: Config | None) -> UserContext | None:
+    """Derive UserContext from the current request's access token.
+
+    Uses the contextvar set by FastMCP's AuthContextMiddleware.
+    Returns None when unauthenticated (stdio) or when the user is unknown.
+
+    Args:
+        config: Application config with users.
+
+    Returns:
+        UserContext if authenticated and user exists in config, None otherwise.
+    """
+    if config is None or not config.users:
+        return None
+    try:
+        access_token = get_access_token()
+    except Exception:
+        return None
+    if access_token is None:
+        return None
+    username = access_token.client_id
+    user_config = config.users.get(username)
+    if user_config is None:
+        return None
+    return UserContext(
+        username=username,
+        system_collections=user_config.system_collections,
+        path_mappings=user_config.path_mappings,
+    )
+
+
 def create_server(
     group_name: str = "default",
     config: Config | None = None,
@@ -209,7 +241,28 @@ def create_server(
     # use this instead of calling load_config() each time.
     server_config = config
 
-    mcp = FastMCP("ragling", instructions="Local RAG system for searching personal knowledge.")
+    mcp_kwargs: dict[str, Any] = {
+        "instructions": "Local RAG system for searching personal knowledge.",
+    }
+
+    # Set up auth when users are configured (enables SSE Bearer token validation)
+    if server_config and server_config.users:
+        from pydantic import AnyHttpUrl
+
+        from mcp.server.auth.settings import AuthSettings
+
+        from ragling.token_verifier import RaglingTokenVerifier
+
+        mcp_kwargs["token_verifier"] = RaglingTokenVerifier(server_config)
+        mcp_kwargs["auth"] = AuthSettings(
+            issuer_url=AnyHttpUrl(
+                "http://localhost"
+            ),  # Required placeholder; not used for simple bearer auth
+            resource_server_url=None,
+            required_scopes=[],
+        )
+
+    mcp = FastMCP("ragling", **mcp_kwargs)
 
     @mcp.tool()
     def rag_search(
@@ -221,7 +274,7 @@ def create_server(
         date_to: str | None = None,
         sender: str | None = None,
         author: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Search personal knowledge using hybrid vector + full-text search with Reciprocal Rank Fusion.
 
         Searches across all indexed collections by default. Combines semantic similarity
@@ -321,6 +374,15 @@ def create_server(
         from ragling.embeddings import OllamaConnectionError
         from ragling.search import perform_search
 
+        # Derive user context (present for SSE, None for stdio)
+        user_ctx = _get_user_context(server_config)
+
+        # Compute visible collections
+        visible: list[str] | None = None
+        if user_ctx:
+            global_coll = "global" if server_config and server_config.global_paths else None
+            visible = user_ctx.visible_collections(global_collection=global_coll)
+
         try:
             results = perform_search(
                 query=query,
@@ -332,14 +394,16 @@ def create_server(
                 sender=sender,
                 author=author,
                 group_name=group_name,
+                config=server_config,
+                visible_collections=visible,
             )
         except OllamaConnectionError as e:
-            return [{"error": str(e)}]
+            return _build_search_response([{"error": str(e)}], indexing_status)
 
         cfg = server_config or load_config()
         obsidian_vaults = cfg.obsidian_vaults
 
-        return [
+        result_dicts = [
             {
                 "title": r.title,
                 "content": r.content,
@@ -358,6 +422,12 @@ def create_server(
             }
             for r in results
         ]
+
+        # Apply path mappings for SSE users
+        if user_ctx:
+            result_dicts = _apply_user_context_to_results(result_dicts, user_ctx)
+
+        return _build_search_response(result_dicts, indexing_status)
 
     @mcp.tool()
     def rag_list_collections() -> list[dict[str, Any]]:
@@ -578,6 +648,8 @@ def create_server(
         Args:
             file_path: Path to the document file.
         """
-        return _convert_document(file_path, path_mappings={})
+        user_ctx = _get_user_context(server_config)
+        mappings = user_ctx.path_mappings if user_ctx else {}
+        return _convert_document(file_path, path_mappings=mappings)
 
     return mcp

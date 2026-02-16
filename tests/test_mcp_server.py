@@ -1,6 +1,7 @@
 """Tests for ragling.mcp_server module."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 
 class TestBuildSourceUri:
@@ -183,3 +184,84 @@ class TestCreateServerSignature:
 
         server = create_server()
         assert server is not None
+
+    def test_create_server_with_users_sets_auth(self) -> None:
+        """When users are configured, create_server sets up auth."""
+        from ragling.config import Config, UserConfig
+        from ragling.mcp_server import create_server
+        from ragling.token_verifier import RaglingTokenVerifier
+
+        config = Config(
+            users={"kitchen": UserConfig(api_key="test-key")},
+        )
+        server = create_server(group_name="test", config=config)
+        assert server is not None
+        assert server.settings.auth is not None
+        assert isinstance(server._token_verifier, RaglingTokenVerifier)
+
+    def test_create_server_without_users_no_auth(self) -> None:
+        """When no users configured, create_server does not set up auth."""
+        from ragling.config import Config
+        from ragling.mcp_server import create_server
+
+        config = Config(users={})
+        server = create_server(group_name="test", config=config)
+        assert server is not None
+        assert server.settings.auth is None
+
+
+class TestGetUserContext:
+    """Tests for deriving UserContext from access token."""
+
+    def test_returns_user_context_when_authenticated(self) -> None:
+        from ragling.config import Config, UserConfig
+        from ragling.mcp_server import _get_user_context
+
+        config = Config(
+            users={
+                "kitchen": UserConfig(
+                    api_key="key",
+                    system_collections=["obsidian"],
+                    path_mappings={"/host/kitchen/": "/workspace/group/"},
+                ),
+            },
+        )
+        mock_token = MagicMock()
+        mock_token.client_id = "kitchen"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            ctx = _get_user_context(config)
+            assert ctx is not None
+            assert ctx.username == "kitchen"
+            assert ctx.system_collections == ["obsidian"]
+            assert ctx.path_mappings == {"/host/kitchen/": "/workspace/group/"}
+
+    def test_returns_none_when_no_access_token(self) -> None:
+        from ragling.config import Config, UserConfig
+        from ragling.mcp_server import _get_user_context
+
+        config = Config(
+            users={"kitchen": UserConfig(api_key="key")},
+        )
+        with patch("ragling.mcp_server.get_access_token", return_value=None):
+            ctx = _get_user_context(config)
+            assert ctx is None
+
+    def test_returns_none_when_no_config(self) -> None:
+        from ragling.mcp_server import _get_user_context
+
+        with patch("ragling.mcp_server.get_access_token", return_value=MagicMock()):
+            ctx = _get_user_context(None)
+            assert ctx is None
+
+    def test_returns_none_when_unknown_user(self) -> None:
+        from ragling.config import Config, UserConfig
+        from ragling.mcp_server import _get_user_context
+
+        config = Config(
+            users={"kitchen": UserConfig(api_key="key")},
+        )
+        mock_token = MagicMock()
+        mock_token.client_id = "unknown_user"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            ctx = _get_user_context(config)
+            assert ctx is None
