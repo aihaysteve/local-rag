@@ -5,6 +5,7 @@ and indexes files that are new or changed since the last sync.
 """
 
 import logging
+import sqlite3
 import threading
 from pathlib import Path
 
@@ -161,6 +162,69 @@ def map_file_to_collection(file_path: Path, config: Config) -> str | None:
     return None
 
 
+def _index_directory(
+    directory: Path,
+    collection_name: str,
+    config: Config,
+    conn: sqlite3.Connection,
+) -> None:
+    """Index a directory using the appropriate indexer based on content type.
+
+    Uses auto-detection to route:
+    - .git/ -> GitRepoIndexer (code + commit history)
+    - .obsidian/ -> ObsidianIndexer (frontmatter, wikilinks, tags)
+    - neither -> ProjectIndexer (routes by file extension)
+
+    Args:
+        directory: Path to the directory to index.
+        collection_name: Collection name to index into.
+        config: Application configuration.
+        conn: Database connection.
+    """
+    from ragling.indexers.auto_indexer import detect_directory_type
+    from ragling.indexers.base import IndexResult
+
+    dir_type = detect_directory_type(directory)
+    result: IndexResult
+
+    if dir_type == "code":
+        from ragling.indexers.git_indexer import GitRepoIndexer
+
+        git_indexer = GitRepoIndexer(directory, collection_name=collection_name)
+        result = git_indexer.index(conn, config, index_history=True)
+    elif dir_type == "obsidian":
+        from ragling.doc_store import DocStore
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        doc_store = DocStore(config.shared_db_path)
+        try:
+            obsidian_indexer = ObsidianIndexer(
+                [directory], config.obsidian_exclude_folders, doc_store=doc_store
+            )
+            result = obsidian_indexer.index(conn, config)
+        finally:
+            doc_store.close()
+    else:
+        from ragling.doc_store import DocStore
+        from ragling.indexers.project import ProjectIndexer
+
+        doc_store = DocStore(config.shared_db_path)
+        try:
+            project_indexer = ProjectIndexer(collection_name, [directory], doc_store=doc_store)
+            result = project_indexer.index(conn, config)
+        finally:
+            doc_store.close()
+
+    logger.info(
+        "Indexed %s (%s): %d indexed, %d skipped, %d errors",
+        directory,
+        dir_type,
+        result.indexed,
+        result.skipped,
+        result.errors,
+    )
+
+
 def run_startup_sync(config: Config, status: IndexingStatus) -> threading.Thread:
     """Spawn a daemon thread that indexes new/changed files at startup.
 
@@ -178,36 +242,43 @@ def run_startup_sync(config: Config, status: IndexingStatus) -> threading.Thread
 
     def _sync() -> None:
         try:
-            files = discover_files_to_sync(config)
-            if not files:
-                logger.info("Startup sync: no files to sync")
+            from ragling.db import get_connection, init_db
+            from ragling.indexers.auto_indexer import collect_indexable_directories
+
+            conn = get_connection(config)
+            init_db(conn, config)
+
+            # Collect directories to index
+            dirs_to_index: list[tuple[Path, str]] = []
+
+            # User directories under home
+            if config.home and config.home.is_dir():
+                usernames = list(config.users.keys())
+                for user_dir in collect_indexable_directories(config.home, usernames):
+                    dirs_to_index.append((user_dir, user_dir.name))
+
+            # Global paths
+            for global_path in config.global_paths:
+                if global_path.is_dir():
+                    dirs_to_index.append((global_path, "global"))
+
+            if not dirs_to_index:
+                logger.info("Startup sync: no directories to index")
                 return
 
-            status.set_remaining(len(files))
-            logger.info("Startup sync: found %d files to check", len(files))
+            status.set_remaining(len(dirs_to_index))
+            logger.info("Startup sync: %d directories to index", len(dirs_to_index))
 
-            for file_path in files:
-                try:
-                    collection = map_file_to_collection(file_path, config)
-                    if collection is None:
-                        logger.warning(
-                            "Startup sync: cannot map file to collection, skipping: %s",
-                            file_path,
-                        )
-                        continue
-
-                    # TODO: integrate with DB hash check and indexing pipeline
-                    # For now, just log the file and its collection
-                    logger.debug(
-                        "Startup sync: would index %s into collection '%s'",
-                        file_path,
-                        collection,
-                    )
-                except Exception:
-                    logger.exception("Startup sync: error processing %s", file_path)
-                finally:
-                    status.decrement()
-
+            try:
+                for directory, collection_name in dirs_to_index:
+                    try:
+                        _index_directory(directory, collection_name, config, conn)
+                    except Exception:
+                        logger.exception("Startup sync: error indexing %s", directory)
+                    finally:
+                        status.decrement()
+            finally:
+                conn.close()
         except Exception:
             logger.exception("Startup sync: fatal error")
         finally:

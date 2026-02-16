@@ -1,6 +1,7 @@
 """Tests for ragling.sync module."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from ragling.config import Config, UserConfig
 
@@ -89,3 +90,97 @@ class TestSyncMapFileToCollection:
         config = Config(home=tmp_path / "groups", global_paths=[])
         name = map_file_to_collection(tmp_path / "random" / "file.md", config)
         assert name is None
+
+
+class TestIndexDirectory:
+    """Tests for _index_directory routing to correct indexer."""
+
+    def test_routes_git_directory_to_git_indexer(self, tmp_path: Path) -> None:
+        from ragling.sync import _index_directory
+
+        repo_dir = tmp_path / "myrepo"
+        repo_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        (repo_dir / "main.py").write_text("print('hello')")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+
+        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
+            mock_indexer = MagicMock()
+            mock_indexer.index.return_value = MagicMock(
+                indexed=1, skipped=0, errors=0, total_found=1
+            )
+            MockGit.return_value = mock_indexer
+            conn = MagicMock()
+
+            _index_directory(repo_dir, "kitchen", config, conn)
+
+            MockGit.assert_called_once_with(repo_dir, collection_name="kitchen")
+            mock_indexer.index.assert_called_once_with(conn, config, index_history=True)
+
+    def test_routes_plain_directory_to_project_indexer(self, tmp_path: Path) -> None:
+        from ragling.sync import _index_directory
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "readme.md").write_text("# Hello")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+
+        with patch("ragling.indexers.project.ProjectIndexer") as MockProject:
+            mock_indexer = MagicMock()
+            mock_indexer.index.return_value = MagicMock(
+                indexed=1, skipped=0, errors=0, total_found=1
+            )
+            MockProject.return_value = mock_indexer
+            with patch("ragling.doc_store.DocStore") as MockDocStore:
+                mock_doc_store = MagicMock()
+                MockDocStore.return_value = mock_doc_store
+                conn = MagicMock()
+
+                _index_directory(docs_dir, "kitchen", config, conn)
+
+                MockProject.assert_called_once_with("kitchen", [docs_dir], doc_store=mock_doc_store)
+                mock_indexer.index.assert_called_once_with(conn, config)
+                mock_doc_store.close.assert_called_once()
+
+    def test_routes_obsidian_directory_to_obsidian_indexer(self, tmp_path: Path) -> None:
+        from ragling.sync import _index_directory
+
+        vault_dir = tmp_path / "myvault"
+        vault_dir.mkdir()
+        (vault_dir / ".obsidian").mkdir()
+        (vault_dir / "note.md").write_text("# Note")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+
+        with patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian:
+            mock_indexer = MagicMock()
+            mock_indexer.index.return_value = MagicMock(
+                indexed=1, skipped=0, errors=0, total_found=1
+            )
+            MockObsidian.return_value = mock_indexer
+            with patch("ragling.doc_store.DocStore") as MockDocStore:
+                mock_doc_store = MagicMock()
+                MockDocStore.return_value = mock_doc_store
+                conn = MagicMock()
+
+                _index_directory(vault_dir, "kitchen", config, conn)
+
+                MockObsidian.assert_called_once_with(
+                    [vault_dir], config.obsidian_exclude_folders, doc_store=mock_doc_store
+                )
+                mock_indexer.index.assert_called_once_with(conn, config)
+                mock_doc_store.close.assert_called_once()
