@@ -3,7 +3,7 @@
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ragling.config import Config, load_config
 from ragling.embeddings import serialize_float32
@@ -34,6 +34,7 @@ class SearchFilters:
     date_to: str | None = None
     sender: str | None = None
     author: str | None = None
+    visible_collection_ids: set[int] | None = None
 
 
 def _vector_search(
@@ -58,6 +59,7 @@ def _vector_search(
         or filters.author
         or filters.date_from
         or filters.date_to
+        or filters.visible_collection_ids is not None
     )
     candidate_limit = top_k * 50 if has_filters else top_k * 3
 
@@ -111,6 +113,7 @@ def _fts_search(
         or filters.author
         or filters.date_from
         or filters.date_to
+        or filters.visible_collection_ids is not None
     )
     candidate_limit = top_k * 50 if has_filters else top_k * 3
 
@@ -163,8 +166,8 @@ def _passes_filters(conn: sqlite3.Connection, document_id: int, filters: SearchF
     """Check if a document passes the given filters."""
     row = conn.execute(
         """
-        SELECT d.metadata, c.name as collection_name, c.collection_type,
-               s.source_type, s.source_path
+        SELECT d.metadata, d.collection_id, c.name as collection_name,
+               c.collection_type, s.source_type, s.source_path
         FROM documents d
         JOIN collections c ON d.collection_id = c.id
         JOIN sources s ON d.source_id = s.id
@@ -175,6 +178,10 @@ def _passes_filters(conn: sqlite3.Connection, document_id: int, filters: SearchF
 
     if not row:
         return False
+
+    if filters.visible_collection_ids is not None:
+        if row["collection_id"] not in filters.visible_collection_ids:
+            return False
 
     if filters.collection:
         # If the filter matches a collection_type, filter by type
@@ -247,6 +254,7 @@ def search(
     top_k: int,
     filters: SearchFilters | None,
     config: Config,
+    visible_collections: list[str] | None = None,
 ) -> list[SearchResult]:
     """Run hybrid search combining vector similarity and full-text search.
 
@@ -257,10 +265,28 @@ def search(
         top_k: Number of results to return.
         filters: Optional search filters.
         config: Application configuration.
+        visible_collections: Optional list of collection names to restrict results to.
+            None means no restriction (all collections visible).
+            Empty list means no collections visible (returns no results).
 
     Returns:
         List of SearchResult objects sorted by relevance.
     """
+    if visible_collections is not None:
+        if not visible_collections:
+            return []  # empty list = no access
+        rows = conn.execute(
+            f"SELECT id FROM collections WHERE name IN ({','.join('?' * len(visible_collections))})",
+            visible_collections,
+        ).fetchall()
+        allowed_ids = {row["id"] for row in rows}
+        if not allowed_ids:
+            return []  # none of the named collections exist
+        if filters:
+            filters = replace(filters, visible_collection_ids=allowed_ids)
+        else:
+            filters = SearchFilters(visible_collection_ids=allowed_ids)
+
     vec_results = _vector_search(conn, query_embedding, top_k, filters)
     fts_results = _fts_search(conn, query_text, top_k, filters)
 

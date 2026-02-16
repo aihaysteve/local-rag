@@ -428,3 +428,108 @@ class TestSearchWithDatabase:
         assert r.source_path == "/doc.md"
         assert r.source_type == "markdown"
         assert r.score > 0
+
+    def test_search_with_visible_collections_filter(self, db):
+        """visible_collections limits results to allowed collections only."""
+        conn, config = db
+        self._insert_document(
+            conn,
+            "kitchen",
+            "/kitchen/notes.md",
+            "Kitchen Note",
+            "recipe for pasta carbonara",
+            [1.0, 0.0, 0.0, 0.0],
+        )
+        self._insert_document(
+            conn,
+            "garage",
+            "/garage/tools.md",
+            "Garage Tools",
+            "recipe for workshop organization",
+            [0.9, 0.1, 0.0, 0.0],
+        )
+        self._insert_document(
+            conn,
+            "global",
+            "/global/shared.md",
+            "Shared Doc",
+            "recipe for global knowledge base",
+            [0.8, 0.2, 0.0, 0.0],
+        )
+
+        from ragling.search import search
+
+        results = search(
+            conn=conn,
+            query_embedding=[1.0, 0.0, 0.0, 0.0],
+            query_text="recipe",
+            top_k=10,
+            filters=None,
+            config=config,
+            visible_collections=["kitchen", "global"],
+        )
+
+        collections_in_results = {r.collection for r in results}
+        assert "kitchen" in collections_in_results
+        assert "global" in collections_in_results
+        assert "garage" not in collections_in_results
+
+    def test_search_visible_collections_none_returns_all(self, db):
+        """visible_collections=None returns results from all collections."""
+        conn, config = db
+        self._insert_document(
+            conn,
+            "col-a",
+            "/a.md",
+            "A",
+            "unique text alpha",
+            [1.0, 0.0, 0.0, 0.0],
+        )
+        self._insert_document(
+            conn,
+            "col-b",
+            "/b.md",
+            "B",
+            "unique text alpha beta",
+            [0.9, 0.1, 0.0, 0.0],
+        )
+
+        from ragling.search import search
+
+        results = search(
+            conn=conn,
+            query_embedding=[1.0, 0.0, 0.0, 0.0],
+            query_text="unique text alpha",
+            top_k=10,
+            filters=None,
+            config=config,
+            visible_collections=None,
+        )
+
+        assert len(results) == 2
+
+    def test_search_visible_collections_empty_returns_nothing(self, db):
+        """visible_collections=[] returns no results."""
+        conn, config = db
+        self._insert_document(
+            conn,
+            "test",
+            "/test.md",
+            "Test",
+            "some content here",
+            [1.0, 0.0, 0.0, 0.0],
+        )
+
+        from ragling.search import search
+
+        results = search(
+            conn=conn,
+            query_embedding=[1.0, 0.0, 0.0, 0.0],
+            query_text="some content",
+            top_k=10,
+            filters=None,
+            config=config,
+            visible_collections=[],
+        )
+
+        assert len(results) == 0
