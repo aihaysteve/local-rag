@@ -138,3 +138,36 @@ class TestListSources:
         source_paths = {s["source_path"] for s in sources}
         for f in files:
             assert str(f) in source_paths
+
+
+class TestConfigHashCaching:
+    """Tests for config_hash-aware caching."""
+
+    def test_same_config_hash_is_cache_hit(self, store: DocStore, sample_file: Path) -> None:
+        converter = MagicMock(return_value={"text": "data"})
+        store.get_or_convert(sample_file, converter, config_hash="abc123")
+        store.get_or_convert(sample_file, converter, config_hash="abc123")
+        assert converter.call_count == 1
+
+    def test_different_config_hash_triggers_reconversion(
+        self, store: DocStore, sample_file: Path
+    ) -> None:
+        converter = MagicMock(side_effect=[{"v": 1}, {"v": 2}])
+        r1 = store.get_or_convert(sample_file, converter, config_hash="old_hash")
+        r2 = store.get_or_convert(sample_file, converter, config_hash="new_hash")
+        assert converter.call_count == 2
+        assert r1 == {"v": 1}
+        assert r2 == {"v": 2}
+
+    def test_empty_config_hash_is_valid(self, store: DocStore, sample_file: Path) -> None:
+        converter = MagicMock(return_value={"text": "data"})
+        result = store.get_or_convert(sample_file, converter, config_hash="")
+        assert result == {"text": "data"}
+
+    def test_backwards_compatible_without_config_hash(
+        self, store: DocStore, sample_file: Path
+    ) -> None:
+        """Calling without config_hash still works (defaults to empty string)."""
+        converter = MagicMock(return_value={"text": "data"})
+        result = store.get_or_convert(sample_file, converter)
+        assert result == {"text": "data"}

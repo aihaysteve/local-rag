@@ -29,12 +29,13 @@ CREATE TABLE IF NOT EXISTS converted_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
     content_hash TEXT NOT NULL,
+    config_hash TEXT NOT NULL DEFAULT '',
     docling_json TEXT NOT NULL,
     format TEXT NOT NULL,
     page_count INTEGER,
     conversion_time_ms INTEGER,
     converted_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(source_id, content_hash)
+    UNIQUE(source_id, content_hash, config_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sources_hash ON sources(content_hash);
@@ -77,25 +78,47 @@ class DocStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._migrate_config_hash()
 
         logger.info("DocStore opened at %s", db_path)
+
+    # ------------------------------------------------------------------
+    # Migrations
+    # ------------------------------------------------------------------
+
+    def _migrate_config_hash(self) -> None:
+        """Add config_hash column to converted_documents if missing."""
+        cursor = self._conn.execute("PRAGMA table_info(converted_documents)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "config_hash" not in columns:
+            self._conn.execute(
+                "ALTER TABLE converted_documents ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''"
+            )
+            self._conn.commit()
+            logger.info("Migrated converted_documents: added config_hash column")
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def get_or_convert(self, path: Path, converter: Callable[[Path], Any]) -> Any:
+    def get_or_convert(
+        self, path: Path, converter: Callable[[Path], Any], config_hash: str = ""
+    ) -> Any:
         """Content-addressed lookup with lazy conversion.
 
-        If the file at *path* has already been converted and its content
-        hash has not changed, the cached result is returned without
-        invoking *converter*. Otherwise *converter(path)* is called, the
-        result is JSON-serialised and stored, and then returned.
+        If the file at *path* has already been converted and both its
+        content hash and *config_hash* match, the cached result is
+        returned without invoking *converter*. Otherwise
+        *converter(path)* is called, stale conversions are removed,
+        and the new result is stored and returned.
 
         Args:
             path: Filesystem path to the source document.
             converter: A callable that accepts a ``Path`` and returns an
                        arbitrary JSON-serialisable value.
+            config_hash: Hash of the converter pipeline configuration.
+                         A change in config_hash invalidates all cached
+                         conversions for this source, triggering re-conversion.
 
         Returns:
             The (possibly cached) conversion result.
@@ -116,14 +139,14 @@ class DocStore:
                 # Hash matches -- look up cached conversion
                 doc_row = self._conn.execute(
                     "SELECT docling_json FROM converted_documents "
-                    "WHERE source_id = ? AND content_hash = ?",
-                    (source_id, content_hash),
+                    "WHERE source_id = ? AND content_hash = ? AND config_hash = ?",
+                    (source_id, content_hash, config_hash),
                 ).fetchone()
                 if doc_row is not None:
                     logger.debug("Cache hit for %s", path)
                     return json.loads(doc_row["docling_json"])
 
-            # Hash changed -- remove stale conversion data
+            # Cache miss: content or config changed -- remove stale conversions
             self._conn.execute(
                 "DELETE FROM converted_documents WHERE source_id = ?",
                 (source_id,),
@@ -161,9 +184,9 @@ class DocStore:
 
         self._conn.execute(
             "INSERT INTO converted_documents "
-            "(source_id, content_hash, docling_json, format, conversion_time_ms) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (source_id, content_hash, json.dumps(result), fmt, elapsed_ms),
+            "(source_id, content_hash, config_hash, docling_json, format, conversion_time_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (source_id, content_hash, config_hash, json.dumps(result), fmt, elapsed_ms),
         )
         self._conn.commit()
 
