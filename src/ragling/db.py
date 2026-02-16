@@ -15,13 +15,19 @@ SCHEMA_VERSION = 2
 def get_connection(config: Config) -> sqlite3.Connection:
     """Open a SQLite connection with sqlite-vec loaded and pragmas set.
 
+    Uses config.group_index_db_path when group is not "default",
+    otherwise falls back to config.db_path for backwards compatibility.
+
     Args:
         config: Application configuration.
 
     Returns:
         Configured sqlite3.Connection.
     """
-    db_path = config.db_path
+    if config.group_name != "default":
+        db_path = config.group_index_db_path
+    else:
+        db_path = config.db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(str(db_path))
@@ -199,7 +205,5 @@ def get_or_create_collection(
     )
     conn.commit()
     collection_id = cursor.lastrowid
-    logger.info(
-        "Created collection '%s' (type=%s, id=%d)", name, collection_type, collection_id
-    )
+    logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, collection_id)
     return collection_id
