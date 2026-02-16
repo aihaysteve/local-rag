@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_DIR = Path.home() / ".ragling"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.json"
 DEFAULT_DB_PATH = DEFAULT_CONFIG_DIR / "rag.db"
+DEFAULT_SHARED_DB_PATH = DEFAULT_CONFIG_DIR / "doc_store.sqlite"
+DEFAULT_GROUP_DB_DIR = DEFAULT_CONFIG_DIR / "groups"
 
 
 @dataclass
@@ -55,6 +57,14 @@ class Config:
     git_history_in_months: int = 6
     git_commit_subject_blacklist: list[str] = field(default_factory=list)
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
+    shared_db_path: Path = field(default_factory=lambda: DEFAULT_SHARED_DB_PATH)
+    group_name: str = "default"
+    group_db_dir: Path = field(default_factory=lambda: DEFAULT_GROUP_DB_DIR)
+
+    @property
+    def group_index_db_path(self) -> Path:
+        """Path to this group's per-group index database."""
+        return self.group_db_dir / self.group_name / "index.db"
 
     def is_collection_enabled(self, name: str) -> bool:
         """Check if a collection is enabled for indexing.
@@ -108,8 +118,8 @@ def load_config(path: Path | None = None) -> Config:
     obsidian_exclude_folders = data.get("obsidian_exclude_folders", [])
     calibre_libraries = [_expand_path(v) for v in data.get("calibre_libraries", [])]
     code_groups: dict[str, list[Path]] = {}
-    for group_name, paths in data.get("code_groups", {}).items():
-        code_groups[group_name] = [_expand_path(p) for p in paths]
+    for cg_name, paths in data.get("code_groups", {}).items():
+        code_groups[cg_name] = [_expand_path(p) for p in paths]
     disabled_collections = set(data.get("disabled_collections", []))
 
     config = Config(
@@ -121,7 +131,10 @@ def load_config(path: Path | None = None) -> Config:
         obsidian_vaults=obsidian_vaults,
         obsidian_exclude_folders=obsidian_exclude_folders,
         emclient_db_path=_expand_path(
-            data.get("emclient_db_path", str(Path.home() / "Library" / "Application Support" / "eM Client"))
+            data.get(
+                "emclient_db_path",
+                str(Path.home() / "Library" / "Application Support" / "eM Client"),
+            )
         ),
         calibre_libraries=calibre_libraries,
         netnewswire_db_path=_expand_path(
@@ -145,6 +158,9 @@ def load_config(path: Path | None = None) -> Config:
         git_history_in_months=data.get("git_history_in_months", 6),
         git_commit_subject_blacklist=data.get("git_commit_subject_blacklist", []),
         search_defaults=search_defaults,
+        shared_db_path=_expand_path(data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH))),
+        group_name=data.get("group_name", "default"),
+        group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR))),
     )
 
     return config
