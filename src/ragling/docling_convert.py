@@ -30,7 +30,6 @@ DOCLING_FORMATS: frozenset[str] = frozenset(
         "xlsx",
         "html",
         "epub",
-        "plaintext",
         "latex",
         "image",
         "csv",

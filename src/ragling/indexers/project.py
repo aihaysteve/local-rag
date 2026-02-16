@@ -11,7 +11,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ragling.chunker import Chunk, chunk_markdown
+from ragling.chunker import Chunk, chunk_markdown, chunk_plain
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
@@ -115,6 +115,11 @@ def _parse_and_chunk(
             if doc.links:
                 chunk.metadata["links"] = doc.links
         return chunks
+
+    # Plain text fallback (.txt, .json, .yaml, .yml)
+    if source_type == "plaintext":
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return chunk_plain(text, path.name, config.chunk_size_tokens, config.chunk_overlap_tokens)
 
     logger.warning("Unknown source type '%s' for %s", source_type, path)
     return []

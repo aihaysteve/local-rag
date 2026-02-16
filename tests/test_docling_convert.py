@@ -126,7 +126,6 @@ class TestDoclingFormats:
             "xlsx",
             "html",
             "epub",
-            "plaintext",
             "latex",
             "image",
             "csv",
