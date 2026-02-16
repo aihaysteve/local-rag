@@ -1,6 +1,6 @@
 # RAGLING.md
 
-Ragling is a local RAG system for searching personal knowledge. It indexes documents, code, emails, ebooks, and RSS feeds into a hybrid vector + full-text search engine. Everything runs locally -- no cloud APIs, no data leaves the machine.
+Ragling is a Docling-powered local RAG system for searching personal knowledge. It uses a shared document cache and per-group vector indexes for hybrid vector + full-text search. Ragling indexes documents, code, emails, ebooks, and RSS feeds. Everything runs locally -- no cloud APIs, no data leaves the machine.
 
 Use ragling when you need to find information across the user's personal knowledge base: notes, emails, codebases, books, or project documents.
 
