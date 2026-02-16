@@ -24,7 +24,7 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.standard_pdf_pipeline import StandardPdfPipeline
 from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
-from docling_core.types.doc import DoclingDocument
+from docling_core.types.doc import CodeItem, DoclingDocument, PictureItem, TableItem
 from transformers import AutoTokenizer
 
 from ragling.chunker import Chunk
@@ -145,6 +145,21 @@ def _convert_with_docling(path: Path) -> dict[str, Any]:
     return doc.model_dump()
 
 
+def _is_picture_item(item: object) -> bool:
+    """Check if a doc_item is a PictureItem."""
+    return isinstance(item, PictureItem)
+
+
+def _is_table_item(item: object) -> bool:
+    """Check if a doc_item is a TableItem."""
+    return isinstance(item, TableItem)
+
+
+def _is_code_item(item: object) -> bool:
+    """Check if a doc_item is a CodeItem."""
+    return isinstance(item, CodeItem)
+
+
 def convert_and_chunk(
     path: Path,
     doc_store: DocStore,
@@ -179,18 +194,39 @@ def convert_and_chunk(
     chunker = HybridChunker(tokenizer=tokenizer)
     doc_chunks = list(chunker.chunk(doc))
 
-    # 4. Map to ragling Chunk format
+    # 4. Map to ragling Chunk format with enrichment metadata
     chunks: list[Chunk] = []
     for i, dc in enumerate(doc_chunks):
         headings: list[str] = getattr(dc.meta, "headings", None) or []
+        metadata: dict[str, Any] = {
+            "headings": headings,
+            "source_path": str(path),
+        }
+
+        # Extract enrichment metadata from source doc_items
+        for doc_item in getattr(dc.meta, "doc_items", []):
+            if _is_picture_item(doc_item):
+                caption = doc_item.caption_text(doc)
+                if caption:
+                    metadata.setdefault("captions", []).append(caption)
+                if getattr(doc_item, "meta", None) and getattr(doc_item.meta, "description", None):
+                    metadata["picture_description"] = doc_item.meta.description.text
+
+            elif _is_table_item(doc_item):
+                caption = doc_item.caption_text(doc)
+                if caption:
+                    metadata.setdefault("captions", []).append(caption)
+
+            elif _is_code_item(doc_item):
+                lang = getattr(doc_item, "code_language", None)
+                if lang:
+                    metadata["code_language"] = lang.value
+
         chunks.append(
             Chunk(
                 text=chunker.contextualize(dc),
                 title=path.name,
-                metadata={
-                    "headings": headings,
-                    "source_path": str(path),
-                },
+                metadata=metadata,
                 chunk_index=i,
             )
         )

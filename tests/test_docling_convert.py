@@ -191,6 +191,98 @@ class TestDoclingFormats:
         assert "code" not in DOCLING_FORMATS
 
 
+class TestEnrichmentMetadata:
+    """Tests for extracting enrichment metadata from doc_items."""
+
+    def _make_chunker_with_items(self, doc_items: list) -> MagicMock:  # type: ignore[type-arg]
+        """Helper: create mock chunker that returns one chunk with given doc_items."""
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = ["Section"]
+        mock_chunk.meta.doc_items = doc_items
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "chunk text"
+        return mock_chunker
+
+    def test_extracts_picture_description(self, store: DocStore, sample_file: Path) -> None:
+        from ragling.docling_convert import convert_and_chunk
+
+        # Create a mock PictureItem with VLM description
+        picture_item = MagicMock()
+        picture_item.__class__.__name__ = "PictureItem"
+        picture_item.caption_text.return_value = ""
+        desc_meta = MagicMock()
+        desc_meta.text = "A diagram showing system architecture"
+        picture_item.meta.description = desc_meta
+
+        mock_chunker = self._make_chunker_with_items([picture_item])
+
+        with (
+            patch("ragling.docling_convert._convert_with_docling"),
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.docling_convert._is_picture_item", return_value=True),
+            patch("ragling.docling_convert._is_table_item", return_value=False),
+            patch("ragling.docling_convert._is_code_item", return_value=False),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(sample_file, store)
+
+        assert (
+            chunks[0].metadata.get("picture_description") == "A diagram showing system architecture"
+        )
+
+    def test_extracts_caption(self, store: DocStore, sample_file: Path) -> None:
+        from ragling.docling_convert import convert_and_chunk
+
+        table_item = MagicMock()
+        table_item.__class__.__name__ = "TableItem"
+        table_item.caption_text.return_value = "Table 1: Results summary"
+
+        mock_chunker = self._make_chunker_with_items([table_item])
+
+        with (
+            patch("ragling.docling_convert._convert_with_docling"),
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.docling_convert._is_picture_item", return_value=False),
+            patch("ragling.docling_convert._is_table_item", return_value=True),
+            patch("ragling.docling_convert._is_code_item", return_value=False),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(sample_file, store)
+
+        assert chunks[0].metadata["captions"] == ["Table 1: Results summary"]
+
+    def test_extracts_code_language(self, store: DocStore, sample_file: Path) -> None:
+        from ragling.docling_convert import convert_and_chunk
+
+        code_item = MagicMock()
+        code_item.__class__.__name__ = "CodeItem"
+        code_item.code_language.value = "python"
+
+        mock_chunker = self._make_chunker_with_items([code_item])
+
+        with (
+            patch("ragling.docling_convert._convert_with_docling"),
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.docling_convert._is_picture_item", return_value=False),
+            patch("ragling.docling_convert._is_table_item", return_value=False),
+            patch("ragling.docling_convert._is_code_item", return_value=True),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(sample_file, store)
+
+        assert chunks[0].metadata["code_language"] == "python"
+
+
 class TestConfigHashPassthrough:
     """Tests that convert_and_chunk passes config_hash to doc_store."""
 
