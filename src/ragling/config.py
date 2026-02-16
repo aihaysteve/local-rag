@@ -31,7 +31,7 @@ class Config:
     db_path: Path = field(default_factory=lambda: DEFAULT_DB_PATH)
     embedding_model: str = "bge-m3"
     embedding_dimensions: int = 1024
-    chunk_size_tokens: int = 500
+    chunk_size_tokens: int = 256
     chunk_overlap_tokens: int = 50
     obsidian_vaults: list[Path] = field(default_factory=list)
     obsidian_exclude_folders: list[str] = field(default_factory=list)
@@ -126,7 +126,7 @@ def load_config(path: Path | None = None) -> Config:
         db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
         embedding_model=data.get("embedding_model", "bge-m3"),
         embedding_dimensions=data.get("embedding_dimensions", 1024),
-        chunk_size_tokens=data.get("chunk_size_tokens", 500),
+        chunk_size_tokens=data.get("chunk_size_tokens", 256),
         chunk_overlap_tokens=data.get("chunk_overlap_tokens", 50),
         obsidian_vaults=obsidian_vaults,
         obsidian_exclude_folders=obsidian_exclude_folders,
