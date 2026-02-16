@@ -256,8 +256,8 @@ def _extract_and_chunk_book(
     if file_info:
         file_path, fmt = file_info
 
-        if doc_store is not None and fmt in ("epub", "pdf"):
-            # Use Docling for EPUB/PDF conversion via shared doc store
+        if doc_store is not None and fmt == "pdf":
+            # Use Docling for PDF conversion via shared doc store
             docling_chunks = convert_and_chunk(file_path, doc_store)
             for chunk in docling_chunks:
                 chunk.chunk_index = chunk_idx
@@ -266,9 +266,22 @@ def _extract_and_chunk_book(
                 chunk.metadata = meta
                 chunks.append(chunk)
                 chunk_idx += 1
-        else:
+        elif fmt == "epub":
+            # EPUB: use dedicated parser (Docling doesn't support epub)
+            from ragling.parsers.epub import parse_epub
+
+            epub_chapters = parse_epub(file_path)
+            for _chapter_num, text in epub_chapters:
+                chapter_chunks = chunk_plain(text, book.title, chunk_size, overlap)
+                for chunk in chapter_chunks:
+                    chunk.chunk_index = chunk_idx
+                    meta = dict(book_meta)
+                    chunk.metadata = meta
+                    chunks.append(chunk)
+                    chunk_idx += 1
+        elif fmt == "pdf" and doc_store is None:
             logger.warning(
-                "No doc_store available for Docling conversion of '%s', skipping book file content",
+                "No doc_store available for PDF conversion of '%s', skipping book file content",
                 book.title,
             )
 

@@ -116,6 +116,23 @@ def _parse_and_chunk(
                 chunk.metadata["links"] = doc.links
         return chunks
 
+    # EPUB fallback (Docling doesn't support epub)
+    if source_type == "epub":
+        from ragling.parsers.epub import parse_epub
+
+        chapters = parse_epub(path)
+        chunks: list[Chunk] = []
+        chunk_idx = 0
+        for _chapter_num, text in chapters:
+            chapter_chunks = chunk_plain(
+                text, path.name, config.chunk_size_tokens, config.chunk_overlap_tokens
+            )
+            for chunk in chapter_chunks:
+                chunk.chunk_index = chunk_idx
+                chunk_idx += 1
+                chunks.append(chunk)
+        return chunks
+
     # Plain text fallback (.txt, .json, .yaml, .yml)
     if source_type == "plaintext":
         text = path.read_text(encoding="utf-8", errors="replace")
