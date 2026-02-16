@@ -11,28 +11,38 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ragling.chunker import Chunk, chunk_markdown, chunk_plain
+from ragling.chunker import Chunk, chunk_markdown
 from ragling.config import Config
 from ragling.db import get_or_create_collection
+from ragling.doc_store import DocStore
+from ragling.docling_convert import DOCLING_FORMATS, convert_and_chunk
 from ragling.embeddings import get_embeddings, serialize_float32
 from ragling.indexers.base import BaseIndexer, IndexResult
-from ragling.parsers.docx import parse_docx
-from ragling.parsers.html import parse_html
 from ragling.parsers.markdown import parse_markdown
-from ragling.parsers.pdf import parse_pdf
-from ragling.parsers.plaintext import parse_plaintext
 
 logger = logging.getLogger(__name__)
 
 # Extensions mapped to source types
 _EXTENSION_MAP: dict[str, str] = {
-    ".md": "markdown",
+    # Docling-handled formats
     ".pdf": "pdf",
     ".docx": "docx",
+    ".pptx": "pptx",
+    ".xlsx": "xlsx",
     ".html": "html",
     ".htm": "html",
+    ".epub": "epub",
     ".txt": "plaintext",
-    ".csv": "plaintext",
+    ".tex": "latex",
+    ".latex": "latex",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".tiff": "image",
+    ".csv": "csv",
+    ".adoc": "asciidoc",
+    # Legacy-handled formats
+    ".md": "markdown",
     ".json": "plaintext",
     ".yaml": "plaintext",
     ".yml": "plaintext",
@@ -82,58 +92,29 @@ def _collect_files(paths: list[Path]) -> list[Path]:
 
 
 def _parse_and_chunk(
-    path: Path, source_type: str, config: Config
+    path: Path,
+    source_type: str,
+    config: Config,
+    doc_store: DocStore | None = None,
 ) -> list[Chunk]:
     """Parse a file and return chunks based on its type."""
-    chunk_size = config.chunk_size_tokens
-    overlap = config.chunk_overlap_tokens
-    title = path.name
+    # Route Docling-handled formats through Docling when doc_store is available
+    if source_type in DOCLING_FORMATS and doc_store is not None:
+        return convert_and_chunk(path, doc_store)
 
+    # Legacy markdown path (Obsidian-flavored, handles wikilinks/frontmatter)
     if source_type == "markdown":
+        chunk_size = config.chunk_size_tokens
+        overlap = config.chunk_overlap_tokens
         text = path.read_text(encoding="utf-8", errors="replace")
         doc = parse_markdown(text, path.name)
         chunks = chunk_markdown(doc.body_text, doc.title, chunk_size, overlap)
-        # Enrich metadata with frontmatter tags
         for chunk in chunks:
             if doc.tags:
                 chunk.metadata["tags"] = doc.tags
             if doc.links:
                 chunk.metadata["links"] = doc.links
         return chunks
-
-    if source_type == "pdf":
-        pages = parse_pdf(path)
-        if not pages:
-            return []
-        chunks: list[Chunk] = []
-        chunk_idx = 0
-        for page_num, text in pages:
-            page_title = f"{title} (page {page_num})"
-            page_chunks = chunk_plain(text, page_title, chunk_size, overlap)
-            for chunk in page_chunks:
-                chunk.chunk_index = chunk_idx
-                chunk.metadata["page_number"] = page_num
-                chunks.append(chunk)
-                chunk_idx += 1
-        return chunks
-
-    if source_type == "docx":
-        doc = parse_docx(path)
-        if not doc.text:
-            return []
-        return chunk_plain(doc.text, title, chunk_size, overlap)
-
-    if source_type == "html":
-        text = parse_html(path)
-        if not text:
-            return []
-        return chunk_plain(text, title, chunk_size, overlap)
-
-    if source_type == "plaintext":
-        text = parse_plaintext(path)
-        if not text.strip():
-            return []
-        return chunk_plain(text, title, chunk_size, overlap)
 
     logger.warning("Unknown source type '%s' for %s", source_type, path)
     return []
@@ -142,19 +123,24 @@ def _parse_and_chunk(
 class ProjectIndexer(BaseIndexer):
     """Indexes documents from file paths into a named project collection."""
 
-    def __init__(self, collection_name: str, paths: list[Path]) -> None:
+    def __init__(
+        self,
+        collection_name: str,
+        paths: list[Path],
+        doc_store: DocStore | None = None,
+    ) -> None:
         """Initialize the project indexer.
 
         Args:
             collection_name: Name for the project collection.
             paths: List of file or directory paths to index.
+            doc_store: Optional shared document store for Docling conversion caching.
         """
         self.collection_name = collection_name
         self.paths = paths
+        self.doc_store = doc_store
 
-    def index(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
-    ) -> IndexResult:
+    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
         """Index all supported files into the project collection.
 
         Args:
@@ -165,9 +151,7 @@ class ProjectIndexer(BaseIndexer):
         Returns:
             IndexResult summarizing the indexing run.
         """
-        collection_id = get_or_create_collection(
-            conn, self.collection_name, "project"
-        )
+        collection_id = get_or_create_collection(conn, self.collection_name, "project")
 
         files = _collect_files(self.paths)
         total_found = len(files)
@@ -183,9 +167,7 @@ class ProjectIndexer(BaseIndexer):
 
         for file_path in files:
             try:
-                was_indexed = self._index_file(
-                    conn, config, file_path, collection_id, force
-                )
+                was_indexed = self._index_file(conn, config, file_path, collection_id, force)
                 if was_indexed:
                     indexed += 1
                 else:
@@ -202,9 +184,7 @@ class ProjectIndexer(BaseIndexer):
             total_found,
         )
 
-        return IndexResult(
-            indexed=indexed, skipped=skipped, errors=errors, total_found=total_found
-        )
+        return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
     def _index_file(
         self,
@@ -234,8 +214,7 @@ class ProjectIndexer(BaseIndexer):
         # Check if already indexed with same hash
         if not force:
             row = conn.execute(
-                "SELECT id, file_hash FROM sources "
-                "WHERE collection_id = ? AND source_path = ?",
+                "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
                 (collection_id, source_path),
             ).fetchone()
             if row and row["file_hash"] == file_h:
@@ -243,7 +222,7 @@ class ProjectIndexer(BaseIndexer):
                 return False
 
         # Parse and chunk
-        chunks = _parse_and_chunk(file_path, source_type, config)
+        chunks = _parse_and_chunk(file_path, source_type, config, doc_store=self.doc_store)
         if not chunks:
             logger.warning("No content extracted from %s, skipping", file_path)
             return False
@@ -253,9 +232,7 @@ class ProjectIndexer(BaseIndexer):
         embeddings = get_embeddings(texts, config)
 
         now = datetime.now(timezone.utc).isoformat()
-        mtime = datetime.fromtimestamp(
-            file_path.stat().st_mtime, tz=timezone.utc
-        ).isoformat()
+        mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat()
 
         # Insert/update within a transaction
         # Delete old data for this source if it exists

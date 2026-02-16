@@ -14,11 +14,11 @@ from pathlib import Path
 from ragling.chunker import Chunk, chunk_plain
 from ragling.config import Config
 from ragling.db import get_or_create_collection
+from ragling.doc_store import DocStore
+from ragling.docling_convert import convert_and_chunk
 from ragling.embeddings import get_embeddings, serialize_float32
 from ragling.indexers.base import BaseIndexer, IndexResult
 from ragling.parsers.calibre import CalibreBook, get_book_file_path, parse_calibre_library
-from ragling.parsers.epub import parse_epub
-from ragling.parsers.pdf import parse_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,11 @@ PREFERRED_FORMATS = ["EPUB", "PDF"]
 class CalibreIndexer(BaseIndexer):
     """Indexes ebooks from Calibre libraries with rich metadata."""
 
-    def __init__(self, library_paths: list[Path]) -> None:
+    def __init__(self, library_paths: list[Path], doc_store: DocStore | None = None) -> None:
         self.library_paths = library_paths
+        self.doc_store = doc_store
 
-    def index(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
-    ) -> IndexResult:
+    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
         """Index all configured Calibre libraries.
 
         Args:
@@ -66,7 +65,13 @@ class CalibreIndexer(BaseIndexer):
             for book in books:
                 try:
                     result = _index_book(
-                        conn, config, collection_id, library_path, book, force
+                        conn,
+                        config,
+                        collection_id,
+                        library_path,
+                        book,
+                        force,
+                        doc_store=self.doc_store,
                     )
                     if result == "indexed":
                         indexed += 1
@@ -78,7 +83,10 @@ class CalibreIndexer(BaseIndexer):
 
         logger.info(
             "Calibre indexing complete: %d found, %d indexed, %d skipped, %d errors",
-            total_found, indexed, skipped, errors,
+            total_found,
+            indexed,
+            skipped,
+            errors,
         )
         return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
@@ -92,9 +100,7 @@ def _file_hash(file_path: Path) -> str:
     return h.hexdigest()
 
 
-def _build_book_metadata(
-    book: CalibreBook, library_path: Path, fmt: str | None
-) -> dict:
+def _build_book_metadata(book: CalibreBook, library_path: Path, fmt: str | None) -> dict:
     """Build the metadata dict to attach to every chunk of a book."""
     meta: dict = {}
     if book.authors:
@@ -129,6 +135,7 @@ def _index_book(
     library_path: Path,
     book: CalibreBook,
     force: bool,
+    doc_store: DocStore | None = None,
 ) -> str:
     """Index a single Calibre book.
 
@@ -145,9 +152,7 @@ def _index_book(
     else:
         # No EPUB or PDF available — index description only if available
         if not book.description:
-            logger.warning(
-                "Book '%s' has no EPUB/PDF and no description, skipping", book.title
-            )
+            logger.warning("Book '%s' has no EPUB/PDF and no description, skipping", book.title)
             return "skipped"
         source_path = f"calibre://{library_path}/{book.relative_path}"
         content_hash = hashlib.sha256(book.description.encode()).hexdigest()
@@ -172,7 +177,7 @@ def _index_book(
 
     # Build chunks from book content
     book_meta = _build_book_metadata(book, library_path, fmt)
-    chunks = _extract_and_chunk_book(book, file_info, config, book_meta)
+    chunks = _extract_and_chunk_book(book, file_info, config, book_meta, doc_store=doc_store)
 
     if not chunks:
         logger.warning("No content extracted from book '%s', skipping", book.title)
@@ -240,6 +245,7 @@ def _extract_and_chunk_book(
     file_info: tuple[Path, str] | None,
     config: Config,
     book_meta: dict,
+    doc_store: DocStore | None = None,
 ) -> list[Chunk]:
     """Extract text from the book file and produce enriched chunks."""
     chunk_size = config.chunk_size_tokens
@@ -250,26 +256,21 @@ def _extract_and_chunk_book(
     if file_info:
         file_path, fmt = file_info
 
-        if fmt == "epub":
-            sections = parse_epub(file_path)
-            section_label = "chapter"
-        elif fmt == "pdf":
-            sections = parse_pdf(file_path)
-            section_label = "page"
-        else:
-            sections = []
-            section_label = "section"
-
-        for section_num, text in sections:
-            section_title = f"{book.title} ({section_label} {section_num})"
-            section_chunks = chunk_plain(text, section_title, chunk_size, overlap)
-            for chunk in section_chunks:
+        if doc_store is not None and fmt in ("epub", "pdf"):
+            # Use Docling for EPUB/PDF conversion via shared doc store
+            docling_chunks = convert_and_chunk(file_path, doc_store)
+            for chunk in docling_chunks:
                 chunk.chunk_index = chunk_idx
                 meta = dict(book_meta)
-                meta[f"{section_label}_number"] = section_num
+                meta.update(chunk.metadata)
                 chunk.metadata = meta
                 chunks.append(chunk)
                 chunk_idx += 1
+        else:
+            logger.warning(
+                "No doc_store available for Docling conversion of '%s', skipping book file content",
+                book.title,
+            )
 
     # Add description chunk(s) if available
     if book.description:
@@ -286,9 +287,7 @@ def _extract_and_chunk_book(
     return chunks
 
 
-def _metadata_changed(
-    conn: sqlite3.Connection, source_id: int, book: CalibreBook
-) -> bool:
+def _metadata_changed(conn: sqlite3.Connection, source_id: int, book: CalibreBook) -> bool:
     """Check if Calibre metadata has changed since last index by comparing a sample doc's metadata."""
     row = conn.execute(
         "SELECT metadata FROM documents WHERE source_id = ? LIMIT 1",
