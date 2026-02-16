@@ -20,6 +20,7 @@ dependencies = [
     "docling>=2.66.0",
     "docling-core>=2.56.0",
     "transformers>=4.30.0",
+    "watchdog>=4.0",
 ]
 
 [project.scripts]
