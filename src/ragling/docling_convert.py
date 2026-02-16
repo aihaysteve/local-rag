@@ -12,7 +12,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+    CodeFormulaVlmOptions,
+    PdfPipelineOptions,
+    PictureDescriptionVlmEngineOptions,
+    TableFormerMode,
+    TableStructureOptions,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.pipeline.standard_pdf_pipeline import StandardPdfPipeline
 from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from docling_core.types.doc import DoclingDocument
@@ -76,8 +85,35 @@ def converter_config_hash(
 
 @lru_cache
 def get_converter() -> DocumentConverter:
-    """Get or create the Docling DocumentConverter singleton."""
-    return DocumentConverter()
+    """Get or create the Docling DocumentConverter singleton.
+
+    Configures the PDF pipeline with all enrichments:
+    - Picture descriptions via SmolVLM
+    - Code block extraction via codeformulav2
+    - Formula (LaTeX) extraction via codeformulav2
+    - Accurate table structure extraction
+    """
+    pdf_options = PdfPipelineOptions(
+        do_table_structure=True,
+        table_structure_options=TableStructureOptions(
+            mode=TableFormerMode.ACCURATE,
+            do_cell_matching=True,
+        ),
+        do_picture_description=True,
+        picture_description_options=PictureDescriptionVlmEngineOptions.from_preset("smolvlm"),
+        do_code_enrichment=True,
+        do_formula_enrichment=True,
+        code_formula_options=CodeFormulaVlmOptions.from_preset("codeformulav2"),
+    )
+
+    return DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_cls=StandardPdfPipeline,
+                pipeline_options=pdf_options,
+            )
+        }
+    )
 
 
 @lru_cache

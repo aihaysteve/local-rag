@@ -113,6 +113,52 @@ class TestConvertAndChunk:
         assert [c.chunk_index for c in chunks] == [0, 1, 2]
 
 
+class TestGetConverter:
+    """Tests for the enriched converter configuration."""
+
+    def test_get_converter_returns_document_converter(self) -> None:
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            converter = get_converter()
+            assert converter is mock_cls.return_value
+
+    def test_get_converter_configures_pdf_enrichments(self) -> None:
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            get_converter()
+
+            # Verify format_options was passed
+            call_kwargs = mock_cls.call_args
+            assert call_kwargs is not None
+            # The key check: format_options was passed (not bare DocumentConverter())
+            assert "format_options" in (call_kwargs.kwargs or {})
+
+    def test_get_converter_enables_picture_description(self) -> None:
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            get_converter()
+            call_kwargs = mock_cls.call_args.kwargs
+            format_options = call_kwargs["format_options"]
+            # PDF format option should have pipeline_options with enrichments
+            from docling.datamodel.base_models import InputFormat
+
+            pdf_option = format_options[InputFormat.PDF]
+            opts = pdf_option.pipeline_options
+            assert opts.do_picture_description is True
+            assert opts.do_code_enrichment is True
+            assert opts.do_formula_enrichment is True
+            assert opts.do_table_structure is True
+
+
 class TestDoclingFormats:
     """Test the DOCLING_FORMATS set."""
 
