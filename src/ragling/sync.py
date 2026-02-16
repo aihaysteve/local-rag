@@ -225,7 +225,46 @@ def _index_directory(
     )
 
 
-def run_startup_sync(config: Config, status: IndexingStatus) -> threading.Thread:
+def _index_file(file_path: Path, config: Config) -> None:
+    """Index or re-index a single file.
+
+    Determines the collection from the file path, then uses the project
+    indexer to process the single file. For files inside git repos or
+    obsidian vaults, falls back to project indexer (full re-index of
+    those directories is handled by startup sync).
+
+    Args:
+        file_path: Path to the changed file.
+        config: Application configuration.
+    """
+    from ragling.db import get_connection, init_db
+    from ragling.doc_store import DocStore
+    from ragling.indexers.project import ProjectIndexer
+
+    collection = map_file_to_collection(file_path, config)
+    if collection is None:
+        logger.warning("Cannot map file to collection: %s", file_path)
+        return
+
+    conn = get_connection(config)
+    init_db(conn, config)
+    doc_store = DocStore(config.shared_db_path)
+
+    try:
+        indexer = ProjectIndexer(collection, [file_path.parent], doc_store=doc_store)
+        indexer.index(conn, config)
+    except Exception:
+        logger.exception("Error indexing file: %s", file_path)
+    finally:
+        doc_store.close()
+        conn.close()
+
+
+def run_startup_sync(
+    config: Config,
+    status: IndexingStatus,
+    done_event: threading.Event | None = None,
+) -> threading.Thread:
     """Spawn a daemon thread that indexes new/changed files at startup.
 
     Discovers all files, compares hashes against the database, and
@@ -235,6 +274,9 @@ def run_startup_sync(config: Config, status: IndexingStatus) -> threading.Thread
     Args:
         config: Application configuration.
         status: Indexing status tracker for progress reporting.
+        done_event: Optional threading.Event that is set when sync completes.
+            Useful for coordinating startup ordering (e.g., watcher waits
+            for sync to finish before starting).
 
     Returns:
         The daemon thread that was started.
@@ -283,6 +325,8 @@ def run_startup_sync(config: Config, status: IndexingStatus) -> threading.Thread
             logger.exception("Startup sync: fatal error")
         finally:
             status.finish()
+            if done_event is not None:
+                done_event.set()
 
     thread = threading.Thread(target=_sync, name="startup-sync", daemon=True)
     thread.start()
