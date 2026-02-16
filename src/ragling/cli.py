@@ -428,6 +428,7 @@ def search(
     from ragling.search import perform_search
 
     group = ctx.obj["group"]
+    config = load_config(ctx.obj.get("config_path"))
 
     try:
         results = perform_search(
@@ -440,6 +441,7 @@ def search(
             sender=sender,
             author=author,
             group_name=group,
+            config=config,
         )
     except OllamaConnectionError as e:
         click.echo(f"Error: {e}", err=True)

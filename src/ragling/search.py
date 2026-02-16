@@ -6,7 +6,8 @@ import sqlite3
 from dataclasses import dataclass, replace
 
 from ragling.config import Config, load_config
-from ragling.embeddings import serialize_float32
+from ragling.db import get_connection, init_db
+from ragling.embeddings import get_embedding, serialize_float32
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +341,8 @@ def perform_search(
     sender: str | None = None,
     author: str | None = None,
     group_name: str = "default",
+    config: Config | None = None,
+    visible_collections: list[str] | None = None,
 ) -> list[SearchResult]:
     """Run a full hybrid search: load config, connect, embed, search, cleanup.
 
@@ -357,6 +360,9 @@ def perform_search(
         sender: Filter by email sender (case-insensitive substring match).
         author: Filter by book author (case-insensitive substring match).
         group_name: Group name for per-group indexes (default "default").
+        config: Optional pre-loaded Config. If None, calls load_config().
+        visible_collections: Optional list of collection names to restrict results to.
+            None means no restriction (all collections visible).
 
     Returns:
         List of SearchResult objects sorted by relevance.
@@ -364,10 +370,7 @@ def perform_search(
     Raises:
         ragling.embeddings.OllamaConnectionError: If Ollama is not reachable.
     """
-    from ragling.db import get_connection, init_db
-    from ragling.embeddings import get_embedding
-
-    config = load_config()
+    config = config or load_config()
     config.group_name = group_name
     conn = get_connection(config)
     init_db(conn, config)
@@ -384,6 +387,14 @@ def perform_search(
             author=author,
         )
 
-        return search(conn, query_embedding, query, top_k, filters, config)
+        return search(
+            conn,
+            query_embedding,
+            query,
+            top_k,
+            filters,
+            config,
+            visible_collections=visible_collections,
+        )
     finally:
         conn.close()

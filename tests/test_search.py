@@ -5,8 +5,10 @@ import sqlite3
 
 import pytest
 
+from unittest.mock import patch
+
 from ragling.config import Config
-from ragling.search import SearchFilters, SearchResult, _escape_fts_query, rrf_merge
+from ragling.search import SearchFilters, SearchResult, _escape_fts_query, perform_search, rrf_merge
 
 # Check if sqlite3 supports loading extensions (required for sqlite-vec integration tests)
 _conn = sqlite3.connect(":memory:")
@@ -533,3 +535,44 @@ class TestSearchWithDatabase:
         )
 
         assert len(results) == 0
+
+
+class TestPerformSearchParams:
+    """Tests for perform_search config and visible_collections parameters."""
+
+    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.load_config")
+    def test_uses_provided_config(self, mock_load, mock_search, mock_init, mock_conn, mock_embed):
+        """perform_search uses provided config instead of calling load_config."""
+        custom_config = Config(embedding_dimensions=4)
+        perform_search("test query", config=custom_config)
+        mock_load.assert_not_called()
+
+    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.load_config")
+    def test_passes_visible_collections(
+        self, mock_load, mock_search, mock_init, mock_conn, mock_embed
+    ):
+        """perform_search passes visible_collections through to search."""
+        perform_search("test query", visible_collections=["kitchen", "global"])
+        _, kwargs = mock_search.call_args
+        assert kwargs["visible_collections"] == ["kitchen", "global"]
+
+    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.load_config")
+    def test_defaults_visible_collections_to_none(
+        self, mock_load, mock_search, mock_init, mock_conn, mock_embed
+    ):
+        """perform_search defaults visible_collections to None (full access)."""
+        perform_search("test query")
+        _, kwargs = mock_search.call_args
+        assert kwargs["visible_collections"] is None
