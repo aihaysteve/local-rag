@@ -25,7 +25,9 @@ Hybrid vector + full-text search with Reciprocal Rank Fusion. This is the primar
 | `sender` | str \| null | null | Email sender filter (case-insensitive substring) |
 | `author` | str \| null | null | Book author filter (case-insensitive substring) |
 
-**Returns:** List of result dicts, each with: `title`, `content`, `collection`, `source_type`, `source_path`, `source_uri`, `score`, `metadata`.
+**Returns:** Dict with two keys:
+- `results`: List of result dicts, each with: `title`, `content`, `collection`, `source_type`, `source_path`, `source_uri`, `score`, `metadata`.
+- `indexing`: `{"active": true, "remaining": N}` while startup indexing is in progress, or `null` when idle. Use this to inform the user that results may be incomplete.
 
 **Collection filtering:** The `collection` parameter accepts either:
 - A collection **name** (e.g., `"obsidian"`, `"email"`, `"my-terraform"`) -- searches that specific collection.
@@ -177,6 +179,20 @@ The `metadata` dict varies by source type. Not all fields are present in every r
 
 ---
 
+## SSE Authentication
+
+When ragling is served over SSE (HTTP), requests require a Bearer token matching a configured user's API key. Include it as:
+
+```
+Authorization: Bearer <api_key>
+```
+
+Each user's API key is configured in `config.json` under `users.<username>.api_key`. The token determines which collections the user can see -- users only see their own collection and global collections.
+
+When served over stdio (e.g., Claude Desktop), no authentication is needed.
+
+---
+
 ## Best Practices
 
 - **Start broad, then narrow.** Search without filters first. Add `collection`, `source_type`, or date filters if results are too noisy.
@@ -186,3 +202,4 @@ The `metadata` dict varies by source type. Not all fields are present in every r
 - **Check collection existence first.** Call `rag_list_collections` if unsure what collections are available.
 - **Use `rag_convert` for one-off document reading.** When you need the full text of a specific file (not search), use `rag_convert` instead of `rag_search`.
 - **Link to sources.** Include `source_uri` as a markdown link in your response so users can open the original document.
+- **Check indexing status.** If `rag_search` returns `"indexing": {"active": true, ...}`, mention to the user that indexing is in progress and results may be incomplete. Suggest trying again shortly if results seem sparse.
