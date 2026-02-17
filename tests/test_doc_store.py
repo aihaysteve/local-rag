@@ -173,6 +173,16 @@ class TestConfigHashCaching:
         assert result == {"text": "data"}
 
 
+class TestDocStoreBusyTimeout:
+    """Tests for PRAGMA busy_timeout on DocStore connections."""
+
+    def test_busy_timeout_is_set(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "doc_store.sqlite"
+        store = DocStore(db_path)
+        row = store._conn.execute("PRAGMA busy_timeout").fetchone()
+        assert row[0] == 5000
+
+
 class TestMigrateConfigHash:
     """Tests for _migrate_config_hash upgrade path."""
 
