@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import sqlite3
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ from pathlib import Path
 from ragling.chunker import Chunk
 from ragling.config import Config
 from ragling.embeddings import serialize_float32
+
+logger = logging.getLogger(__name__)
 
 
 def file_hash(path: Path) -> str:
@@ -124,6 +127,59 @@ def upsert_source_with_chunks(
 
     conn.commit()
     return source_id
+
+
+def delete_source(
+    conn: sqlite3.Connection,
+    collection_id: int,
+    source_path: str,
+) -> bool:
+    """Delete a source and its documents/vectors from the database.
+
+    Removes the source row, all associated document rows, their FTS entries
+    (via trigger), and vector embeddings. No-op if the source doesn't exist.
+
+    Args:
+        conn: SQLite database connection.
+        collection_id: Collection the source belongs to.
+        source_path: The source_path to delete.
+
+    Returns:
+        True if a source was deleted, False if it didn't exist.
+    """
+    existing = conn.execute(
+        "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
+        (collection_id, source_path),
+    ).fetchone()
+
+    if not existing:
+        return False
+
+    source_id = existing["id"]
+
+    # Delete vectors for all documents of this source
+    old_doc_ids = [
+        r["id"]
+        for r in conn.execute(
+            "SELECT id FROM documents WHERE source_id = ?", (source_id,)
+        ).fetchall()
+    ]
+    if old_doc_ids:
+        placeholders = ",".join("?" * len(old_doc_ids))
+        conn.execute(
+            f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
+            old_doc_ids,
+        )
+
+    # Delete documents (triggers handle FTS cleanup)
+    conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
+
+    # Delete the source row
+    conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+
+    conn.commit()
+    logger.info("Deleted source: %s", source_path)
+    return True
 
 
 @dataclass
