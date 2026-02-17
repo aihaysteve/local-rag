@@ -281,14 +281,7 @@ class ProjectIndexer(BaseIndexer):
         if leftover_files:
             collection_id = get_or_create_collection(conn, self.collection_name, "project")
             leftover_result = self._index_files(conn, config, leftover_files, collection_id, force)
-            pruned = prune_stale_sources(conn, collection_id)
-            leftover_result = IndexResult(
-                indexed=leftover_result.indexed,
-                skipped=leftover_result.skipped,
-                errors=leftover_result.errors,
-                total_found=leftover_result.total_found,
-                pruned=pruned,
-            )
+            leftover_result.pruned = prune_stale_sources(conn, collection_id)
             aggregate = _merge_results(aggregate, leftover_result)
 
         logger.info(
@@ -320,7 +313,7 @@ class ProjectIndexer(BaseIndexer):
 
         files = _collect_files(self.paths)
         result = self._index_files(conn, config, files, collection_id, force)
-        pruned = prune_stale_sources(conn, collection_id)
+        result.pruned = prune_stale_sources(conn, collection_id)
 
         logger.info(
             "Project indexer done (flat): %d indexed, %d skipped, %d errors out of %d files",
@@ -330,13 +323,7 @@ class ProjectIndexer(BaseIndexer):
             result.total_found,
         )
 
-        return IndexResult(
-            indexed=result.indexed,
-            skipped=result.skipped,
-            errors=result.errors,
-            total_found=result.total_found,
-            pruned=pruned,
-        )
+        return result
 
     def _index_files(
         self,
@@ -492,34 +479,6 @@ class ProjectIndexer(BaseIndexer):
         if not doc_files:
             return IndexResult()
         return self._index_files(conn, config, doc_files, collection_id, force)
-
-    @staticmethod
-    def _get_child_marker_dirs(
-        parent: Path,
-        all_vaults: list[DiscoveredSource],
-        all_repos: list[DiscoveredSource],
-    ) -> set[str]:
-        """Find which child directories of a parent have their own markers.
-
-        Used to exclude nested discoveries from a parent vault or repo.
-
-        Args:
-            parent: Parent directory path.
-            all_vaults: All discovered vaults.
-            all_repos: All discovered repos.
-
-        Returns:
-            Set of immediate child directory names that have markers.
-        """
-        exclude: set[str] = set()
-        for d in [*all_vaults, *all_repos]:
-            if d.path != parent:
-                try:
-                    rel = d.path.relative_to(parent)
-                    exclude.add(rel.parts[0])
-                except ValueError:
-                    continue
-        return exclude
 
     def _index_file(
         self,

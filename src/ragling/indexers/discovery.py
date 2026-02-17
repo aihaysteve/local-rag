@@ -71,13 +71,7 @@ def _is_under_claimed(path: Path, claimed: set[Path]) -> bool:
         True if path is inside (or equal to) any claimed directory.
     """
     resolved = path.resolve()
-    for c in claimed:
-        try:
-            resolved.relative_to(c)
-            return True
-        except ValueError:
-            continue
-    return False
+    return any(resolved.is_relative_to(c) for c in claimed)
 
 
 def _collect_leftovers(root: Path, claimed: set[Path]) -> list[Path]:
@@ -138,27 +132,18 @@ def _scan_recursive(
     has_obsidian = ".obsidian" in entry_names
     has_git = ".git" in entry_names
 
-    if has_obsidian:
+    if has_obsidian or has_git:
         rel = current.relative_to(root)
         relative_name = str(rel) if str(rel) != "." else ""
-        vaults.append(
-            DiscoveredSource(
-                path=current,
-                relative_name=relative_name,
-                source_type="obsidian",
-            )
+        source = DiscoveredSource(
+            path=current,
+            relative_name=relative_name,
+            source_type="obsidian" if has_obsidian else "git",
         )
-        claimed.add(current)
-    elif has_git:
-        rel = current.relative_to(root)
-        relative_name = str(rel) if str(rel) != "." else ""
-        repos.append(
-            DiscoveredSource(
-                path=current,
-                relative_name=relative_name,
-                source_type="git",
-            )
-        )
+        if has_obsidian:
+            vaults.append(source)
+        else:
+            repos.append(source)
         claimed.add(current)
 
     # Continue scanning subdirectories (even inside claims, to find nested markers)
