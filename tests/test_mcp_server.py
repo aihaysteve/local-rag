@@ -116,6 +116,36 @@ class TestBuildListResponse:
         response = _build_list_response([])
         assert "indexing" not in response
 
+    def test_includes_file_level_indexing_status(self) -> None:
+        """List response shows per-collection file-level indexing status."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import _build_list_response
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 80)
+        status.file_processed("obsidian", 30)
+        status.set_file_total("email", 50)
+        status.file_processed("email", 50)
+
+        response = _build_list_response([], status)
+        assert "indexing" in response
+        indexing = response["indexing"]
+        assert indexing["active"] is True
+        # obsidian: file-level dict shape
+        assert indexing["collections"]["obsidian"] == {
+            "total": 80,
+            "processed": 30,
+            "remaining": 50,
+        }
+        # email: file-level dict shape (fully processed)
+        assert indexing["collections"]["email"] == {
+            "total": 50,
+            "processed": 50,
+            "remaining": 0,
+        }
+        # total_remaining = 50 + 0 = 50
+        assert indexing["total_remaining"] == 50
+
     def test_result_passed_through(self) -> None:
         from ragling.mcp_server import _build_list_response
 
@@ -151,6 +181,36 @@ class TestBuildSearchResponse:
 
         response = _build_search_response([])
         assert response["indexing"] is None
+
+    def test_includes_file_level_indexing_status(self) -> None:
+        """Search response shows per-collection {total, processed, remaining} for file-level tracking."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import _build_search_response
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 100)
+        status.file_processed("obsidian", 55)
+        status.set_file_total("calibre", 30)
+        status.file_processed("calibre", 10)
+
+        response = _build_search_response([], status)
+        indexing = response["indexing"]
+        assert indexing is not None
+        assert indexing["active"] is True
+        # obsidian: file-level dict shape
+        assert indexing["collections"]["obsidian"] == {
+            "total": 100,
+            "processed": 55,
+            "remaining": 45,
+        }
+        # calibre: file-level dict shape
+        assert indexing["collections"]["calibre"] == {
+            "total": 30,
+            "processed": 10,
+            "remaining": 20,
+        }
+        # total_remaining = 45 + 20 = 65
+        assert indexing["total_remaining"] == 65
 
     def test_results_passed_through(self) -> None:
         from ragling.mcp_server import _build_search_response

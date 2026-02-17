@@ -5,7 +5,12 @@ from pathlib import Path
 from types import MappingProxyType
 from unittest.mock import MagicMock
 
-from watchdog.events import FileDeletedEvent
+from watchdog.events import (
+    DirModifiedEvent,
+    FileCreatedEvent,
+    FileDeletedEvent,
+    FileModifiedEvent,
+)
 
 from ragling.config import Config
 from ragling.watcher import DebouncedIndexQueue, _Handler
@@ -186,5 +191,91 @@ class TestHandlerOnDeleted:
         event = FileDeletedEvent(src_path="/tmp/somedir")
         event._is_directory = True  # watchdog sets this for dir events
         handler.on_deleted(event)
+
+        queue.enqueue.assert_not_called()
+
+
+class TestHandlerExtensionFiltering:
+    """Tests for _Handler filtering by supported extensions."""
+
+    def test_supported_extension_enqueues_on_modified(self) -> None:
+        """File with supported extension triggers enqueue on modification."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/tmp/notes.md")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/tmp/notes.md"))
+
+    def test_supported_extension_enqueues_on_created(self) -> None:
+        """File with supported extension triggers enqueue on creation."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileCreatedEvent(src_path="/tmp/new_file.py")
+        handler.on_created(event)
+
+        queue.enqueue.assert_called_once_with(Path("/tmp/new_file.py"))
+
+    def test_unsupported_extension_ignored_on_modified(self) -> None:
+        """File with unsupported extension does not enqueue on modification."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/tmp/photo.raw")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_unsupported_extension_ignored_on_created(self) -> None:
+        """File with unsupported extension does not enqueue on creation."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileCreatedEvent(src_path="/tmp/archive.zip")
+        handler.on_created(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_filtering_is_case_insensitive(self) -> None:
+        """Extension check lowercases before matching."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        # Uppercase extension should still match
+        event = FileModifiedEvent(src_path="/tmp/README.MD")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/tmp/README.MD"))
+
+    def test_mixed_case_extension_enqueues(self) -> None:
+        """Mixed-case extension like .Py is accepted."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileCreatedEvent(src_path="/tmp/script.Py")
+        handler.on_created(event)
+
+        queue.enqueue.assert_called_once_with(Path("/tmp/script.Py"))
+
+    def test_directory_events_always_ignored(self) -> None:
+        """Directory events are ignored regardless of name matching an extension."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        # DirModifiedEvent has is_directory=True, even if name looks like a file
+        event = DirModifiedEvent(src_path="/tmp/folder.md")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_no_extension_not_enqueued(self) -> None:
+        """File with no extension is not enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/tmp/Makefile")
+        handler.on_modified(event)
 
         queue.enqueue.assert_not_called()

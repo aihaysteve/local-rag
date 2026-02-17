@@ -600,3 +600,106 @@ class TestBackwardCompatibility:
 
         assert result.total_found == 1
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# P2 #4 (S6.1-2): End-to-end ProjectIndexer two-pass no duplicates
+# ---------------------------------------------------------------------------
+
+
+class TestTwoPassNoDuplicates:
+    """Verify discovery-aware indexing doesn't index any file twice."""
+
+    def _setup_db(self, tmp_path: Path) -> tuple:
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+        return conn, config
+
+    def test_vault_files_not_duplicated_in_leftovers(self, tmp_path: Path) -> None:
+        """Files inside an Obsidian vault go to ObsidianIndexer only, not leftover indexing.
+
+        Creates a project directory with:
+        - my-vault/ (.obsidian marker, contains note.md)
+        - standalone.pdf (outside the vault)
+
+        Asserts that note.md is handled by ObsidianIndexer and standalone.pdf
+        is handled by leftover indexing, with no file appearing in both paths.
+        """
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        # Vault with a markdown file
+        vault = project_dir / "my-vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        vault_note = vault / "note.md"
+        vault_note.write_text("# Vault Note")
+
+        # Standalone file outside vault
+        standalone = project_dir / "standalone.pdf"
+        standalone.write_bytes(b"%PDF-1.4 fake")
+
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        # Track which paths ObsidianIndexer receives
+        obsidian_paths_received: list[Path] = []
+
+        mock_obsidian_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
+
+        # Track which files go through leftover _parse_and_chunk
+        leftover_files_parsed: list[Path] = []
+
+        def tracking_parse_and_chunk(path: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
+            leftover_files_parsed.append(path)
+            return [Chunk(text="leftover content", title=path.name, chunk_index=0)]
+
+        with (
+            patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidianClass,
+            patch(
+                "ragling.indexers.project._parse_and_chunk", side_effect=tracking_parse_and_chunk
+            ),
+            patch("ragling.indexers.project.get_embeddings", return_value=[[0.1, 0.2, 0.3, 0.4]]),
+        ):
+            # Capture what ObsidianIndexer is constructed with
+            def capture_obsidian_init(vault_paths, doc_store=None):  # type: ignore[no-untyped-def]
+                for vp in vault_paths:
+                    obsidian_paths_received.append(vp)
+                mock_instance = MockObsidianClass.return_value
+                return mock_instance
+
+            MockObsidianClass.side_effect = capture_obsidian_init
+            MockObsidianClass.return_value.index.return_value = mock_obsidian_result
+
+            indexer.index(conn, config)
+
+        # Vault directory was passed to ObsidianIndexer
+        assert len(obsidian_paths_received) == 1
+        assert obsidian_paths_received[0] == vault
+
+        # Leftover indexing should handle standalone.pdf but NOT vault note
+        leftover_names = {f.name for f in leftover_files_parsed}
+        assert "standalone.pdf" in leftover_names, "standalone.pdf should be indexed as a leftover"
+        assert "note.md" not in leftover_names, (
+            "note.md is inside the vault and must not appear in leftover indexing"
+        )
+
+        # No source_path appears in both paths
+        vault_file_set = {vault_note.resolve()}
+        leftover_file_set = {f.resolve() for f in leftover_files_parsed}
+        overlap = vault_file_set & leftover_file_set
+        assert overlap == set(), f"Files indexed in both vault and leftover passes: {overlap}"
+
+        conn.close()

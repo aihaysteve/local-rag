@@ -301,6 +301,85 @@ def _write_near_expiry_cert(cfg: TLSConfig, days_remaining: int = 15) -> None:
     )
 
 
+class TestSSETLSWiring:
+    """Tests for SSE transport TLS configuration."""
+
+    def test_sse_mode_configures_uvicorn_with_tls(self, tmp_path: Path) -> None:
+        """When --sse is used, uvicorn.Config receives ssl_certfile and ssl_keyfile."""
+        from unittest.mock import MagicMock, patch
+
+        from click.testing import CliRunner
+
+        from ragling.cli import main
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text("{}")
+
+        captured_uvicorn_kwargs: dict[str, object] = {}
+
+        def fake_uvicorn_config(*args: object, **kwargs: object) -> MagicMock:
+            captured_uvicorn_kwargs.update(kwargs)
+            return MagicMock()
+
+        mock_server_instance = MagicMock()
+
+        def fake_anyio_run(coro: object, **kwargs: object) -> None:
+            pass  # Don't actually run the event loop
+
+        tls_cfg = TLSConfig(
+            ca_cert=tmp_path / "ca.pem",
+            ca_key=tmp_path / "ca-key.pem",
+            server_cert=tmp_path / "server.pem",
+            server_key=tmp_path / "server-key.pem",
+        )
+
+        mock_mcp_server = MagicMock()
+        mock_mcp_server.settings = MagicMock()
+        mock_mcp_server.settings.host = "0.0.0.0"
+        mock_mcp_server.settings.log_level = "INFO"
+        mock_mcp_server.sse_app.return_value = MagicMock()
+
+        mock_queue = MagicMock()
+
+        # Patch at the source module paths because cli.py uses local imports
+        with (
+            patch("ragling.cli.load_config") as mock_load_config,
+            patch("ragling.tls.ensure_tls_certs", return_value=tls_cfg),
+            patch("uvicorn.Config", side_effect=fake_uvicorn_config),
+            patch("uvicorn.Server", return_value=mock_server_instance),
+            patch("anyio.run", side_effect=fake_anyio_run),
+            patch("ragling.indexing_queue.IndexingQueue", return_value=mock_queue),
+            patch("ragling.sync.run_startup_sync"),
+            patch("ragling.watcher.get_watch_paths", return_value=[]),
+            patch("ragling.mcp_server.create_server", return_value=mock_mcp_server),
+            patch("ragling.config_watcher.ConfigWatcher"),
+        ):
+            from ragling.config import Config
+
+            mock_load_config.return_value = Config(embedding_dimensions=4)
+
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                ["-c", str(config_path), "serve", "--sse", "--no-stdio"],
+            )
+
+            # The command should not error out
+            assert result.exit_code == 0, (
+                f"CLI failed (exit {result.exit_code}): {result.output}\n{result.exception}"
+            )
+
+            # uvicorn.Config must have received ssl_certfile and ssl_keyfile
+            assert "ssl_certfile" in captured_uvicorn_kwargs, (
+                f"ssl_certfile not passed to uvicorn.Config. Got: {captured_uvicorn_kwargs}"
+            )
+            assert "ssl_keyfile" in captured_uvicorn_kwargs, (
+                f"ssl_keyfile not passed to uvicorn.Config. Got: {captured_uvicorn_kwargs}"
+            )
+            assert captured_uvicorn_kwargs["ssl_certfile"] == str(tls_cfg.server_cert)
+            assert captured_uvicorn_kwargs["ssl_keyfile"] == str(tls_cfg.server_key)
+
+
 def _write_expired_cert(cfg: TLSConfig) -> None:
     """Helper: overwrite server cert with one that expired yesterday."""
     from datetime import timedelta

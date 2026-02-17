@@ -1,6 +1,7 @@
 """Tests for ragling.indexing_queue module."""
 
 import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -441,6 +442,53 @@ class TestSetConfig:
         assert queue._config.embedding_dimensions == 8
 
 
+class TestConcurrentSubmission:
+    """Tests for thread-safe concurrent job submission."""
+
+    def test_concurrent_submit_from_multiple_threads(self) -> None:
+        """10 threads submitting simultaneously: all jobs processed."""
+        status = IndexingStatus()
+        config = Config(embedding_dimensions=4)
+        q = IndexingQueue(config, status)
+
+        # Thread-safe list to record processed jobs
+        processed: list[str] = []
+        processed_lock = threading.Lock()
+
+        def record_job(job: IndexJob) -> None:
+            with processed_lock:
+                processed.append(job.collection_name)
+
+        # Use a barrier so all threads submit at roughly the same time
+        num_threads = 10
+        barrier = threading.Barrier(num_threads)
+
+        def submit_job(thread_id: int) -> None:
+            job = IndexJob(
+                job_type="file",
+                path=Path(f"/file_{thread_id}.md"),
+                collection_name=f"coll-{thread_id}",
+                indexer_type="project",
+            )
+            barrier.wait()  # Ensure all threads submit concurrently
+            q.submit(job)
+
+        with patch.object(q, "_process", side_effect=record_job):
+            q.start()
+
+            threads = [threading.Thread(target=submit_job, args=(i,)) for i in range(num_threads)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            q.shutdown()
+
+        assert len(processed) == num_threads
+        # All unique collection names should be present
+        assert set(processed) == {f"coll-{i}" for i in range(num_threads)}
+
+
 class TestIndexRequest:
     """Tests for the IndexRequest synchronous wrapper."""
 
@@ -454,3 +502,169 @@ class TestIndexRequest:
         request = IndexRequest(job=job)
         assert not request.done.is_set()
         assert request.result is None
+
+
+# ---------------------------------------------------------------------------
+# P2 #8 (S9.1): Single-writer design assertion
+# The single-writer guarantee is enforced architecturally: only the worker
+# thread calls _process (and therefore indexers/DB writes). This test
+# verifies that _process runs on the worker thread, not the submitting thread.
+# ---------------------------------------------------------------------------
+
+
+class TestSingleWriterDesign:
+    def test_indexer_runs_on_worker_thread(self) -> None:
+        """The indexer is called from the queue's worker thread, not the submitting thread."""
+        status = IndexingStatus()
+        config = Config(embedding_dimensions=4)
+        q = IndexingQueue(config, status)
+
+        recorded_thread_names: list[str] = []
+
+        def capture_thread(job: IndexJob) -> None:
+            recorded_thread_names.append(threading.current_thread().name)
+
+        main_thread_name = threading.current_thread().name
+
+        with patch.object(q, "_process", side_effect=capture_thread):
+            q.start()
+            q.submit(
+                IndexJob(
+                    job_type="file",
+                    path=Path("/test.md"),
+                    collection_name="docs",
+                    indexer_type="project",
+                )
+            )
+            q.shutdown()
+
+        assert len(recorded_thread_names) == 1
+        # The processing thread must NOT be the main thread
+        assert recorded_thread_names[0] != main_thread_name
+        # It should be the named worker thread
+        assert recorded_thread_names[0] == "index-worker"
+
+
+# ---------------------------------------------------------------------------
+# P2 #9 (S9.5): Graceful shutdown with in-flight work
+# ---------------------------------------------------------------------------
+
+
+class TestGracefulShutdown:
+    def test_shutdown_waits_for_in_flight_job(self) -> None:
+        """shutdown() waits for the currently-processing job to finish."""
+        status = IndexingStatus()
+        config = Config(embedding_dimensions=4)
+        q = IndexingQueue(config, status)
+
+        job_completed = threading.Event()
+
+        def slow_process(job: IndexJob) -> None:
+            time.sleep(0.5)
+            job_completed.set()
+
+        with patch.object(q, "_process", side_effect=slow_process):
+            q.start()
+            q.submit(
+                IndexJob(
+                    job_type="file",
+                    path=Path("/slow.md"),
+                    collection_name="docs",
+                    indexer_type="project",
+                )
+            )
+            # Give the worker time to pick up the job
+            time.sleep(0.1)
+            # shutdown() should block until the in-flight job completes
+            q.shutdown()
+
+        # After shutdown returns, the job must have completed
+        assert job_completed.is_set()
+
+
+# ---------------------------------------------------------------------------
+# P2 #10 (S9.9): submit_and_wait with failing job
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitAndWaitFailure:
+    def test_submit_and_wait_returns_none_on_exception(self) -> None:
+        """submit_and_wait returns None when the job raises, and the caller unblocks."""
+        status = IndexingStatus()
+        config = Config(embedding_dimensions=4)
+        q = IndexingQueue(config, status)
+
+        def exploding_process(job: IndexJob) -> None:
+            raise RuntimeError("kaboom")
+
+        with patch.object(q, "_process", side_effect=exploding_process):
+            q.start()
+            job = IndexJob(
+                job_type="file",
+                path=Path("/boom.md"),
+                collection_name="docs",
+                indexer_type="project",
+            )
+            result = q.submit_and_wait(job, timeout=5.0)
+            q.shutdown()
+
+        # The caller should get None (not an exception propagated)
+        assert result is None
+        # Status should have been decremented (no lingering active jobs)
+        assert status.is_active() is False
+
+
+# ---------------------------------------------------------------------------
+# P2 #14 (S14.7): Worker uses fresh config after set_config
+# ---------------------------------------------------------------------------
+
+
+class TestWorkerUsesFreshConfig:
+    def test_worker_sees_updated_config_after_set_config(self) -> None:
+        """After set_config(), the next job processed uses the new config."""
+        status = IndexingStatus()
+        config1 = Config(embedding_dimensions=4)
+        config2 = config1.with_overrides(embedding_dimensions=8)
+        q = IndexingQueue(config1, status)
+
+        observed_dims: list[int] = []
+        job_processed = threading.Event()
+
+        def capture_config(job: IndexJob) -> None:
+            # The worker reads self._config at the start of each job
+            observed_dims.append(q._config.embedding_dimensions)
+            job_processed.set()
+
+        with patch.object(q, "_process", side_effect=capture_config):
+            q.start()
+
+            # Submit first job with original config
+            q.submit(
+                IndexJob(
+                    job_type="file",
+                    path=Path("/first.md"),
+                    collection_name="docs",
+                    indexer_type="project",
+                )
+            )
+            # Wait for first job to be processed
+            job_processed.wait(timeout=5.0)
+            job_processed.clear()
+
+            # Now update config and submit second job
+            q.set_config(config2)
+            q.submit(
+                IndexJob(
+                    job_type="file",
+                    path=Path("/second.md"),
+                    collection_name="docs",
+                    indexer_type="project",
+                )
+            )
+            job_processed.wait(timeout=5.0)
+
+            q.shutdown()
+
+        assert len(observed_dims) == 2
+        assert observed_dims[0] == 4  # first job saw original config
+        assert observed_dims[1] == 8  # second job saw updated config

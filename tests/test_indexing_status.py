@@ -160,6 +160,29 @@ class TestFileLevelStatus:
         # File-level should take precedence
         assert result["total_remaining"] == 50
 
+    def test_mixed_file_and_job_level_total_remaining(self) -> None:
+        """total_remaining aggregates across file-level and job-level collections."""
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        # Add job-level counts for email
+        status.increment("email", 2)
+        # Add file-level counts for obsidian
+        status.set_file_total("obsidian", 100)
+        status.file_processed("obsidian", 60)
+
+        result = status.to_dict()
+        assert result is not None
+        # total_remaining = 2 (email job-level) + 40 (obsidian: 100-60) = 42
+        assert result["total_remaining"] == 42
+        # email should be a plain integer (job-level)
+        assert result["collections"]["email"] == 2
+        # obsidian should be a dict with file-level shape
+        assert isinstance(result["collections"]["obsidian"], dict)
+        assert result["collections"]["obsidian"]["total"] == 100
+        assert result["collections"]["obsidian"]["processed"] == 60
+        assert result["collections"]["obsidian"]["remaining"] == 40
+
     def test_to_dict_shape(self) -> None:
         from ragling.indexing_status import IndexingStatus
 

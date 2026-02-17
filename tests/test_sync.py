@@ -394,6 +394,21 @@ class TestSubmitFileChange:
 
         queue.submit.assert_not_called()
 
+    def test_unmapped_file_logs_warning(self, tmp_path: Path, caplog) -> None:  # type: ignore[no-untyped-def]
+        """submit_file_change logs warning for files not in any configured path."""
+        import logging
+
+        from ragling.sync import submit_file_change
+
+        config = Config(home=tmp_path / "groups", users={}, global_paths=())
+        queue = MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="ragling.sync"):
+            submit_file_change(tmp_path / "random" / "file.md", config, queue)
+
+        assert any("Cannot map file" in record.message for record in caplog.records)
+        queue.submit.assert_not_called()
+
     def test_global_file_submits_job(self, tmp_path: Path) -> None:
         from ragling.sync import submit_file_change
 
@@ -411,3 +426,162 @@ class TestSubmitFileChange:
         queue.submit.assert_called_once()
         job = queue.submit.call_args[0][0]
         assert job.collection_name == "global"
+
+
+# ---------------------------------------------------------------------------
+# Gap S2.9: Re-index handles new entries in system databases
+# ---------------------------------------------------------------------------
+
+
+class TestSystemCollectionReindex:
+    """Tests for system collection incremental re-indexing."""
+
+    def test_reindex_job_submitted_for_changed_system_db(self, tmp_path: Path) -> None:
+        """When a system DB changes, a re-index job is submitted that will pick up new entries.
+
+        The system watcher submits a full re-index job for the affected collection.
+        Incrementality (detecting new vs. existing entries) is handled inside the
+        indexer itself, not at the watcher level. This test verifies the watcher
+        produces an IndexJob with the correct collection_name and indexer_type.
+
+        NOTE: This overlaps with TestSystemCollectionWatcher.test_submits_job_on_change
+        in test_system_watcher.py, which already covers the same behavior. This test
+        restates the guarantee from the sync/re-index perspective.
+        """
+        import time
+
+        from ragling.system_watcher import SystemCollectionWatcher
+
+        email_db = tmp_path / "emclient"
+        email_db.mkdir()
+
+        config = Config(
+            emclient_db_path=email_db,
+            disabled_collections=frozenset({"calibre", "rss"}),
+        )
+        queue = MagicMock()
+        watcher = SystemCollectionWatcher(config, queue, debounce_seconds=0.1)
+
+        watcher.notify_change(email_db)
+        time.sleep(0.3)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert isinstance(job, IndexJob)
+        assert job.collection_name == "email"
+        assert job.indexer_type == "email"
+        assert job.job_type == "system_collection"
+
+
+# ---------------------------------------------------------------------------
+# Gap S2.10: Re-index handles deleted entries
+# ---------------------------------------------------------------------------
+# Pruning of deleted entries is handled inside the base indexer's
+# prune_stale_sources() function, NOT at the sync/watcher layer.
+# This behavior is already thoroughly covered by:
+#   tests/test_base_indexer.py::TestPruneStaleSources
+#     - test_prunes_source_whose_file_is_gone
+#     - test_keeps_source_whose_file_exists
+#     - test_skips_sources_without_file_hash
+#     - test_skips_sources_with_virtual_uri
+#     - test_mixed_sources_only_prunes_missing_files
+#   tests/test_base_indexer.py::TestPruneEndToEnd
+#     - test_full_lifecycle
+# No duplicate test needed here.
+
+
+# ---------------------------------------------------------------------------
+# Gap S4.8: submit_file_change ignores disabled collection
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitFileChangeDisabledCollection:
+    """Tests for submit_file_change skipping disabled collections."""
+
+    def test_disabled_collection_does_not_submit(self, tmp_path: Path) -> None:
+        """Files in disabled collections are silently skipped."""
+        from ragling.sync import submit_file_change
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        note = vault / "daily.md"
+        note.write_text("# Note")
+
+        config = Config(
+            obsidian_vaults=(vault,),
+            disabled_collections=frozenset({"obsidian"}),
+        )
+        queue = MagicMock()
+
+        submit_file_change(note, config, queue)
+
+        queue.submit.assert_not_called()
+
+    def test_enabled_collection_does_submit(self, tmp_path: Path) -> None:
+        """Sanity check: same file with collection enabled DOES submit."""
+        from ragling.sync import submit_file_change
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        note = vault / "daily.md"
+        note.write_text("# Note")
+
+        config = Config(
+            obsidian_vaults=(vault,),
+            disabled_collections=frozenset(),
+        )
+        queue = MagicMock()
+
+        submit_file_change(note, config, queue)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.collection_name == "obsidian"
+
+    def test_disabled_code_group_does_not_submit(self, tmp_path: Path) -> None:
+        """Files in a disabled code group are silently skipped."""
+        from ragling.sync import submit_file_change
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        src_file = repo / "main.py"
+        src_file.write_text("print('hi')")
+
+        config = Config(
+            code_groups=MappingProxyType({"my-org": (repo,)}),
+            disabled_collections=frozenset({"my-org"}),
+        )
+        queue = MagicMock()
+
+        submit_file_change(src_file, config, queue)
+
+        queue.submit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# P2 #2 (S2.3): Startup sync thread name and daemon flag
+# ---------------------------------------------------------------------------
+
+
+class TestStartupSyncThreadProperties:
+    """Verify the thread returned by run_startup_sync has correct name and daemon flag."""
+
+    def test_sync_thread_is_daemon_and_named(self) -> None:
+        """The startup sync thread should be named 'startup-sync' and be a daemon."""
+        from ragling.sync import run_startup_sync
+
+        config = Config(disabled_collections=frozenset({"email", "calibre", "rss"}))
+        queue = MagicMock()
+        done = threading.Event()
+
+        thread = run_startup_sync(config, queue, done_event=done)
+
+        assert thread.name == "startup-sync"
+        assert thread.daemon is True
+
+        # Clean up: wait for the thread to finish
+        done.wait(timeout=5.0)
+        thread.join(timeout=5.0)

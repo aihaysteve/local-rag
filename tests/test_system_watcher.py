@@ -1,5 +1,6 @@
 """Tests for ragling.system_watcher module."""
 
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -263,3 +264,108 @@ class TestStartSystemWatcher:
         assert observer.is_alive()
         observer.stop()
         observer.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# Gap S2.8: Runtime monitoring waits for startup sync done_event
+# ---------------------------------------------------------------------------
+
+
+class TestSystemWatcherStartupOrdering:
+    """Tests for the startup ordering guarantee from cli.py.
+
+    The cli.py code spawns a thread that calls sync_done.wait() before
+    start_system_watcher(). This tests that pattern directly, independent
+    of the cli module.
+    """
+
+    def test_system_watcher_waits_for_sync_done_event(self) -> None:
+        """System watcher start is gated by the startup sync done_event."""
+        sync_done = threading.Event()
+        mock_start_system_watcher = MagicMock()
+
+        def _start_after_sync() -> None:
+            sync_done.wait()
+            mock_start_system_watcher()
+
+        thread = threading.Thread(target=_start_after_sync, daemon=True)
+        thread.start()
+
+        # Give the thread time to reach sync_done.wait()
+        time.sleep(0.1)
+
+        # The mock should NOT have been called yet — sync is not done
+        mock_start_system_watcher.assert_not_called()
+
+        # Signal sync completion
+        sync_done.set()
+        thread.join(timeout=5.0)
+
+        # Now it should have been called exactly once
+        mock_start_system_watcher.assert_called_once()
+
+    def test_watcher_starts_immediately_if_sync_already_done(self) -> None:
+        """If sync_done is already set, the watcher starts without blocking."""
+        sync_done = threading.Event()
+        sync_done.set()  # Already done before thread starts
+
+        mock_start_system_watcher = MagicMock()
+
+        def _start_after_sync() -> None:
+            sync_done.wait()
+            mock_start_system_watcher()
+
+        thread = threading.Thread(target=_start_after_sync, daemon=True)
+        thread.start()
+        thread.join(timeout=5.0)
+
+        mock_start_system_watcher.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# P2 #15 (S15.5): Multi-threaded concurrent notify_change for SystemCollectionWatcher
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentNotifyChange:
+    def test_concurrent_notify_change_is_thread_safe(self, tmp_path: Path) -> None:
+        """Multiple threads calling notify_change simultaneously don't corrupt state."""
+        from ragling.system_watcher import SystemCollectionWatcher
+
+        email_db = tmp_path / "emclient"
+        email_db.mkdir()
+
+        config = Config(
+            emclient_db_path=email_db,
+            disabled_collections={"calibre", "rss"},
+        )
+        queue = MagicMock()
+        watcher = SystemCollectionWatcher(config, queue, debounce_seconds=0.2)
+
+        num_threads = 10
+        barrier = threading.Barrier(num_threads)
+        exceptions: list[Exception] = []
+
+        def call_notify() -> None:
+            try:
+                barrier.wait()
+                watcher.notify_change(email_db)
+            except Exception as exc:
+                exceptions.append(exc)
+
+        threads = [threading.Thread(target=call_notify) for _ in range(num_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Wait for debounce to fire
+        time.sleep(0.5)
+
+        # No exceptions should have occurred in any thread
+        assert exceptions == []
+        # Debounce should coalesce all notifications into exactly 1 job submission
+        assert queue.submit.call_count == 1
+        job = queue.submit.call_args[0][0]
+        assert isinstance(job, IndexJob)
+        assert job.collection_name == "email"

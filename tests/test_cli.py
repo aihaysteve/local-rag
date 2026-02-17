@@ -312,6 +312,34 @@ class TestMcpConfigCommand:
         assert "10001" in url
 
 
+class TestMcpConfigOutputCaCert:
+    """Tests for mcp-config command ca_cert output with mocked TLS."""
+
+    def test_mcp_config_output_includes_ca_cert(self, tmp_path: Path) -> None:
+        """mcp-config command output includes the ca_cert path."""
+        import json
+        from unittest.mock import patch
+
+        from ragling.tls import TLSConfig
+
+        known_ca = tmp_path / "certs" / "ca.pem"
+        known_tls = TLSConfig(
+            ca_cert=known_ca,
+            ca_key=tmp_path / "certs" / "ca-key.pem",
+            server_cert=tmp_path / "certs" / "server.pem",
+            server_key=tmp_path / "certs" / "server-key.pem",
+        )
+
+        runner = CliRunner()
+        with patch("ragling.tls.ensure_tls_certs", return_value=known_tls):
+            result = runner.invoke(main, ["mcp-config", "--port", "9999"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "mcpServers" in data
+        assert data["mcpServers"]["ragling"]["ca_cert"] == str(known_ca)
+
+
 class TestWatcherStartupCondition:
     """Tests for watcher starting with obsidian-only configs."""
 
