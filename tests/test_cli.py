@@ -310,3 +310,23 @@ class TestMcpConfigCommand:
         data = json.loads(result.output)
         url = data["mcpServers"]["ragling"]["url"]
         assert "10001" in url
+
+
+class TestWatcherStartupCondition:
+    """Tests for watcher starting with obsidian-only configs."""
+
+    def test_obsidian_only_config_triggers_watcher(self, tmp_path: Path) -> None:
+        """A config with only obsidian_vaults should still start the watcher."""
+        from ragling.config import Config
+        from ragling.watcher import get_watch_paths
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        config = Config(
+            obsidian_vaults=[vault],
+            embedding_dimensions=4,
+        )
+
+        paths = get_watch_paths(config)
+        assert len(paths) > 0

@@ -716,7 +716,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
 
     from ragling.indexing_queue import IndexingQueue
     from ragling.sync import run_startup_sync, submit_file_change
-    from ragling.watcher import start_watcher
+    from ragling.watcher import get_watch_paths, start_watcher
 
     indexing_queue = IndexingQueue(config, indexing_status)
     indexing_queue.start()
@@ -725,7 +725,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     run_startup_sync(config, indexing_queue, done_event=sync_done)
 
     # Wire watcher to submit file changes through the queue
-    if config.home or config.global_paths:
+    if get_watch_paths(config):
 
         def _on_files_changed(files: list[Path]) -> None:
             logger.info("File changes detected: %d files", len(files))
