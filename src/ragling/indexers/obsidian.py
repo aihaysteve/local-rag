@@ -13,7 +13,13 @@ from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
 from ragling.embeddings import get_embeddings
-from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
+from ragling.indexers.base import (
+    BaseIndexer,
+    IndexResult,
+    file_hash,
+    prune_stale_sources,
+    upsert_source_with_chunks,
+)
 from ragling.indexers.project import _EXTENSION_MAP, _parse_and_chunk
 
 logger = logging.getLogger(__name__)
@@ -83,6 +89,8 @@ class ObsidianIndexer(BaseIndexer):
                     logger.exception("Error indexing %s", file_path)
                     errors += 1
 
+        pruned = prune_stale_sources(conn, collection_id)
+
         logger.info(
             "Obsidian indexing complete: %d found, %d indexed, %d skipped, %d errors",
             total_found,
@@ -90,7 +98,9 @@ class ObsidianIndexer(BaseIndexer):
             skipped,
             errors,
         )
-        return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
+        return IndexResult(
+            indexed=indexed, skipped=skipped, errors=errors, total_found=total_found, pruned=pruned
+        )
 
 
 def _walk_vault(vault_path: Path, exclude_folders: set[str] | None = None) -> list[Path]:
