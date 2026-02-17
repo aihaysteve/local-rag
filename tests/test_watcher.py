@@ -88,6 +88,77 @@ class TestWatcherPaths:
         assert len(paths) == 0
 
 
+class TestWatchPathsIncludesObsidianAndCode:
+    """Tests that get_watch_paths includes obsidian vaults and code group repos."""
+
+    def test_includes_obsidian_vaults(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        config = Config(obsidian_vaults=[vault])
+        paths = get_watch_paths(config)
+        assert vault in paths
+
+    def test_includes_code_group_repos(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        config = Config(code_groups={"my-org": [repo]})
+        paths = get_watch_paths(config)
+        assert repo in paths
+
+    def test_skips_nonexistent_obsidian_vaults(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        config = Config(obsidian_vaults=[tmp_path / "nonexistent"])
+        paths = get_watch_paths(config)
+        assert len(paths) == 0
+
+    def test_skips_nonexistent_code_repos(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        config = Config(code_groups={"org": [tmp_path / "nonexistent"]})
+        paths = get_watch_paths(config)
+        assert len(paths) == 0
+
+    def test_deduplicates_overlapping_paths(self, tmp_path: Path) -> None:
+        """Same path in home and obsidian should appear only once."""
+        from ragling.watcher import get_watch_paths
+
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        config = Config(
+            home=shared_dir,
+            obsidian_vaults=[shared_dir],
+        )
+        paths = get_watch_paths(config)
+        assert paths.count(shared_dir) == 1
+
+    def test_combines_all_path_types(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        home = tmp_path / "home"
+        global_dir = tmp_path / "global"
+        vault = tmp_path / "vault"
+        repo = tmp_path / "repo"
+        for d in (home, global_dir, vault, repo):
+            d.mkdir()
+
+        config = Config(
+            home=home,
+            global_paths=[global_dir],
+            obsidian_vaults=[vault],
+            code_groups={"org": [repo]},
+        )
+        paths = get_watch_paths(config)
+        assert home in paths
+        assert global_dir in paths
+        assert vault in paths
+        assert repo in paths
+
+
 class TestHandlerOnDeleted:
     def test_deleted_file_is_enqueued(self) -> None:
         queue = MagicMock(spec=DebouncedIndexQueue)

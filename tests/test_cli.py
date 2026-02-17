@@ -191,26 +191,26 @@ class TestBuildSourceUri:
 class TestGetDb:
     """Tests for _get_db group routing."""
 
-    def test_get_db_sets_group_name_on_config(self) -> None:
-        """_get_db should set config.group_name before connecting."""
+    def test_get_db_connects_with_given_config(self) -> None:
+        """_get_db should use the config's group_name for the connection."""
         from unittest.mock import MagicMock, patch
 
         from ragling.cli import _get_db
         from ragling.config import Config
 
-        config = Config(embedding_dimensions=4)
+        config = Config(embedding_dimensions=4, group_name="my-group")
 
         with (
             patch("ragling.db.get_connection") as mock_conn,
             patch("ragling.db.init_db"),
         ):
             mock_conn.return_value = MagicMock()
-            _get_db(config, "my-group")
+            _get_db(config)
 
-        assert config.group_name == "my-group"
+        mock_conn.assert_called_once_with(config)
 
-    def test_get_db_uses_default_group(self) -> None:
-        """_get_db with no group argument should use 'default'."""
+    def test_get_db_with_default_group(self) -> None:
+        """_get_db with default group_name should connect normally."""
         from unittest.mock import MagicMock, patch
 
         from ragling.cli import _get_db
@@ -259,3 +259,54 @@ class TestServeCommand:
         result = runner.invoke(main, ["serve", "--no-stdio"])
         # Should error because neither SSE nor stdio is enabled
         assert "Cannot disable" in result.output or result.exit_code != 0
+
+
+class TestMcpConfigCommand:
+    """Tests for the mcp-config command."""
+
+    def test_mcp_config_exists(self) -> None:
+        """The mcp-config command should be registered."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp-config", "--help"])
+        assert result.exit_code == 0
+
+    def test_mcp_config_outputs_json(self, tmp_path: Path) -> None:
+        """Output should be valid JSON with mcpServers key."""
+        import json
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp-config", "--port", "9999", "--tls-dir", str(tmp_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "mcpServers" in data
+
+    def test_mcp_config_includes_url_with_port(self, tmp_path: Path) -> None:
+        """URL should include the specified port."""
+        import json
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp-config", "--port", "8443", "--tls-dir", str(tmp_path)])
+        data = json.loads(result.output)
+        url = data["mcpServers"]["ragling"]["url"]
+        assert "8443" in url
+        assert url.startswith("https://")
+
+    def test_mcp_config_includes_ca_cert_path(self, tmp_path: Path) -> None:
+        """Config should include ca_cert path."""
+        import json
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp-config", "--port", "10001", "--tls-dir", str(tmp_path)])
+        data = json.loads(result.output)
+        ca_cert = data["mcpServers"]["ragling"]["ca_cert"]
+        assert "ca.pem" in ca_cert
+
+    def test_mcp_config_default_port(self, tmp_path: Path) -> None:
+        """Default port should be 10001."""
+        import json
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["mcp-config", "--tls-dir", str(tmp_path)])
+        data = json.loads(result.output)
+        url = data["mcpServers"]["ragling"]["url"]
+        assert "10001" in url

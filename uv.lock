@@ -2003,6 +2003,7 @@ source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "click" },
+    { name = "cryptography" },
     { name = "docling" },
     { name = "docling-core" },
     { name = "mcp" },
@@ -2028,6 +2029,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "click", specifier = ">=8.0" },
+    { name = "cryptography", specifier = ">=41.0" },
     { name = "docling", specifier = ">=2.66.0" },
     { name = "docling-core", specifier = ">=2.56.0" },
     { name = "mcp", specifier = ">=1.0.0" },

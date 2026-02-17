@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from ragling.config import Config
-from ragling.search import SearchFilters, SearchResult, _escape_fts_query, perform_search, rrf_merge
+from ragling.search import SearchFilters, SearchResult, perform_search, rrf_merge
 
 # Check if sqlite3 supports loading extensions (required for sqlite-vec integration tests)
 _conn = sqlite3.connect(":memory:")
@@ -121,36 +121,6 @@ class TestRRFMerge:
         # Should be sorted descending
         scores = [s for _, s in result]
         assert scores == sorted(scores, reverse=True)
-
-
-class TestEscapeFtsQuery:
-    """Tests for _escape_fts_query."""
-
-    def test_simple_query(self):
-        result = _escape_fts_query("hello world")
-        assert result == '"hello" "world"'
-
-    def test_single_word(self):
-        result = _escape_fts_query("kubernetes")
-        assert result == '"kubernetes"'
-
-    def test_empty_query(self):
-        result = _escape_fts_query("")
-        assert result == ""
-
-    def test_special_characters_quoted(self):
-        # FTS5 special chars like * and - should be safely wrapped in quotes
-        result = _escape_fts_query("NOT AND OR")
-        assert result == '"NOT" "AND" "OR"'
-
-    def test_query_with_punctuation(self):
-        result = _escape_fts_query("hello, world!")
-        assert result == '"hello," "world!"'
-
-    def test_extra_whitespace(self):
-        result = _escape_fts_query("  hello   world  ")
-        # split() handles extra whitespace
-        assert result == '"hello" "world"'
 
 
 class TestDataclasses:
@@ -283,9 +253,9 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from ragling.search import _escape_fts_query
+        from ragling.search import escape_fts_query
 
-        query = _escape_fts_query("kubernetes deployment")
+        query = escape_fts_query("kubernetes deployment")
         rows = conn.execute(
             "SELECT rowid, rank FROM documents_fts WHERE documents_fts MATCH ?",
             (query,),
@@ -303,9 +273,9 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from ragling.search import _escape_fts_query
+        from ragling.search import escape_fts_query
 
-        query = _escape_fts_query("postgresql replication")
+        query = escape_fts_query("postgresql replication")
         rows = conn.execute(
             "SELECT rowid, rank FROM documents_fts WHERE documents_fts MATCH ?",
             (query,),
@@ -534,6 +504,295 @@ class TestSearchWithDatabase:
         )
 
         assert len(results) == 0
+
+
+@requires_sqlite_extensions
+class TestBatchLoadMetadata:
+    """Tests for _batch_load_metadata batch query."""
+
+    @pytest.fixture()
+    def db(self, tmp_path):
+        """Create a DB with schema initialized."""
+        import sqlite_vec
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+        )
+        conn = sqlite3.connect(str(config.db_path))
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+
+        from ragling.db import init_db
+
+        init_db(conn, config)
+
+        yield conn, config
+        conn.close()
+
+    @staticmethod
+    def _insert_document(
+        conn,
+        collection_name,
+        source_path,
+        title,
+        content,
+        embedding,
+        metadata=None,
+        source_type="markdown",
+    ):
+        from ragling.db import get_or_create_collection
+        from ragling.embeddings import serialize_float32
+
+        col_id = get_or_create_collection(conn, collection_name)
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path, file_modified_at) VALUES (?, ?, ?, ?)",
+            (col_id, source_type, source_path, "2025-01-15T10:00:00"),
+        )
+        if cursor.lastrowid == 0:
+            source_id = conn.execute(
+                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
+                (col_id, source_path),
+            ).fetchone()["id"]
+        else:
+            source_id = cursor.lastrowid
+        cursor = conn.execute(
+            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
+            "VALUES (?, ?, 0, ?, ?, ?)",
+            (source_id, col_id, title, content, json.dumps(metadata or {})),
+        )
+        doc_id = cursor.lastrowid
+        conn.execute(
+            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
+            (doc_id, serialize_float32(embedding), doc_id),
+        )
+        conn.commit()
+        return doc_id
+
+    def test_returns_metadata_for_multiple_docs(self, db):
+        conn, config = db
+        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id2 = self._insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        meta = _batch_load_metadata(conn, [id1, id2])
+        assert id1 in meta
+        assert id2 in meta
+        assert meta[id1]["title"] == "A"
+        assert meta[id2]["title"] == "B"
+
+    def test_returns_empty_for_empty_ids(self, db):
+        conn, config = db
+
+        from ragling.search import _batch_load_metadata
+
+        meta = _batch_load_metadata(conn, [])
+        assert meta == {}
+
+    def test_includes_collection_and_source_info(self, db):
+        conn, config = db
+        doc_id = self._insert_document(
+            conn, "email-coll", "/mail/1", "Email", "body", [1, 0, 0, 0], source_type="email"
+        )
+
+        from ragling.search import _batch_load_metadata
+
+        meta = _batch_load_metadata(conn, [doc_id])
+        row = meta[doc_id]
+        assert row["collection_name"] == "email-coll"
+        assert row["source_type"] == "email"
+        assert row["source_path"] == "/mail/1"
+
+    def test_includes_file_modified_at(self, db):
+        conn, config = db
+        doc_id = self._insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        meta = _batch_load_metadata(conn, [doc_id])
+        assert meta[doc_id]["file_modified_at"] == "2025-01-15T10:00:00"
+
+    def test_skips_missing_ids(self, db):
+        conn, config = db
+        doc_id = self._insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        meta = _batch_load_metadata(conn, [doc_id, 99999])
+        assert doc_id in meta
+        assert 99999 not in meta
+
+
+class TestCheckFilters:
+    """Tests for _check_filters (in-memory, no DB access)."""
+
+    @staticmethod
+    def _make_row(
+        collection_name="obs",
+        collection_type="project",
+        source_type="markdown",
+        collection_id=1,
+        metadata="{}",
+    ):
+        """Create a dict mimicking a metadata row."""
+        return {
+            "collection_name": collection_name,
+            "collection_type": collection_type,
+            "source_type": source_type,
+            "collection_id": collection_id,
+            "metadata": metadata,
+        }
+
+    def test_no_filters_passes(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row()
+        assert _check_filters(row, SearchFilters()) is True
+
+    def test_collection_name_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(collection_name="obsidian")
+        assert _check_filters(row, SearchFilters(collection="obsidian")) is True
+        assert _check_filters(row, SearchFilters(collection="email")) is False
+
+    def test_collection_type_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(collection_type="code")
+        assert _check_filters(row, SearchFilters(collection="code")) is True
+        assert _check_filters(row, SearchFilters(collection="system")) is False
+
+    def test_source_type_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(source_type="pdf")
+        assert _check_filters(row, SearchFilters(source_type="pdf")) is True
+        assert _check_filters(row, SearchFilters(source_type="markdown")) is False
+
+    def test_visible_collection_ids_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(collection_id=5)
+        assert _check_filters(row, SearchFilters(visible_collection_ids={5, 6})) is True
+        assert _check_filters(row, SearchFilters(visible_collection_ids={1, 2})) is False
+
+    def test_sender_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({"sender": "alice@example.com"}))
+        assert _check_filters(row, SearchFilters(sender="alice")) is True
+        assert _check_filters(row, SearchFilters(sender="bob")) is False
+
+    def test_author_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({"authors": ["Alice Smith", "Bob Jones"]}))
+        assert _check_filters(row, SearchFilters(author="alice")) is True
+        assert _check_filters(row, SearchFilters(author="charlie")) is False
+
+    def test_date_range_filter(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({"date": "2025-06-15"}))
+        assert (
+            _check_filters(row, SearchFilters(date_from="2025-01-01", date_to="2025-12-31")) is True
+        )
+        assert _check_filters(row, SearchFilters(date_from="2025-07-01")) is False
+        assert _check_filters(row, SearchFilters(date_to="2025-05-01")) is False
+
+
+class TestMarkStaleResults:
+    """Tests for _mark_stale_results."""
+
+    def test_marks_missing_file_as_stale(self) -> None:
+        from ragling.search import _mark_stale_results
+
+        result = SearchResult(
+            content="text",
+            title="T",
+            metadata={},
+            score=1.0,
+            collection="obs",
+            source_path="/nonexistent/file.md",
+            source_type="markdown",
+        )
+        # file_modified_at doesn't matter for missing files
+        _mark_stale_results([result], {})
+        assert result.stale is True
+
+    def test_marks_modified_file_as_stale(self, tmp_path) -> None:
+        from ragling.search import _mark_stale_results
+
+        f = tmp_path / "test.md"
+        f.write_text("content")
+
+        result = SearchResult(
+            content="text",
+            title="T",
+            metadata={},
+            score=1.0,
+            collection="obs",
+            source_path=str(f),
+            source_type="markdown",
+        )
+        # file_modified_at in the past — file has been modified since indexing
+        _mark_stale_results([result], {str(f): "2020-01-01T00:00:00"})
+        assert result.stale is True
+
+    def test_fresh_file_not_stale(self, tmp_path) -> None:
+        from ragling.search import _mark_stale_results
+
+        f = tmp_path / "test.md"
+        f.write_text("content")
+
+        result = SearchResult(
+            content="text",
+            title="T",
+            metadata={},
+            score=1.0,
+            collection="obs",
+            source_path=str(f),
+            source_type="markdown",
+        )
+        # file_modified_at in the far future — file hasn't changed
+        _mark_stale_results([result], {str(f): "2099-01-01T00:00:00"})
+        assert result.stale is False
+
+    def test_no_file_modified_at_not_stale(self, tmp_path) -> None:
+        """If file_modified_at is unknown, don't mark as stale."""
+        from ragling.search import _mark_stale_results
+
+        f = tmp_path / "test.md"
+        f.write_text("content")
+
+        result = SearchResult(
+            content="text",
+            title="T",
+            metadata={},
+            score=1.0,
+            collection="obs",
+            source_path=str(f),
+            source_type="markdown",
+        )
+        _mark_stale_results([result], {})
+        assert result.stale is False
+
+    def test_stale_default_is_false(self) -> None:
+        result = SearchResult(
+            content="text",
+            title="T",
+            metadata={},
+            score=1.0,
+            collection="obs",
+            source_path="/test.md",
+            source_type="markdown",
+        )
+        assert result.stale is False
 
 
 class TestPerformSearchParams:

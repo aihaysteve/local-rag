@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from ragling.config import Config, UserConfig
-from ragling.indexing_status import IndexingStatus
+from ragling.indexing_queue import IndexJob
 
 
 class TestSyncMapFileToCollection:
@@ -35,119 +35,274 @@ class TestSyncMapFileToCollection:
         assert name is None
 
 
-class TestIndexDirectory:
-    """Tests for _index_directory routing to correct indexer."""
+class TestMapFileToCollectionObsidianAndCode:
+    """Tests for mapping files in obsidian vaults and code groups."""
 
-    def test_routes_git_directory_to_git_indexer(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_directory
+    def test_file_in_obsidian_vault_maps_to_obsidian(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
 
-        repo_dir = tmp_path / "myrepo"
-        repo_dir.mkdir()
-        (repo_dir / ".git").mkdir()
-        (repo_dir / "main.py").write_text("print('hello')")
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        config = Config(obsidian_vaults=[vault])
+        name = map_file_to_collection(vault / "notes" / "daily.md", config)
+        assert name == "obsidian"
+
+    def test_file_in_code_group_maps_to_group_name(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
+
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        config = Config(code_groups={"my-org": [repo]})
+        name = map_file_to_collection(repo / "src" / "main.py", config)
+        assert name == "my-org"
+
+    def test_obsidian_vault_not_matched_for_unrelated_file(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        config = Config(obsidian_vaults=[vault])
+        name = map_file_to_collection(tmp_path / "other" / "file.md", config)
+        assert name is None
+
+    def test_code_group_with_multiple_repos(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
+
+        repo1 = tmp_path / "repo1"
+        repo2 = tmp_path / "repo2"
+        repo1.mkdir()
+        repo2.mkdir()
+        config = Config(code_groups={"my-org": [repo1, repo2]})
+        name = map_file_to_collection(repo2 / "lib.py", config)
+        assert name == "my-org"
+
+    def test_home_dir_takes_precedence_over_obsidian(self, tmp_path: Path) -> None:
+        """If a vault is also inside a user home dir, home mapping wins."""
+        from ragling.sync import map_file_to_collection
+
+        home = tmp_path / "groups"
+        vault = home / "kitchen" / "vault"
+        vault.mkdir(parents=True)
+        config = Config(
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
+            obsidian_vaults=[vault],
+        )
+        name = map_file_to_collection(vault / "note.md", config)
+        assert name == "kitchen"
+
+
+class TestSubmitFileChangeWithMarkerDetection:
+    """Tests for submit_file_change using detect_indexer_type_for_file."""
+
+    def test_file_deep_in_obsidian_vault_uses_obsidian_indexer(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
+
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        vault = user_dir / "notes"
+        vault.mkdir(parents=True)
+        (vault / ".obsidian").mkdir()
+        deep_file = vault / "daily" / "2025-01-01.md"
+        deep_file.parent.mkdir(parents=True)
+        deep_file.write_text("# Daily")
 
         config = Config(
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
         )
+        queue = MagicMock()
 
-        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
-            mock_indexer = MagicMock()
-            mock_indexer.index.return_value = MagicMock(
-                indexed=1, skipped=0, errors=0, total_found=1
-            )
-            MockGit.return_value = mock_indexer
-            conn = MagicMock()
+        submit_file_change(deep_file, config, queue)
 
-            _index_directory(repo_dir, "kitchen", config, conn)
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "obsidian"
 
-            MockGit.assert_called_once_with(repo_dir, collection_name="kitchen")
-            mock_indexer.index.assert_called_once_with(conn, config, index_history=True)
+    def test_file_deep_in_git_repo_uses_code_indexer(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
 
-    def test_routes_plain_directory_to_project_indexer(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_directory
-
-        docs_dir = tmp_path / "docs"
-        docs_dir.mkdir()
-        (docs_dir / "readme.md").write_text("# Hello")
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        repo = user_dir / "myrepo"
+        repo.mkdir(parents=True)
+        (repo / ".git").mkdir()
+        deep_file = repo / "src" / "lib" / "main.py"
+        deep_file.parent.mkdir(parents=True)
+        deep_file.write_text("print('hello')")
 
         config = Config(
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
         )
+        queue = MagicMock()
 
-        with patch("ragling.indexers.project.ProjectIndexer") as MockProject:
-            mock_indexer = MagicMock()
-            mock_indexer.index.return_value = MagicMock(
-                indexed=1, skipped=0, errors=0, total_found=1
-            )
-            MockProject.return_value = mock_indexer
-            with patch("ragling.doc_store.DocStore") as MockDocStore:
-                mock_doc_store = MagicMock()
-                MockDocStore.return_value = mock_doc_store
-                conn = MagicMock()
+        submit_file_change(deep_file, config, queue)
 
-                _index_directory(docs_dir, "kitchen", config, conn)
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "code"
 
-                MockProject.assert_called_once_with("kitchen", [docs_dir], doc_store=mock_doc_store)
-                mock_indexer.index.assert_called_once_with(conn, config)
-                mock_doc_store.close.assert_called_once()
 
-    def test_routes_obsidian_directory_to_obsidian_indexer(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_directory
+class TestRunStartupSync:
+    """Tests for run_startup_sync submitting IndexJobs to the queue."""
 
-        vault_dir = tmp_path / "myvault"
-        vault_dir.mkdir()
-        (vault_dir / ".obsidian").mkdir()
-        (vault_dir / "note.md").write_text("# Note")
+    def test_submits_home_directories(self, tmp_path: Path) -> None:
+        """Home user directories are submitted with correct indexer_type."""
+        from ragling.sync import run_startup_sync
+
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        user_dir.mkdir(parents=True)
+        (user_dir / ".git").mkdir()
 
         config = Config(
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
         )
+        queue = MagicMock()
+        done = threading.Event()
 
-        with patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian:
-            mock_indexer = MagicMock()
-            mock_indexer.index.return_value = MagicMock(
-                indexed=1, skipped=0, errors=0, total_found=1
-            )
-            MockObsidian.return_value = mock_indexer
-            with patch("ragling.doc_store.DocStore") as MockDocStore:
-                mock_doc_store = MagicMock()
-                MockDocStore.return_value = mock_doc_store
-                conn = MagicMock()
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="code"):
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
 
-                _index_directory(vault_dir, "kitchen", config, conn)
+        queue.submit.assert_called()
+        job = queue.submit.call_args_list[0][0][0]
+        assert isinstance(job, IndexJob)
+        assert job.collection_name == "kitchen"
+        assert job.indexer_type == "code"
+        assert job.path == user_dir
 
-                MockObsidian.assert_called_once_with(
-                    [vault_dir], config.obsidian_exclude_folders, doc_store=mock_doc_store
-                )
-                mock_indexer.index.assert_called_once_with(conn, config)
-                mock_doc_store.close.assert_called_once()
+    def test_submits_global_paths(self, tmp_path: Path) -> None:
+        """Global paths are submitted with auto-detected indexer_type."""
+        from ragling.sync import run_startup_sync
 
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
 
-class TestSyncDoneEvent:
-    """Tests for done_event parameter on run_startup_sync."""
+        config = Config(global_paths=[global_dir])
+        queue = MagicMock()
+        done = threading.Event()
 
-    def test_done_event_is_set_after_sync(self, tmp_path: Path) -> None:
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
+
+        queue.submit.assert_called()
+        job = queue.submit.call_args_list[0][0][0]
+        assert job.collection_name == "global"
+        assert job.indexer_type == "project"
+        assert job.path == global_dir
+
+    def test_submits_obsidian_vaults(self, tmp_path: Path) -> None:
+        """Obsidian vaults from config are submitted as obsidian indexer_type."""
+        from ragling.sync import run_startup_sync
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        config = Config(obsidian_vaults=[vault])
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        queue.submit.assert_called()
+        job = queue.submit.call_args_list[0][0][0]
+        assert job.collection_name == "obsidian"
+        assert job.indexer_type == "obsidian"
+        assert job.path == vault
+
+    def test_submits_system_collections(self, tmp_path: Path) -> None:
+        """System collections (email, calibre, rss) are submitted."""
         from ragling.sync import run_startup_sync
 
         config = Config(
-            home=tmp_path / "groups",
-            users={},
-            global_paths=[],
+            emclient_db_path=tmp_path / "emclient",
+            calibre_libraries=[tmp_path / "calibre"],
+            netnewswire_db_path=tmp_path / "nnw",
         )
-        status = IndexingStatus()
+        queue = MagicMock()
         done = threading.Event()
 
-        thread = run_startup_sync(config, status, done_event=done)
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        submitted_types = {call[0][0].indexer_type for call in queue.submit.call_args_list}
+        assert "email" in submitted_types
+        assert "calibre" in submitted_types
+        assert "rss" in submitted_types
+
+    def test_skips_disabled_collections(self, tmp_path: Path) -> None:
+        """Disabled collections are not submitted."""
+        from ragling.sync import run_startup_sync
+
+        config = Config(
+            emclient_db_path=tmp_path / "emclient",
+            calibre_libraries=[tmp_path / "calibre"],
+            netnewswire_db_path=tmp_path / "nnw",
+            disabled_collections=["email", "rss"],
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        submitted_types = {call[0][0].indexer_type for call in queue.submit.call_args_list}
+        assert "email" not in submitted_types
+        assert "rss" not in submitted_types
+        assert "calibre" in submitted_types
+
+    def test_submits_code_groups(self, tmp_path: Path) -> None:
+        """Code groups from config are submitted with code indexer_type."""
+        from ragling.sync import run_startup_sync
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        config = Config(code_groups={"my-org": [repo]})
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        queue.submit.assert_called()
+        job = queue.submit.call_args_list[0][0][0]
+        assert job.collection_name == "my-org"
+        assert job.indexer_type == "code"
+        assert job.path == repo
+
+    def test_no_sources_no_submissions(self) -> None:
+        """When everything is disabled, nothing is submitted."""
+        from ragling.sync import run_startup_sync
+
+        config = Config(
+            disabled_collections=["email", "calibre", "rss"],
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        queue.submit.assert_not_called()
+
+    def test_done_event_is_set_after_sync(self) -> None:
+        from ragling.sync import run_startup_sync
+
+        config = Config(disabled_collections=["email", "calibre", "rss"])
+        queue = MagicMock()
+        done = threading.Event()
+
+        thread = run_startup_sync(config, queue, done_event=done)
         assert done.wait(timeout=5.0), "done_event was not set"
         thread.join(timeout=5.0)
 
-    def test_done_event_is_set_even_on_error(self, tmp_path: Path) -> None:
+    def test_done_event_set_even_on_error(self, tmp_path: Path) -> None:
         from ragling.sync import run_startup_sync
 
         home = tmp_path / "groups"
@@ -155,41 +310,35 @@ class TestSyncDoneEvent:
         config = Config(
             home=home,
             users={"testuser": UserConfig(api_key="k")},
-            global_paths=[],
         )
-        status = IndexingStatus()
+        queue = MagicMock()
         done = threading.Event()
 
-        # Patch to raise an error inside _sync to test finally-block behavior
         with patch(
             "ragling.indexers.auto_indexer.collect_indexable_directories",
             side_effect=RuntimeError("boom"),
         ):
-            thread = run_startup_sync(config, status, done_event=done)
+            thread = run_startup_sync(config, queue, done_event=done)
             assert done.wait(timeout=5.0), "done_event was not set after error"
             thread.join(timeout=5.0)
 
-    def test_works_without_done_event(self, tmp_path: Path) -> None:
+    def test_works_without_done_event(self) -> None:
         """Backward compatibility: done_event=None (default) still works."""
         from ragling.sync import run_startup_sync
 
-        config = Config(
-            home=tmp_path / "groups",
-            users={},
-            global_paths=[],
-        )
-        status = IndexingStatus()
+        config = Config(disabled_collections=["email", "calibre", "rss"])
+        queue = MagicMock()
 
-        thread = run_startup_sync(config, status)
+        thread = run_startup_sync(config, queue)
         thread.join(timeout=5.0)
         assert not thread.is_alive()
 
 
-class TestIndexFile:
-    """Tests for _index_file single-file re-indexing helper."""
+class TestSubmitFileChange:
+    """Tests for submit_file_change submitting IndexJobs to the queue."""
 
-    def test_indexes_file_in_user_dir(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_file
+    def test_existing_file_submits_directory_job(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
 
         home = tmp_path / "groups"
         user_dir = home / "kitchen"
@@ -200,154 +349,64 @@ class TestIndexFile:
         config = Config(
             home=home,
             users={"kitchen": UserConfig(api_key="k")},
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
         )
+        queue = MagicMock()
 
-        with (
-            patch("ragling.db.get_connection") as mock_get_conn,
-            patch("ragling.db.init_db"),
-            patch("ragling.doc_store.DocStore") as MockDocStore,
-            patch("ragling.indexers.project.ProjectIndexer") as MockProject,
-        ):
-            mock_conn = MagicMock()
-            mock_get_conn.return_value = mock_conn
-            mock_doc_store = MagicMock()
-            MockDocStore.return_value = mock_doc_store
-            mock_indexer = MagicMock()
-            mock_indexer.index.return_value = MagicMock(
-                indexed=1, skipped=0, errors=0, total_found=1
-            )
-            MockProject.return_value = mock_indexer
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
+            submit_file_change(test_file, config, queue)
 
-            _index_file(test_file, config)
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.collection_name == "kitchen"
+        assert job.indexer_type == "project"
+        assert job.path == user_dir
 
-            MockProject.assert_called_once_with("kitchen", [user_dir], doc_store=mock_doc_store)
-            mock_indexer.index.assert_called_once_with(mock_conn, config)
-            mock_doc_store.close.assert_called_once()
-            mock_conn.close.assert_called_once()
+    def test_deleted_file_submits_prune_job(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
 
-    def test_returns_none_for_unmapped_file(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_file
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        user_dir.mkdir(parents=True)
+        deleted_file = user_dir / "gone.md"
 
         config = Config(
-            home=tmp_path / "groups",
-            users={},
-            global_paths=[],
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
         )
+        queue = MagicMock()
 
-        # Should not raise, just log a warning
-        _index_file(tmp_path / "random" / "file.md", config)
+        submit_file_change(deleted_file, config, queue)
 
-    def test_indexes_file_in_global_dir(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_file
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "prune"
+        assert job.path == deleted_file
+        assert job.collection_name == "kitchen"
+
+    def test_unmapped_file_does_not_submit(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
+
+        config = Config(home=tmp_path / "groups", users={}, global_paths=[])
+        queue = MagicMock()
+
+        submit_file_change(tmp_path / "random" / "file.md", config, queue)
+
+        queue.submit.assert_not_called()
+
+    def test_global_file_submits_job(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
 
         global_dir = tmp_path / "global"
         global_dir.mkdir()
         test_file = global_dir / "shared.md"
         test_file.write_text("# Shared")
 
-        config = Config(
-            global_paths=[global_dir],
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
-        )
+        config = Config(global_paths=[global_dir])
+        queue = MagicMock()
 
-        with (
-            patch("ragling.db.get_connection") as mock_get_conn,
-            patch("ragling.db.init_db"),
-            patch("ragling.doc_store.DocStore") as MockDocStore,
-            patch("ragling.indexers.project.ProjectIndexer") as MockProject,
-        ):
-            mock_conn = MagicMock()
-            mock_get_conn.return_value = mock_conn
-            mock_doc_store = MagicMock()
-            MockDocStore.return_value = mock_doc_store
-            mock_indexer = MagicMock()
-            mock_indexer.index.return_value = MagicMock(
-                indexed=1, skipped=0, errors=0, total_found=1
-            )
-            MockProject.return_value = mock_indexer
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
+            submit_file_change(test_file, config, queue)
 
-            _index_file(test_file, config)
-
-            MockProject.assert_called_once_with("global", [global_dir], doc_store=mock_doc_store)
-            mock_indexer.index.assert_called_once_with(mock_conn, config)
-            mock_doc_store.close.assert_called_once()
-            mock_conn.close.assert_called_once()
-
-
-class TestIndexFileDeleted:
-    """Tests for _index_file handling deleted files."""
-
-    def test_deleted_file_calls_delete_source(self, tmp_path: Path) -> None:
-        from ragling.sync import _index_file
-
-        home = tmp_path / "groups"
-        user_dir = home / "kitchen"
-        user_dir.mkdir(parents=True)
-
-        # File path that doesn't exist on disk (simulating deletion)
-        deleted_file = user_dir / "gone.md"
-
-        config = Config(
-            home=home,
-            users={"kitchen": UserConfig(api_key="k")},
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
-        )
-
-        with (
-            patch("ragling.db.get_connection") as mock_get_conn,
-            patch("ragling.db.init_db"),
-            patch("ragling.indexers.base.delete_source") as mock_delete,
-            patch("ragling.db.get_or_create_collection", return_value=1),
-        ):
-            mock_conn = MagicMock()
-            mock_get_conn.return_value = mock_conn
-
-            _index_file(deleted_file, config)
-
-            mock_delete.assert_called_once_with(mock_conn, 1, str(deleted_file.resolve()))
-            mock_conn.close.assert_called_once()
-
-    def test_existing_file_still_indexes(self, tmp_path: Path) -> None:
-        """Existing files should be indexed as before, not pruned."""
-        from ragling.sync import _index_file
-
-        home = tmp_path / "groups"
-        user_dir = home / "kitchen"
-        user_dir.mkdir(parents=True)
-        test_file = user_dir / "notes.md"
-        test_file.write_text("# Notes")
-
-        config = Config(
-            home=home,
-            users={"kitchen": UserConfig(api_key="k")},
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
-        )
-
-        with (
-            patch("ragling.db.get_connection") as mock_get_conn,
-            patch("ragling.db.init_db"),
-            patch("ragling.doc_store.DocStore") as MockDocStore,
-            patch("ragling.indexers.project.ProjectIndexer") as MockProject,
-        ):
-            mock_conn = MagicMock()
-            mock_get_conn.return_value = mock_conn
-            mock_doc_store = MagicMock()
-            MockDocStore.return_value = mock_doc_store
-            mock_indexer = MagicMock()
-            mock_indexer.index.return_value = MagicMock(
-                indexed=1, skipped=0, errors=0, total_found=1
-            )
-            MockProject.return_value = mock_indexer
-
-            _index_file(test_file, config)
-
-            MockProject.assert_called_once()
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.collection_name == "global"

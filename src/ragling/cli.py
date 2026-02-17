@@ -39,17 +39,15 @@ def _setup_logging(verbose: bool) -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def _get_db(config: Config, group: str = "default"):
+def _get_db(config: Config):
     """Get initialized database connection.
 
     Args:
-        config: Application configuration.
-        group: Group name for per-group indexes. Sets config.group_name
-            so the correct database path is used.
+        config: Application configuration. Must already have the correct
+            group_name set (use ``config.with_overrides(group_name=...)``).
     """
     from ragling.db import get_connection, init_db
 
-    config.group_name = group
     conn = get_connection(config)
     init_db(conn, config)
     return conn
@@ -137,8 +135,8 @@ def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) ->
         )
         sys.exit(1)
 
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     doc_store = DocStore(config.shared_db_path)
     try:
         indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders, doc_store=doc_store)
@@ -158,8 +156,8 @@ def index_email(ctx: click.Context, force: bool) -> None:
 
     config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "email")
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     try:
         indexer = EmailIndexer(str(config.emclient_db_path))
         result = indexer.index(conn, config, force=force)
@@ -195,8 +193,8 @@ def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) 
         )
         sys.exit(1)
 
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     doc_store = DocStore(config.shared_db_path)
     try:
         indexer = CalibreIndexer(library_paths, doc_store=doc_store)
@@ -216,8 +214,8 @@ def index_rss(ctx: click.Context, force: bool) -> None:
 
     config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "rss")
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     try:
         indexer = RSSIndexer(str(config.netnewswire_db_path))
         result = indexer.index(conn, config, force=force)
@@ -238,8 +236,8 @@ def index_project(ctx: click.Context, name: str, paths: tuple[Path, ...], force:
 
     config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, name)
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     doc_store = DocStore(config.shared_db_path)
     try:
         indexer = ProjectIndexer(name, list(paths), doc_store=doc_store)
@@ -276,8 +274,8 @@ def index_group(ctx: click.Context, name: str | None, force: bool, history: bool
         click.echo("Error: No code_groups configured in ~/.ragling/config.json.", err=True)
         sys.exit(1)
 
-    cli_group = ctx.obj["group"]
-    conn = _get_db(config, cli_group)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     try:
         for code_group_name, repo_paths in groups.items():
             _check_collection_enabled(config, code_group_name)
@@ -308,9 +306,8 @@ def index_all(ctx: click.Context, force: bool) -> None:
     from ragling.indexers.obsidian import ObsidianIndexer
     from ragling.indexers.rss_indexer import RSSIndexer
 
-    config = load_config(ctx.obj.get("config_path"))
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     doc_store = DocStore(config.shared_db_path)
 
     sources: list[tuple[str, BaseIndexer]] = []
@@ -502,9 +499,8 @@ def collections() -> None:
 @click.pass_context
 def collections_list(ctx: click.Context) -> None:
     """List all collections with document counts."""
-    config = load_config(ctx.obj.get("config_path"))
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     try:
         rows = conn.execute("""
             SELECT c.name, c.collection_type, c.created_at,
@@ -544,9 +540,8 @@ def collections_list(ctx: click.Context) -> None:
 @click.pass_context
 def collections_info(ctx: click.Context, name: str) -> None:
     """Show detailed info about a collection."""
-    config = load_config(ctx.obj.get("config_path"))
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     try:
         row = conn.execute("SELECT * FROM collections WHERE name = ?", (name,)).fetchone()
         if not row:
@@ -614,9 +609,8 @@ def collections_info(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
     """Delete a collection and all its data."""
-    config = load_config(ctx.obj.get("config_path"))
-    group = ctx.obj["group"]
-    conn = _get_db(config, group)
+    config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
+    conn = _get_db(config)
     try:
         row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
         if not row:
@@ -647,12 +641,10 @@ def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """Show overall RAG status and statistics."""
-    config = load_config(ctx.obj.get("config_path"))
-    group = ctx.obj["group"]
-    config.group_name = group
+    config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
 
     # Check the right database path based on group
-    if group != "default":
+    if config.group_name != "default":
         db_path = config.group_index_db_path
     else:
         db_path = config.db_path
@@ -661,7 +653,7 @@ def status(ctx: click.Context) -> None:
         click.echo("Database not found. Run 'ragling index' to get started.")
         return
 
-    conn = _get_db(config, group)
+    conn = _get_db(config)
     try:
         coll_count = conn.execute("SELECT COUNT(*) as cnt FROM collections").fetchone()["cnt"]
         doc_count = conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
@@ -717,28 +709,28 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     group = ctx.obj["group"]
     config = load_config(ctx.obj.get("config_path"))
 
-    # Create shared indexing status
+    # Create shared indexing status and queue
     indexing_status = IndexingStatus()
 
-    # Start startup sync and file watcher if home/global paths configured
+    import threading
+
+    from ragling.indexing_queue import IndexingQueue
+    from ragling.sync import run_startup_sync, submit_file_change
+    from ragling.watcher import start_watcher
+
+    indexing_queue = IndexingQueue(config, indexing_status)
+    indexing_queue.start()
+
+    sync_done = threading.Event()
+    run_startup_sync(config, indexing_queue, done_event=sync_done)
+
+    # Wire watcher to submit file changes through the queue
     if config.home or config.global_paths:
-        import threading
-
-        from ragling.sync import run_startup_sync
-        from ragling.watcher import start_watcher
-
-        sync_done = threading.Event()
-        run_startup_sync(config, indexing_status, done_event=sync_done)
 
         def _on_files_changed(files: list[Path]) -> None:
-            from ragling.sync import _index_file
-
             logger.info("File changes detected: %d files", len(files))
             for file_path in files:
-                try:
-                    _index_file(file_path, config)
-                except Exception:
-                    logger.exception("Error indexing changed file: %s", file_path)
+                submit_file_change(file_path, config, indexing_queue)
 
         def _start_watcher_after_sync() -> None:
             sync_done.wait()
@@ -752,21 +744,71 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         indexing_status=indexing_status,
     )
 
-    if sse and not no_stdio:
+    if sse:
         import anyio
 
-        click.echo(f"Starting MCP server (stdio + SSE on port {port}, group: {group})...")
-        server.settings.port = port
+        import uvicorn
 
-        async def _run_both() -> None:
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(server.run_sse_async)
-                tg.start_soon(server.run_stdio_async)
+        from ragling.tls import ensure_tls_certs
 
-        anyio.run(_run_both)
-    elif sse:
-        click.echo(f"Starting MCP server on port {port} (SSE only, group: {group})...")
+        tls_config = ensure_tls_certs()
         server.settings.port = port
-        server.run(transport="sse")
+        starlette_app = server.sse_app()
+
+        uv_config = uvicorn.Config(
+            starlette_app,
+            host=server.settings.host,
+            port=port,
+            log_level=server.settings.log_level.lower(),
+            ssl_certfile=str(tls_config.server_cert),
+            ssl_keyfile=str(tls_config.server_key),
+        )
+        uv_server = uvicorn.Server(uv_config)
+
+        if not no_stdio:
+            click.echo(f"Starting MCP server (stdio + HTTPS/SSE on port {port}, group: {group})...")
+
+            async def _run_both() -> None:
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(uv_server.serve)
+                    tg.start_soon(server.run_stdio_async)
+
+            anyio.run(_run_both)
+        else:
+            click.echo(f"Starting MCP server on port {port} (HTTPS/SSE only, group: {group})...")
+            anyio.run(uv_server.serve)
     elif not no_stdio:
         server.run(transport="stdio")
+
+
+@main.command("mcp-config")
+@click.option(
+    "--port",
+    type=int,
+    default=10001,
+    show_default=True,
+    help="Port the SSE server will listen on.",
+)
+@click.option(
+    "--tls-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="TLS certificate directory. Defaults to ~/.ragling/tls/.",
+)
+def mcp_config(port: int, tls_dir: Path | None) -> None:
+    """Output MCP client configuration JSON for connecting to the SSE server."""
+    import json
+
+    from ragling.tls import ensure_tls_certs
+
+    tls = ensure_tls_certs(tls_dir)
+
+    config_data = {
+        "mcpServers": {
+            "ragling": {
+                "url": f"https://localhost:{port}/sse",
+                "ca_cert": str(tls.ca_cert),
+            }
+        }
+    }
+    click.echo(json.dumps(config_data, indent=2))

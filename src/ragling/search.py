@@ -2,12 +2,15 @@
 
 import json
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
 from ragling.embeddings import get_embedding, serialize_float32
+from ragling.search_utils import escape_fts_query
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ class SearchResult:
     collection: str
     source_path: str
     source_type: str
+    stale: bool = False
 
 
 @dataclass
@@ -37,6 +41,55 @@ class SearchFilters:
     author: str | None = None
     visible_collection_ids: set[int] | None = None
 
+    def is_active(self) -> bool:
+        """Return True if any filter field is set."""
+        return bool(
+            self.collection
+            or self.source_type
+            or self.sender
+            or self.author
+            or self.date_from
+            or self.date_to
+            or self.visible_collection_ids is not None
+        )
+
+
+_FILTERED_OVERSAMPLING = 50
+_UNFILTERED_OVERSAMPLING = 3
+
+
+def _candidate_limit(top_k: int, filters: SearchFilters | None) -> int:
+    """Compute how many raw candidates to fetch from an index."""
+    has_filters = filters and filters.is_active()
+    return top_k * _FILTERED_OVERSAMPLING if has_filters else top_k * _UNFILTERED_OVERSAMPLING
+
+
+def _apply_filters(
+    conn: sqlite3.Connection,
+    candidates: list[tuple[int, float]],
+    top_k: int,
+    filters: SearchFilters | None,
+) -> list[tuple[int, float]]:
+    """Batch-load metadata and filter candidates in-memory.
+
+    If no filters are active, returns the first top_k candidates unchanged.
+    """
+    if not filters or not filters.is_active():
+        return candidates[:top_k]
+
+    all_ids = [doc_id for doc_id, _ in candidates]
+    meta = _batch_load_metadata(conn, all_ids)
+
+    filtered = []
+    for doc_id, score in candidates:
+        row_meta = meta.get(doc_id)
+        if row_meta and _check_filters(row_meta, filters):
+            filtered.append((doc_id, score))
+            if len(filtered) >= top_k:
+                break
+
+    return filtered
+
 
 def _vector_search(
     conn: sqlite3.Connection,
@@ -50,21 +103,6 @@ def _vector_search(
     """
     query_blob = serialize_float32(query_embedding)
 
-    # When filters are active, fetch a much larger candidate pool since most
-    # candidates will be filtered out (e.g., searching "flux" with --from
-    # needs to scan past hundreds of non-matching results).
-    has_filters = filters and (
-        filters.collection
-        or filters.source_type
-        or filters.sender
-        or filters.author
-        or filters.date_from
-        or filters.date_to
-        or filters.visible_collection_ids is not None
-    )
-    candidate_limit = top_k * 50 if has_filters else top_k * 3
-
-    # Get candidate document IDs from vec_documents
     rows = conn.execute(
         """
         SELECT document_id, distance
@@ -73,23 +111,11 @@ def _vector_search(
         ORDER BY distance
         LIMIT ?
         """,
-        (query_blob, candidate_limit),
+        (query_blob, _candidate_limit(top_k, filters)),
     ).fetchall()
 
-    if not has_filters:
-        return [(row["document_id"], row["distance"]) for row in rows[:top_k]]
-
-    # Apply filters by looking up document metadata
-    assert filters is not None  # guaranteed by has_filters check above
-    filtered = []
-    for row in rows:
-        doc_id = row["document_id"]
-        if _passes_filters(conn, doc_id, filters):
-            filtered.append((doc_id, row["distance"]))
-            if len(filtered) >= top_k:
-                break
-
-    return filtered
+    candidates = [(row["document_id"], row["distance"]) for row in rows]
+    return _apply_filters(conn, candidates, top_k, filters)
 
 
 def _fts_search(
@@ -102,21 +128,9 @@ def _fts_search(
 
     Returns list of (document_id, rank_score) tuples.
     """
-    # Escape FTS5 special characters in query
-    safe_query = _escape_fts_query(query_text)
+    safe_query = escape_fts_query(query_text)
     if not safe_query:
         return []
-
-    has_filters = filters and (
-        filters.collection
-        or filters.source_type
-        or filters.sender
-        or filters.author
-        or filters.date_from
-        or filters.date_to
-        or filters.visible_collection_ids is not None
-    )
-    candidate_limit = top_k * 50 if has_filters else top_k * 3
 
     try:
         rows = conn.execute(
@@ -127,65 +141,50 @@ def _fts_search(
             ORDER BY rank
             LIMIT ?
             """,
-            (safe_query, candidate_limit),
+            (safe_query, _candidate_limit(top_k, filters)),
         ).fetchall()
     except sqlite3.OperationalError as e:
         logger.warning("FTS query failed for '%s': %s", safe_query, e)
         return []
 
-    if not has_filters:
-        return [(row["rowid"], row["rank"]) for row in rows[:top_k]]
-
-    assert filters is not None  # guaranteed by has_filters check above
-    filtered = []
-    for row in rows:
-        doc_id = row["rowid"]
-        if _passes_filters(conn, doc_id, filters):
-            filtered.append((doc_id, row["rank"]))
-            if len(filtered) >= top_k:
-                break
-
-    return filtered
-
-
-def _escape_fts_query(query: str) -> str:
-    """Convert a natural language query into a safe FTS5 query.
-
-    Wraps each token in double quotes to treat them as literal terms.
-    """
-    tokens = query.split()
-    if not tokens:
-        return ""
-    # Quote each token to avoid FTS5 syntax errors from special chars
-    return " ".join(f'"{token}"' for token in tokens)
+    candidates = [(row["rowid"], row["rank"]) for row in rows]
+    return _apply_filters(conn, candidates, top_k, filters)
 
 
 _COLLECTION_TYPES = {"system", "project", "code"}
 
 
-def _passes_filters(conn: sqlite3.Connection, document_id: int, filters: SearchFilters) -> bool:
-    """Check if a document passes the given filters."""
-    row = conn.execute(
-        """
-        SELECT d.metadata, d.collection_id, c.name as collection_name,
-               c.collection_type, s.source_type, s.source_path
+def _batch_load_metadata(conn: sqlite3.Connection, doc_ids: list[int]) -> dict[int, sqlite3.Row]:
+    """Load metadata for multiple documents in a single query.
+
+    Returns a dict mapping document ID to its joined row data.
+    """
+    if not doc_ids:
+        return {}
+    placeholders = ",".join("?" * len(doc_ids))
+    rows = conn.execute(
+        f"""
+        SELECT d.id, d.content, d.title, d.metadata,
+               d.collection_id, c.name AS collection_name,
+               c.collection_type, s.source_type, s.source_path,
+               s.file_modified_at
         FROM documents d
         JOIN collections c ON d.collection_id = c.id
         JOIN sources s ON d.source_id = s.id
-        WHERE d.id = ?
+        WHERE d.id IN ({placeholders})
         """,
-        (document_id,),
-    ).fetchone()
+        doc_ids,
+    ).fetchall()
+    return {row["id"]: row for row in rows}
 
-    if not row:
-        return False
 
+def _check_filters(row: sqlite3.Row | dict, filters: SearchFilters) -> bool:
+    """Check if a metadata row passes the given filters (in-memory)."""
     if filters.visible_collection_ids is not None:
         if row["collection_id"] not in filters.visible_collection_ids:
             return False
 
     if filters.collection:
-        # If the filter matches a collection_type, filter by type
         if filters.collection in _COLLECTION_TYPES:
             if row["collection_type"] != filters.collection:
                 return False
@@ -209,13 +208,44 @@ def _passes_filters(conn: sqlite3.Connection, document_id: int, filters: SearchF
             if not any(author_lower in a.lower() for a in authors):
                 return False
 
-        doc_date = metadata.get("date", "")
-        if filters.date_from and doc_date and doc_date < filters.date_from:
-            return False
-        if filters.date_to and doc_date and doc_date > filters.date_to:
-            return False
+        if filters.date_from or filters.date_to:
+            doc_date = metadata.get("date", "")
+            if filters.date_from and doc_date and doc_date < filters.date_from:
+                return False
+            if filters.date_to and doc_date and doc_date > filters.date_to:
+                return False
 
     return True
+
+
+def _mark_stale_results(
+    results: list[SearchResult],
+    file_modified_at_map: dict[str, str | None],
+) -> None:
+    """Mark results whose source files have changed or been deleted.
+
+    Args:
+        results: Search results to check (mutated in-place).
+        file_modified_at_map: Map from source_path to file_modified_at timestamp.
+    """
+    for result in results:
+        try:
+            st = os.stat(result.source_path)
+        except (FileNotFoundError, OSError):
+            result.stale = True
+            continue
+
+        indexed_at_str = file_modified_at_map.get(result.source_path)
+        if not indexed_at_str:
+            continue  # no recorded mtime — can't determine staleness
+
+        try:
+            indexed_mtime = datetime.fromisoformat(indexed_at_str).replace(tzinfo=timezone.utc)
+            file_mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
+            if file_mtime > indexed_mtime:
+                result.stale = True
+        except (ValueError, OSError):
+            pass
 
 
 def rrf_merge(
@@ -299,21 +329,14 @@ def search(
         fts_weight=config.search_defaults.fts_weight,
     )
 
-    results: list[SearchResult] = []
-    for doc_id, score in merged[:top_k]:
-        row = conn.execute(
-            """
-            SELECT d.content, d.title, d.metadata,
-                   c.name as collection_name,
-                   s.source_path, s.source_type
-            FROM documents d
-            JOIN collections c ON d.collection_id = c.id
-            JOIN sources s ON d.source_id = s.id
-            WHERE d.id = ?
-            """,
-            (doc_id,),
-        ).fetchone()
+    top_merged = merged[:top_k]
+    result_ids = [doc_id for doc_id, _ in top_merged]
+    meta = _batch_load_metadata(conn, result_ids)
 
+    results: list[SearchResult] = []
+    file_modified_at_map: dict[str, str | None] = {}
+    for doc_id, score in top_merged:
+        row = meta.get(doc_id)
         if row:
             metadata = json.loads(row["metadata"]) if row["metadata"] else {}
             results.append(
@@ -327,6 +350,9 @@ def search(
                     source_type=row["source_type"],
                 )
             )
+            file_modified_at_map[row["source_path"]] = row["file_modified_at"]
+
+    _mark_stale_results(results, file_modified_at_map)
 
     return results
 
@@ -370,8 +396,7 @@ def perform_search(
     Raises:
         ragling.embeddings.OllamaConnectionError: If Ollama is not reachable.
     """
-    config = config or load_config()
-    config.group_name = group_name
+    config = (config or load_config()).with_overrides(group_name=group_name)
     conn = get_connection(config)
     init_db(conn, config)
 

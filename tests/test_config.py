@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from ragling.config import Config, load_config
 
 
@@ -161,3 +163,41 @@ class TestUserConfig:
         config = load_config(config_file)
         mapping_keys = list(config.users["test"].path_mappings.keys())
         assert not any("~" in k for k in mapping_keys)
+
+
+class TestConfigImmutability:
+    """Config should be frozen to prevent accidental mutation."""
+
+    def test_config_is_frozen(self) -> None:
+        config = Config()
+        with pytest.raises(AttributeError):
+            config.group_name = "mutated"  # type: ignore[misc]
+
+    def test_with_overrides_returns_new_instance(self) -> None:
+        config = Config(group_name="original")
+        new_config = config.with_overrides(group_name="changed")
+        assert new_config.group_name == "changed"
+        assert config.group_name == "original"
+        assert new_config is not config
+
+    def test_with_overrides_preserves_other_fields(self) -> None:
+        config = Config(group_name="original", embedding_model="test-model")
+        new_config = config.with_overrides(group_name="changed")
+        assert new_config.embedding_model == "test-model"
+
+    def test_with_overrides_multiple_fields(self) -> None:
+        config = Config()
+        new_config = config.with_overrides(group_name="work", embedding_dimensions=512)
+        assert new_config.group_name == "work"
+        assert new_config.embedding_dimensions == 512
+
+    def test_with_overrides_no_args_returns_copy(self) -> None:
+        config = Config()
+        new_config = config.with_overrides()
+        assert new_config == config
+        assert new_config is not config
+
+    def test_with_overrides_rejects_invalid_field(self) -> None:
+        config = Config()
+        with pytest.raises(TypeError):
+            config.with_overrides(nonexistent_field="value")

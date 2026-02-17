@@ -1,9 +1,12 @@
 """Configuration loading and validation for ragling."""
 
+from __future__ import annotations
+
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +36,12 @@ class UserConfig:
     path_mappings: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
-    """Application configuration."""
+    """Application configuration (immutable).
+
+    Use ``with_overrides()`` to derive a new Config with changed fields.
+    """
 
     db_path: Path = field(default_factory=lambda: DEFAULT_DB_PATH)
     embedding_model: str = "bge-m3"
@@ -89,6 +95,17 @@ class Config:
             True if the collection is not in the disabled_collections set.
         """
         return name not in self.disabled_collections
+
+    def with_overrides(self, **kwargs: Any) -> Config:
+        """Return a new Config with the specified fields replaced.
+
+        Args:
+            **kwargs: Field names and new values.
+
+        Returns:
+            A new Config instance with the overridden fields.
+        """
+        return replace(self, **kwargs)
 
 
 def _expand_path(p: str | Path) -> Path:

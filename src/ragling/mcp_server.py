@@ -239,6 +239,10 @@ def create_server(
     # use this instead of calling load_config() each time.
     server_config = config
 
+    def _get_config() -> Config:
+        """Return an effective Config with the correct group_name."""
+        return (server_config or load_config()).with_overrides(group_name=group_name)
+
     mcp_kwargs: dict[str, Any] = {
         "instructions": "Local RAG system for searching personal knowledge.",
     }
@@ -403,8 +407,7 @@ def create_server(
         except OllamaConnectionError as e:
             return _build_search_response([{"error": str(e)}], indexing_status)
 
-        cfg = server_config or load_config()
-        obsidian_vaults = cfg.obsidian_vaults
+        obsidian_vaults = (server_config or load_config()).obsidian_vaults
 
         result_dicts = [
             {
@@ -438,8 +441,7 @@ def create_server(
 
         Collections of type 'code' represent code groups that may contain multiple git repos.
         """
-        config = server_config or load_config()
-        config.group_name = group_name
+        config = _get_config()
         conn = get_connection(config)
         init_db(conn, config)
 
@@ -493,8 +495,7 @@ def create_server(
         from ragling.indexers.project import ProjectIndexer
         from ragling.indexers.rss_indexer import RSSIndexer
 
-        config = server_config or load_config()
-        config.group_name = group_name
+        config = _get_config()
         conn = get_connection(config)
         init_db(conn, config)
         doc_store = DocStore(config.shared_db_path)
@@ -574,8 +575,7 @@ def create_server(
         """
         from ragling.doc_store import DocStore
 
-        config = server_config or load_config()
-        config.group_name = group_name
+        config = _get_config()
         store = DocStore(config.shared_db_path)
         try:
             return store.list_sources()
@@ -589,8 +589,7 @@ def create_server(
         Args:
             collection: The collection name.
         """
-        config = server_config or load_config()
-        config.group_name = group_name
+        config = _get_config()
         conn = get_connection(config)
         init_db(conn, config)
 

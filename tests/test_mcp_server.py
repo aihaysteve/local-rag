@@ -91,9 +91,13 @@ class TestBuildSearchResponse:
         from ragling.mcp_server import _build_search_response
 
         status = IndexingStatus()
-        status.set_remaining(5)
+        status.increment("obsidian", 5)
         response = _build_search_response([], status)
-        assert response["indexing"] == {"active": True, "remaining": 5}
+        assert response["indexing"] == {
+            "active": True,
+            "total_remaining": 5,
+            "collections": {"obsidian": 5},
+        }
 
     def test_indexing_null_when_idle(self) -> None:
         from ragling.indexing_status import IndexingStatus

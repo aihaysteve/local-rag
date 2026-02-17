@@ -1,28 +1,75 @@
-"""Startup sync: discover and index new/changed/deleted content.
+"""Startup sync: discover and submit indexing jobs for all configured sources.
 
-Scans configured directories (user home dirs and global paths) at startup
-and indexes files that are new or changed since the last sync.
+Scans configured directories and system sources at startup, submitting
+IndexJob items to the queue. The queue worker handles actual indexing.
 """
 
+from __future__ import annotations
+
 import logging
-import sqlite3
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ragling.config import Config
-from ragling.indexing_status import IndexingStatus
+from ragling.indexing_queue import IndexJob
+
+if TYPE_CHECKING:
+    from ragling.indexing_queue import IndexingQueue
 
 logger = logging.getLogger(__name__)
 
 
+def _resolve_path(file_path: Path, config: Config) -> tuple[str | None, Path | None]:
+    """Resolve a file path to its collection name and containing directory.
+
+    Checks user directories under config.home first, then global paths.
+
+    Args:
+        file_path: Path to the file.
+        config: Application configuration.
+
+    Returns:
+        Tuple of (collection_name, containing_dir). Both are None if the
+        file doesn't belong to any known directory.
+    """
+    resolved = file_path.resolve()
+
+    # Check user directories under home
+    if config.home is not None:
+        home_resolved = config.home.resolve()
+        if resolved.is_relative_to(home_resolved):
+            relative = resolved.relative_to(home_resolved)
+            parts = relative.parts
+            if parts:
+                username = parts[0]
+                if username in config.users:
+                    return username, home_resolved / username
+
+    # Check global paths
+    for global_path in config.global_paths:
+        global_resolved = global_path.resolve()
+        if resolved.is_relative_to(global_resolved):
+            return "global", global_resolved
+
+    # Check obsidian vaults
+    for vault in config.obsidian_vaults:
+        vault_resolved = vault.resolve()
+        if resolved.is_relative_to(vault_resolved):
+            return "obsidian", vault_resolved
+
+    # Check code groups
+    for group_name, repo_paths in config.code_groups.items():
+        for repo_path in repo_paths:
+            repo_resolved = repo_path.resolve()
+            if resolved.is_relative_to(repo_resolved):
+                return group_name, repo_resolved
+
+    return None, None
+
+
 def map_file_to_collection(file_path: Path, config: Config) -> str | None:
     """Determine which collection a file belongs to based on its path.
-
-    Maps files to collections:
-    - Files under config.home/<username>/ map to that username (if the
-      username exists in config.users)
-    - Files under a global_path map to "global"
-    - Files that don't match any known directory return None
 
     Args:
         file_path: Path to the file.
@@ -32,166 +79,25 @@ def map_file_to_collection(file_path: Path, config: Config) -> str | None:
         Collection name string, or None if the file doesn't belong
         to any known directory.
     """
-    resolved = file_path.resolve() if not file_path.is_absolute() else file_path
-
-    # Check user directories under home
-    if config.home is not None:
-        home_resolved = config.home.resolve()
-        try:
-            relative = resolved.relative_to(home_resolved)
-        except ValueError:
-            pass
-        else:
-            # The first component of the relative path is the username
-            parts = relative.parts
-            if parts:
-                username = parts[0]
-                if username in config.users:
-                    return username
-
-    # Check global paths
-    for global_path in config.global_paths:
-        global_resolved = global_path.resolve()
-        try:
-            resolved.relative_to(global_resolved)
-        except ValueError:
-            continue
-        else:
-            return "global"
-
-    return None
-
-
-def _index_directory(
-    directory: Path,
-    collection_name: str,
-    config: Config,
-    conn: sqlite3.Connection,
-) -> None:
-    """Index a directory using the appropriate indexer based on content type.
-
-    Uses auto-detection to route:
-    - .git/ -> GitRepoIndexer (code + commit history)
-    - .obsidian/ -> ObsidianIndexer (frontmatter, wikilinks, tags)
-    - neither -> ProjectIndexer (routes by file extension)
-
-    Args:
-        directory: Path to the directory to index.
-        collection_name: Collection name to index into.
-        config: Application configuration.
-        conn: Database connection.
-    """
-    from ragling.indexers.auto_indexer import detect_directory_type
-    from ragling.indexers.base import IndexResult
-
-    dir_type = detect_directory_type(directory)
-    result: IndexResult
-
-    if dir_type == "code":
-        from ragling.indexers.git_indexer import GitRepoIndexer
-
-        git_indexer = GitRepoIndexer(directory, collection_name=collection_name)
-        result = git_indexer.index(conn, config, index_history=True)
-    elif dir_type == "obsidian":
-        from ragling.doc_store import DocStore
-        from ragling.indexers.obsidian import ObsidianIndexer
-
-        doc_store = DocStore(config.shared_db_path)
-        try:
-            obsidian_indexer = ObsidianIndexer(
-                [directory], config.obsidian_exclude_folders, doc_store=doc_store
-            )
-            result = obsidian_indexer.index(conn, config)
-        finally:
-            doc_store.close()
-    else:
-        from ragling.doc_store import DocStore
-        from ragling.indexers.project import ProjectIndexer
-
-        doc_store = DocStore(config.shared_db_path)
-        try:
-            project_indexer = ProjectIndexer(collection_name, [directory], doc_store=doc_store)
-            result = project_indexer.index(conn, config)
-        finally:
-            doc_store.close()
-
-    logger.info(
-        "Indexed %s (%s): %d indexed, %d skipped, %d errors",
-        directory,
-        dir_type,
-        result.indexed,
-        result.skipped,
-        result.errors,
-    )
-
-
-def _index_file(file_path: Path, config: Config) -> None:
-    """Index or re-index a single file, or prune it if deleted.
-
-    If the file exists on disk, re-indexes it using the project indexer.
-    If the file has been deleted, removes its source and vectors from the DB.
-
-    Args:
-        file_path: Path to the changed or deleted file.
-        config: Application configuration.
-    """
-    collection = map_file_to_collection(file_path, config)
-    if collection is None:
-        logger.warning("Cannot map file to collection: %s", file_path)
-        return
-
-    if not file_path.exists():
-        # File was deleted -- prune from DB
-        from ragling.db import get_connection, get_or_create_collection, init_db
-        from ragling.indexers.base import delete_source
-
-        conn = get_connection(config)
-        init_db(conn, config)
-        try:
-            collection_id = get_or_create_collection(conn, collection, "project")
-            delete_source(conn, collection_id, str(file_path.resolve()))
-        except Exception:
-            logger.exception("Error pruning deleted file: %s", file_path)
-        finally:
-            conn.close()
-        return
-
-    # File exists -- re-index
-    from ragling.db import get_connection, init_db
-    from ragling.doc_store import DocStore
-    from ragling.indexers.project import ProjectIndexer
-
-    conn = get_connection(config)
-    init_db(conn, config)
-    doc_store = DocStore(config.shared_db_path)
-
-    try:
-        indexer = ProjectIndexer(collection, [file_path.parent], doc_store=doc_store)
-        indexer.index(conn, config)
-    except Exception:
-        logger.exception("Error indexing file: %s", file_path)
-    finally:
-        doc_store.close()
-        conn.close()
+    collection, _ = _resolve_path(file_path, config)
+    return collection
 
 
 def run_startup_sync(
     config: Config,
-    status: IndexingStatus,
+    queue: IndexingQueue,
     done_event: threading.Event | None = None,
 ) -> threading.Thread:
-    """Spawn a daemon thread that indexes new/changed files at startup.
+    """Spawn a daemon thread that discovers all sources and submits IndexJobs.
 
-    Discovers all files, compares hashes against the database, and
-    indexes any that are new or changed. Updates the IndexingStatus
-    tracker as it progresses.
+    Enumerates home directories, global paths, obsidian vaults, code groups,
+    and system collections, then submits IndexJob items to the queue.
 
     Args:
         config: Application configuration.
-        status: Indexing status tracker for progress reporting.
-        done_event: Optional threading.Event that is set when sync completes.
-            Useful for coordinating startup ordering (e.g., watcher waits
-            for sync to finish before starting).
+        queue: The indexing queue to submit jobs to.
+        done_event: Optional threading.Event that is set when enumeration
+            completes. Useful for coordinating startup ordering.
 
     Returns:
         The daemon thread that was started.
@@ -199,50 +105,157 @@ def run_startup_sync(
 
     def _sync() -> None:
         try:
-            from ragling.db import get_connection, init_db
-            from ragling.indexers.auto_indexer import collect_indexable_directories
+            from ragling.indexers.auto_indexer import (
+                collect_indexable_directories,
+                detect_directory_type,
+            )
 
-            conn = get_connection(config)
-            init_db(conn, config)
-
-            # Collect directories to index
-            dirs_to_index: list[tuple[Path, str]] = []
-
-            # User directories under home
+            # --- Home user directories ---
             if config.home and config.home.is_dir():
                 usernames = list(config.users.keys())
                 for user_dir in collect_indexable_directories(config.home, usernames):
-                    dirs_to_index.append((user_dir, user_dir.name))
+                    if not config.is_collection_enabled(user_dir.name):
+                        continue
+                    dir_type = detect_directory_type(user_dir)
+                    queue.submit(
+                        IndexJob(
+                            job_type="directory",
+                            path=user_dir,
+                            collection_name=user_dir.name,
+                            indexer_type=dir_type,
+                        )
+                    )
 
-            # Global paths
-            for global_path in config.global_paths:
-                if global_path.is_dir():
-                    dirs_to_index.append((global_path, "global"))
+            # --- Global paths ---
+            if config.is_collection_enabled("global"):
+                for global_path in config.global_paths:
+                    if not global_path.is_dir():
+                        continue
+                    dir_type = detect_directory_type(global_path)
+                    queue.submit(
+                        IndexJob(
+                            job_type="directory",
+                            path=global_path,
+                            collection_name="global",
+                            indexer_type=dir_type,
+                        )
+                    )
 
-            if not dirs_to_index:
-                logger.info("Startup sync: no directories to index")
-                return
+            # --- Obsidian vaults ---
+            if config.is_collection_enabled("obsidian"):
+                for vault in config.obsidian_vaults:
+                    if not vault.is_dir():
+                        continue
+                    queue.submit(
+                        IndexJob(
+                            job_type="directory",
+                            path=vault,
+                            collection_name="obsidian",
+                            indexer_type="obsidian",
+                        )
+                    )
 
-            status.set_remaining(len(dirs_to_index))
-            logger.info("Startup sync: %d directories to index", len(dirs_to_index))
+            # --- Code groups ---
+            for group_name, repo_paths in config.code_groups.items():
+                if not config.is_collection_enabled(group_name):
+                    continue
+                for repo_path in repo_paths:
+                    queue.submit(
+                        IndexJob(
+                            job_type="directory",
+                            path=repo_path,
+                            collection_name=group_name,
+                            indexer_type="code",
+                        )
+                    )
 
-            try:
-                for directory, collection_name in dirs_to_index:
-                    try:
-                        _index_directory(directory, collection_name, config, conn)
-                    except Exception:
-                        logger.exception("Startup sync: error indexing %s", directory)
-                    finally:
-                        status.decrement()
-            finally:
-                conn.close()
+            # --- System collections ---
+            if config.is_collection_enabled("email"):
+                queue.submit(
+                    IndexJob(
+                        job_type="system_collection",
+                        path=config.emclient_db_path,
+                        collection_name="email",
+                        indexer_type="email",
+                    )
+                )
+
+            if config.is_collection_enabled("calibre"):
+                for lib in config.calibre_libraries:
+                    queue.submit(
+                        IndexJob(
+                            job_type="system_collection",
+                            path=lib,
+                            collection_name="calibre",
+                            indexer_type="calibre",
+                        )
+                    )
+
+            if config.is_collection_enabled("rss"):
+                queue.submit(
+                    IndexJob(
+                        job_type="system_collection",
+                        path=config.netnewswire_db_path,
+                        collection_name="rss",
+                        indexer_type="rss",
+                    )
+                )
+
+            logger.info("Startup sync: all jobs submitted to queue")
         except Exception:
             logger.exception("Startup sync: fatal error")
         finally:
-            status.finish()
             if done_event is not None:
                 done_event.set()
 
     thread = threading.Thread(target=_sync, name="startup-sync", daemon=True)
     thread.start()
     return thread
+
+
+def submit_file_change(
+    file_path: Path,
+    config: Config,
+    queue: IndexingQueue,
+) -> None:
+    """Submit an IndexJob for a changed or deleted file.
+
+    If the file exists on disk, submits a directory-level job using
+    auto-detection. If the file has been deleted, submits a prune job.
+
+    Args:
+        file_path: Path to the changed or deleted file.
+        config: Application configuration.
+        queue: The indexing queue to submit jobs to.
+    """
+    collection, containing_dir = _resolve_path(file_path, config)
+    if collection is None:
+        logger.warning("Cannot map file to collection: %s", file_path)
+        return
+    if not config.is_collection_enabled(collection):
+        return
+
+    if not file_path.exists():
+        queue.submit(
+            IndexJob(
+                job_type="file_deleted",
+                path=file_path,
+                collection_name=collection,
+                indexer_type="prune",
+            )
+        )
+        return
+
+    # File exists — detect indexer type by walking up directory tree
+    from ragling.indexers.auto_indexer import detect_indexer_type_for_file
+
+    indexer_type = detect_indexer_type_for_file(file_path)
+    target_dir = containing_dir or file_path.parent
+    queue.submit(
+        IndexJob(
+            job_type="file",
+            path=target_dir,
+            collection_name=collection,
+            indexer_type=indexer_type,
+        )
+    )

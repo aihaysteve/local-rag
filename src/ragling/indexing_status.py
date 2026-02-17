@@ -1,42 +1,72 @@
-"""Thread-safe indexing status tracker."""
+"""Thread-safe indexing status tracker with per-collection file counts."""
 
 import threading
 from typing import Any
 
 
 class IndexingStatus:
-    """Tracks remaining files to index. Thread-safe."""
+    """Tracks remaining files to index, broken down by collection.
+
+    Thread-safe. All public methods acquire the internal lock.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._remaining = 0
+        self._counts: dict[str, int] = {}
 
-    def set_remaining(self, count: int) -> None:
-        """Set the number of files remaining to index."""
-        with self._lock:
-            self._remaining = count
+    def increment(self, collection: str, count: int = 1) -> None:
+        """Increment remaining count for a collection.
 
-    def decrement(self) -> None:
-        """Decrement remaining count by one."""
+        Args:
+            collection: Collection name.
+            count: Number of files to add (default 1).
+        """
         with self._lock:
-            self._remaining = max(0, self._remaining - 1)
+            self._counts[collection] = self._counts.get(collection, 0) + count
+
+    def decrement(self, collection: str, count: int = 1) -> None:
+        """Decrement remaining count for a collection.
+
+        Clamps at zero. Removes the collection entry when it reaches zero.
+
+        Args:
+            collection: Collection name.
+            count: Number of files to subtract (default 1).
+        """
+        with self._lock:
+            current = self._counts.get(collection, 0)
+            new_val = max(0, current - count)
+            if new_val == 0:
+                self._counts.pop(collection, None)
+            else:
+                self._counts[collection] = new_val
 
     def finish(self) -> None:
-        """Mark indexing as complete."""
+        """Mark all indexing as complete."""
         with self._lock:
-            self._remaining = 0
+            self._counts.clear()
 
     def is_active(self) -> bool:
-        """Check if indexing is in progress."""
+        """Check if any indexing is in progress."""
         with self._lock:
-            return self._remaining > 0
+            return bool(self._counts)
 
     def to_dict(self) -> dict[str, Any] | None:
         """Return status dict for inclusion in search responses.
 
-        Returns None when idle (omit from response).
+        Returns None when idle (omit from response). When active, returns::
+
+            {
+                "active": True,
+                "total_remaining": <int>,
+                "collections": {"obsidian": 3, "email": 2, ...}
+            }
         """
         with self._lock:
-            if self._remaining > 0:
-                return {"active": True, "remaining": self._remaining}
-            return None
+            if not self._counts:
+                return None
+            return {
+                "active": True,
+                "total_remaining": sum(self._counts.values()),
+                "collections": dict(self._counts),
+            }
