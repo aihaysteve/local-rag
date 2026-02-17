@@ -16,7 +16,13 @@ from ragling.chunker import Chunk, _split_into_windows, _word_count
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.embeddings import get_embeddings
-from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
+from ragling.indexers.base import (
+    BaseIndexer,
+    IndexResult,
+    delete_source,
+    file_hash,
+    upsert_source_with_chunks,
+)
 from ragling.parsers.code import (
     CodeDocument,
     get_language,
@@ -527,7 +533,7 @@ class GitRepoIndexer(BaseIndexer):
         # Clean up deleted files from DB
         for rel_path in files_to_delete:
             source_path = str(self.repo_path / rel_path)
-            self._delete_source(conn, collection_id, source_path)
+            delete_source(conn, collection_id, source_path)
 
         # Filter to supported code files
         indexable = [f for f in files_to_index if self._should_index(f)]
@@ -594,36 +600,6 @@ class GitRepoIndexer(BaseIndexer):
             return False
         path = Path(relative_path)
         return is_code_file(path)
-
-    def _delete_source(
-        self, conn: sqlite3.Connection, collection_id: int, source_path: str
-    ) -> None:
-        """Delete a source and its documents/embeddings from the database."""
-        existing = conn.execute(
-            "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-            (collection_id, source_path),
-        ).fetchone()
-
-        if not existing:
-            return
-
-        source_id = existing["id"]
-        old_doc_ids = [
-            r["id"]
-            for r in conn.execute(
-                "SELECT id FROM documents WHERE source_id = ?", (source_id,)
-            ).fetchall()
-        ]
-        if old_doc_ids:
-            placeholders = ",".join("?" * len(old_doc_ids))
-            conn.execute(
-                f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
-                old_doc_ids,
-            )
-        conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
-        conn.commit()
-        logger.debug("Deleted source: %s", source_path)
 
     def _index_file(
         self,
