@@ -97,7 +97,7 @@ cd ~/ragling
 uv run ragling serve --sse --port 10001 --config ~/.ragling/config.json
 ```
 
-SSE always uses HTTPS with auto-generated self-signed certificates (stored in `~/.ragling/tls/`). Certs are created on first run.
+SSE always uses HTTPS with auto-generated self-signed certificates (stored in `~/.ragling/tls/`). TLS is mandatory because SSE uses Bearer token authentication — tokens must not be transmitted in plaintext. Certs are created on first run.
 
 Verify:
 ```bash

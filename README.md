@@ -284,7 +284,7 @@ ragling supports SSE transport for scenarios where multiple users or AI agents s
 
 ### Starting with SSE
 
-SSE always uses HTTPS with auto-generated self-signed certificates (stored in `~/.ragling/tls/`).
+SSE always uses HTTPS with auto-generated self-signed certificates (stored in `~/.ragling/tls/`). TLS is mandatory because SSE uses Bearer token authentication — tokens must not be transmitted in plaintext.
 
 ```bash
 ragling serve --sse --no-stdio --port 10001
