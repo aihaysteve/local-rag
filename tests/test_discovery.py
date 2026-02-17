@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from ragling.indexers.discovery import DiscoveredSource, DiscoveryResult, discover_sources
+from ragling.indexers.discovery import (
+    DiscoveredSource,
+    DiscoveryResult,
+    discover_sources,
+    reconcile_sub_collections,
+)
 
 
 class TestDataclasses:
@@ -19,6 +24,106 @@ class TestDataclasses:
         assert result.vaults == []
         assert result.repos == []
         assert result.leftover_paths == []
+
+
+class TestPrecedence:
+    def test_obsidian_takes_precedence_over_git(self, tmp_path: Path) -> None:
+        """When a dir has both .obsidian and .git, it's classified as obsidian."""
+        both = tmp_path / "both"
+        both.mkdir()
+        (both / ".obsidian").mkdir()
+        (both / ".git").mkdir()
+
+        result = discover_sources(tmp_path)
+        assert len(result.vaults) == 1
+        assert len(result.repos) == 0
+        assert result.vaults[0].source_type == "obsidian"
+
+    def test_mixed_siblings(self, tmp_path: Path) -> None:
+        """Sibling dirs with different markers are correctly classified."""
+        vault = tmp_path / "notes"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+
+        repo = tmp_path / "code"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        result = discover_sources(tmp_path)
+        assert len(result.vaults) == 1
+        assert len(result.repos) == 1
+        assert result.vaults[0].relative_name == "notes"
+        assert result.repos[0].relative_name == "code"
+
+
+class TestNesting:
+    def test_nested_git_inside_vault(self, tmp_path: Path) -> None:
+        """A .git repo nested inside an .obsidian vault gets its own discovery."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        nested_repo = vault / "projects" / "my-repo"
+        nested_repo.mkdir(parents=True)
+        (nested_repo / ".git").mkdir()
+
+        result = discover_sources(tmp_path)
+        assert len(result.vaults) == 1
+        assert len(result.repos) == 1
+        assert result.repos[0].relative_name == "vault/projects/my-repo"
+
+    def test_deeply_nested_vault(self, tmp_path: Path) -> None:
+        """Vault found several levels deep."""
+        deep = tmp_path / "a" / "b" / "c"
+        deep.mkdir(parents=True)
+        (deep / ".obsidian").mkdir()
+
+        result = discover_sources(tmp_path)
+        assert len(result.vaults) == 1
+        assert result.vaults[0].relative_name == "a/b/c"
+
+
+class TestLeftoverFiles:
+    def test_files_outside_markers_are_leftovers(self, tmp_path: Path) -> None:
+        """Files not inside any discovered subtree are returned as leftovers."""
+        vault = tmp_path / "notes"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        (vault / "note.md").write_text("hello")
+
+        loose_pdf = tmp_path / "report.pdf"
+        loose_pdf.write_bytes(b"%PDF fake")
+        loose_txt = tmp_path / "readme.txt"
+        loose_txt.write_text("hello")
+
+        result = discover_sources(tmp_path)
+        leftover_names = {p.name for p in result.leftover_paths}
+        assert "report.pdf" in leftover_names
+        assert "readme.txt" in leftover_names
+        assert "note.md" not in leftover_names
+
+    def test_no_markers_all_files_are_leftovers(self, tmp_path: Path) -> None:
+        """When no markers found, all files are leftovers."""
+        (tmp_path / "a.txt").write_text("a")
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "b.md").write_text("b")
+
+        result = discover_sources(tmp_path)
+        assert len(result.leftover_paths) == 2
+
+    def test_files_in_subdir_of_non_marker_are_leftovers(self, tmp_path: Path) -> None:
+        """Files in plain subdirs (no marker) are leftovers."""
+        repo = tmp_path / "code"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "spec.pdf").write_bytes(b"%PDF fake")
+
+        result = discover_sources(tmp_path)
+        leftover_names = {p.name for p in result.leftover_paths}
+        assert "spec.pdf" in leftover_names
 
 
 class TestBasicDetection:
@@ -54,3 +159,74 @@ class TestBasicDetection:
         result = discover_sources(tmp_path)
         assert result.vaults == []
         assert result.repos == []
+
+
+class TestReconciliation:
+    def _setup_db(self, tmp_path: Path) -> tuple:
+        """Helper to create a test database connection."""
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        conn = get_connection(config)
+        init_db(conn, config)
+        return conn, config
+
+    def test_stale_sub_collection_deleted(self, tmp_path: Path) -> None:
+        """Sub-collection whose marker no longer exists gets deleted."""
+        from ragling.db import get_or_create_collection
+
+        conn, config = self._setup_db(tmp_path)
+
+        # Create a sub-collection as if a previous run found a vault
+        get_or_create_collection(conn, "myproject/old-vault", "system")
+
+        # Current discovery finds no vaults (marker removed)
+        result = DiscoveryResult(vaults=[], repos=[], leftover_paths=[])
+
+        deleted = reconcile_sub_collections(conn, "myproject", result)
+        assert deleted == ["myproject/old-vault"]
+
+        # Verify it's gone from DB
+        row = conn.execute(
+            "SELECT id FROM collections WHERE name = ?", ("myproject/old-vault",)
+        ).fetchone()
+        assert row is None
+        conn.close()
+
+    def test_current_sub_collections_preserved(self, tmp_path: Path) -> None:
+        """Sub-collections that still have markers are not deleted."""
+        from ragling.db import get_or_create_collection
+
+        conn, config = self._setup_db(tmp_path)
+
+        get_or_create_collection(conn, "myproject/vault", "system")
+
+        vault = DiscoveredSource(
+            path=Path("/tmp/vault"), relative_name="vault", source_type="obsidian"
+        )
+        result = DiscoveryResult(vaults=[vault], repos=[], leftover_paths=[])
+
+        deleted = reconcile_sub_collections(conn, "myproject", result)
+        assert deleted == []
+
+        row = conn.execute(
+            "SELECT id FROM collections WHERE name = ?", ("myproject/vault",)
+        ).fetchone()
+        assert row is not None
+        conn.close()
+
+    def test_parent_collection_not_touched(self, tmp_path: Path) -> None:
+        """The parent project collection is never deleted by reconciliation."""
+        from ragling.db import get_or_create_collection
+
+        conn, config = self._setup_db(tmp_path)
+        get_or_create_collection(conn, "myproject", "project")
+
+        result = DiscoveryResult(vaults=[], repos=[], leftover_paths=[])
+        deleted = reconcile_sub_collections(conn, "myproject", result)
+        assert "myproject" not in deleted
+
+        row = conn.execute("SELECT id FROM collections WHERE name = ?", ("myproject",)).fetchone()
+        assert row is not None
+        conn.close()

@@ -5,8 +5,11 @@ classifying each discovery for delegation to the appropriate indexer.
 """
 
 import logging
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from ragling.db import delete_collection
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +39,13 @@ def discover_sources(root_path: Path) -> DiscoveryResult:
     as vaults; directories containing .git (but not .obsidian) are classified as
     repos. .obsidian takes precedence when both exist.
 
+    Files not inside any discovered subtree are returned as leftovers.
+
     Args:
         root_path: The root directory to scan.
 
     Returns:
-        DiscoveryResult with classified discoveries.
+        DiscoveryResult with classified discoveries and leftover files.
     """
     root_path = root_path.resolve()
     vaults: list[DiscoveredSource] = []
@@ -49,7 +54,50 @@ def discover_sources(root_path: Path) -> DiscoveryResult:
 
     _scan_recursive(root_path, root_path, vaults, repos, claimed)
 
-    return DiscoveryResult(vaults=vaults, repos=repos, leftover_paths=[])
+    leftover_paths = _collect_leftovers(root_path, claimed)
+
+    return DiscoveryResult(vaults=vaults, repos=repos, leftover_paths=leftover_paths)
+
+
+def _is_under_claimed(path: Path, claimed: set[Path]) -> bool:
+    """Check if a path is inside any claimed directory.
+
+    Args:
+        path: File path to check.
+        claimed: Set of claimed directory paths.
+
+    Returns:
+        True if path is inside (or equal to) any claimed directory.
+    """
+    resolved = path.resolve()
+    for c in claimed:
+        try:
+            resolved.relative_to(c)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _collect_leftovers(root: Path, claimed: set[Path]) -> list[Path]:
+    """Walk root and collect files not inside any claimed subtree.
+
+    Args:
+        root: Root directory to walk.
+        claimed: Set of claimed directory paths.
+
+    Returns:
+        Sorted list of leftover file paths.
+    """
+    leftovers: list[Path] = []
+    for item in sorted(root.rglob("*")):
+        if not item.is_file():
+            continue
+        if item.name.startswith("."):
+            continue
+        if not _is_under_claimed(item, claimed):
+            leftovers.append(item)
+    return leftovers
 
 
 def _scan_recursive(
@@ -106,3 +154,47 @@ def _scan_recursive(
     for entry in sorted(entries):
         if entry.is_dir() and not entry.name.startswith("."):
             _scan_recursive(entry, root, vaults, repos, claimed)
+
+
+def reconcile_sub_collections(
+    conn: sqlite3.Connection,
+    project_name: str,
+    discovery: DiscoveryResult,
+) -> list[str]:
+    """Delete sub-collections whose markers no longer exist.
+
+    Compares existing sub-collections (matching '{project_name}/%') against
+    current discovery results. Any sub-collection not in the current discovery
+    is deleted.
+
+    Args:
+        conn: SQLite database connection.
+        project_name: The parent project name.
+        discovery: Current discovery results to compare against.
+
+    Returns:
+        List of deleted sub-collection names.
+    """
+    # Build set of expected sub-collection names from discovery
+    expected: set[str] = set()
+    for vault in discovery.vaults:
+        if vault.relative_name:
+            expected.add(f"{project_name}/{vault.relative_name}")
+    for repo in discovery.repos:
+        if repo.relative_name:
+            expected.add(f"{project_name}/{repo.relative_name}")
+
+    # Find existing sub-collections in DB
+    rows = conn.execute(
+        "SELECT name FROM collections WHERE name LIKE ?",
+        (f"{project_name}/%",),
+    ).fetchall()
+
+    deleted: list[str] = []
+    for row in rows:
+        name = row["name"]
+        if name not in expected:
+            delete_collection(conn, name)
+            deleted.append(name)
+
+    return deleted
