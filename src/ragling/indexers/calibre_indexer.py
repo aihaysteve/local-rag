@@ -17,7 +17,13 @@ from ragling.doc_store import DocStore
 from ragling.docling_bridge import epub_to_docling_doc, plaintext_to_docling_doc
 from ragling.docling_convert import chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings
-from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
+from ragling.indexers.base import (
+    BaseIndexer,
+    IndexResult,
+    file_hash,
+    prune_stale_sources,
+    upsert_source_with_chunks,
+)
 from ragling.parsers.calibre import CalibreBook, get_book_file_path, parse_calibre_library
 
 logger = logging.getLogger(__name__)
@@ -81,6 +87,8 @@ class CalibreIndexer(BaseIndexer):
                     logger.exception("Error indexing book: %s", book.title)
                     errors += 1
 
+        pruned = prune_stale_sources(conn, collection_id)
+
         logger.info(
             "Calibre indexing complete: %d found, %d indexed, %d skipped, %d errors",
             total_found,
@@ -88,7 +96,9 @@ class CalibreIndexer(BaseIndexer):
             skipped,
             errors,
         )
-        return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
+        return IndexResult(
+            indexed=indexed, skipped=skipped, errors=errors, total_found=total_found, pruned=pruned
+        )
 
 
 def _build_book_metadata(book: CalibreBook, library_path: Path, fmt: str | None) -> dict:
