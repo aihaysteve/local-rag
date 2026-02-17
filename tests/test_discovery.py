@@ -161,6 +161,74 @@ class TestBasicDetection:
         assert result.repos == []
 
 
+class TestEdgeCases:
+    def test_symlink_cycle_does_not_infinite_loop(self, tmp_path: Path) -> None:
+        """Symlink cycle is detected and scanning completes without hanging."""
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        (real_dir / ".git").mkdir()
+        # Create a symlink cycle: real/link -> real
+        (real_dir / "link").symlink_to(real_dir)
+
+        result = discover_sources(tmp_path)
+        assert len(result.repos) == 1  # Should find the repo once, not loop
+
+    def test_follows_non_cyclic_symlinks(self, tmp_path: Path) -> None:
+        """Non-cyclic symlinks are followed and markers found."""
+        target = tmp_path / "target"
+        target.mkdir()
+        (target / ".obsidian").mkdir()
+
+        link = tmp_path / "link"
+        link.symlink_to(target)
+
+        result = discover_sources(tmp_path)
+        # Should find the vault via the symlink
+        assert len(result.vaults) >= 1
+
+    def test_permission_error_skips_dir(self, tmp_path: Path) -> None:
+        """Unreadable directories are skipped without crashing."""
+        forbidden = tmp_path / "forbidden"
+        forbidden.mkdir()
+        forbidden.chmod(0o000)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        try:
+            result = discover_sources(tmp_path)
+            # Should still find the accessible repo
+            assert len(result.repos) == 1
+        finally:
+            forbidden.chmod(0o755)  # Restore for cleanup
+
+    def test_root_is_obsidian_vault(self, tmp_path: Path) -> None:
+        """When root itself is a vault, relative_name is empty string."""
+        (tmp_path / ".obsidian").mkdir()
+        (tmp_path / "note.md").write_text("hello")
+
+        result = discover_sources(tmp_path)
+        assert len(result.vaults) == 1
+        assert result.vaults[0].relative_name == ""
+
+    def test_root_is_git_repo(self, tmp_path: Path) -> None:
+        """When root itself is a repo, relative_name is empty string."""
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "main.py").write_text("print('hi')")
+
+        result = discover_sources(tmp_path)
+        assert len(result.repos) == 1
+        assert result.repos[0].relative_name == ""
+
+    def test_empty_directory(self, tmp_path: Path) -> None:
+        """Empty directory returns empty result."""
+        result = discover_sources(tmp_path)
+        assert result.vaults == []
+        assert result.repos == []
+        assert result.leftover_paths == []
+
+
 class TestReconciliation:
     def _setup_db(self, tmp_path: Path) -> tuple:
         """Helper to create a test database connection."""

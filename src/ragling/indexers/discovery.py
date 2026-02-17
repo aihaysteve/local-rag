@@ -51,8 +51,9 @@ def discover_sources(root_path: Path) -> DiscoveryResult:
     vaults: list[DiscoveredSource] = []
     repos: list[DiscoveredSource] = []
     claimed: set[Path] = set()
+    visited: set[Path] = set()
 
-    _scan_recursive(root_path, root_path, vaults, repos, claimed)
+    _scan_recursive(root_path, root_path, vaults, repos, claimed, visited)
 
     leftover_paths = _collect_leftovers(root_path, claimed)
 
@@ -106,8 +107,12 @@ def _scan_recursive(
     vaults: list[DiscoveredSource],
     repos: list[DiscoveredSource],
     claimed: set[Path],
+    visited: set[Path],
 ) -> None:
     """Recursively scan directories for markers.
+
+    Tracks resolved real paths in ``visited`` to detect symlink cycles
+    and avoid infinite recursion.
 
     Args:
         current: Directory currently being scanned.
@@ -115,7 +120,13 @@ def _scan_recursive(
         vaults: Accumulator for discovered vaults.
         repos: Accumulator for discovered repos.
         claimed: Set of paths already claimed by a discovery.
+        visited: Set of resolved real paths already visited (cycle detection).
     """
+    real_path = current.resolve()
+    if real_path in visited:
+        return
+    visited.add(real_path)
+
     try:
         entries = list(current.iterdir())
     except PermissionError:
@@ -129,22 +140,22 @@ def _scan_recursive(
 
     if has_obsidian:
         rel = current.relative_to(root)
-        name = str(rel) if rel != Path(".") else ""
+        relative_name = str(rel) if str(rel) != "." else ""
         vaults.append(
             DiscoveredSource(
                 path=current,
-                relative_name=name or current.name,
+                relative_name=relative_name,
                 source_type="obsidian",
             )
         )
         claimed.add(current)
     elif has_git:
         rel = current.relative_to(root)
-        name = str(rel) if rel != Path(".") else ""
+        relative_name = str(rel) if str(rel) != "." else ""
         repos.append(
             DiscoveredSource(
                 path=current,
-                relative_name=name or current.name,
+                relative_name=relative_name,
                 source_type="git",
             )
         )
@@ -153,7 +164,7 @@ def _scan_recursive(
     # Continue scanning subdirectories (even inside claims, to find nested markers)
     for entry in sorted(entries):
         if entry.is_dir() and not entry.name.startswith("."):
-            _scan_recursive(entry, root, vaults, repos, claimed)
+            _scan_recursive(entry, root, vaults, repos, claimed, visited)
 
 
 def reconcile_sub_collections(
