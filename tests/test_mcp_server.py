@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from ragling.config import Config
+
 
 class TestBuildSourceUri:
     """Tests for _build_source_uri (existing function, ensure no regression)."""
@@ -249,6 +251,25 @@ class TestCreateServerSignature:
         server = create_server(group_name="test", config=config)
         assert server is not None
         assert server.settings.auth is None
+
+
+class TestConfigGetter:
+    """Tests for config_getter parameter in create_server."""
+
+    def test_config_getter_is_accepted(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+        )
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            config_getter=lambda: config,
+        )
+        assert server is not None
 
 
 class TestGetUserContext:

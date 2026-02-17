@@ -125,6 +125,14 @@ class IndexingQueue:
             return request.result
         return None
 
+    def set_config(self, config: Config) -> None:
+        """Replace the current config.
+
+        Safe under the GIL — attribute assignment is atomic. The worker
+        thread reads _config at the start of each job.
+        """
+        self._config = config
+
     def shutdown(self) -> None:
         """Signal the worker to stop and wait for it to finish."""
         self._queue.put(None)

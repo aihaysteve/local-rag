@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ragling.config import Config, load_config
+from ragling.config import DEFAULT_CONFIG_PATH, Config, load_config
 
 console = Console()
 
@@ -755,11 +755,36 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         daemon=True,
     ).start()
 
+    # Set up config watching
+    import atexit
+
+    from ragling.config_watcher import ConfigWatcher
+
+    config_path = ctx.obj.get("config_path")
+
+    def _handle_config_reload(new_config: Config) -> None:
+        indexing_queue.set_config(new_config)
+        logger.info("Config reloaded, queue updated")
+
+    config_watcher = ConfigWatcher(
+        config,
+        config_path=Path(config_path) if config_path else DEFAULT_CONFIG_PATH,
+        on_reload=_handle_config_reload,
+    )
+
+    def _shutdown() -> None:
+        logger.info("Shutting down...")
+        indexing_queue.shutdown()
+        config_watcher.stop()
+
+    atexit.register(_shutdown)
+
     server = create_server(
         group_name=group,
         config=config,
         indexing_status=indexing_status,
         indexing_queue=indexing_queue,
+        config_getter=config_watcher.get_config,
     )
 
     if sse:

@@ -419,6 +419,28 @@ class TestSubmitAndWait:
         queue.shutdown()
 
 
+class TestSetConfig:
+    """Tests for IndexingQueue.set_config()."""
+
+    def test_set_config_replaces_config(self, tmp_path: Path) -> None:
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+
+        config1 = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        config2 = config1.with_overrides(embedding_dimensions=8)
+
+        status = IndexingStatus()
+        queue = IndexingQueue(config1, status)
+        assert queue._config.embedding_dimensions == 4
+
+        queue.set_config(config2)
+        assert queue._config.embedding_dimensions == 8
+
+
 class TestIndexRequest:
     """Tests for the IndexRequest synchronous wrapper."""
 

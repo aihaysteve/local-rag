@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -247,6 +248,7 @@ def create_server(
     config: Config | None = None,
     indexing_status: IndexingStatus | None = None,
     indexing_queue: IndexingQueue | None = None,
+    config_getter: Callable[[], Config] | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all tools registered.
 
@@ -267,6 +269,8 @@ def create_server(
 
     def _get_config() -> Config:
         """Return an effective Config with the correct group_name."""
+        if config_getter:
+            return config_getter().with_overrides(group_name=group_name)
         return (server_config or load_config()).with_overrides(group_name=group_name)
 
     mcp_kwargs: dict[str, Any] = {
