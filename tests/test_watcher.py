@@ -4,7 +4,10 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from watchdog.events import FileDeletedEvent
+
 from ragling.config import Config
+from ragling.watcher import DebouncedIndexQueue, _Handler
 
 
 class TestDebouncedQueue:
@@ -83,3 +86,33 @@ class TestWatcherPaths:
         )
         paths = get_watch_paths(config)
         assert len(paths) == 0
+
+
+class TestHandlerOnDeleted:
+    def test_deleted_file_is_enqueued(self) -> None:
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".txt"})
+
+        event = FileDeletedEvent(src_path="/tmp/notes.md")
+        handler.on_deleted(event)
+
+        queue.enqueue.assert_called_once_with(Path("/tmp/notes.md"))
+
+    def test_deleted_unsupported_extension_ignored(self) -> None:
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".txt"})
+
+        event = FileDeletedEvent(src_path="/tmp/photo.raw")
+        handler.on_deleted(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_deleted_directory_ignored(self) -> None:
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".txt"})
+
+        event = FileDeletedEvent(src_path="/tmp/somedir")
+        event._is_directory = True  # watchdog sets this for dir events
+        handler.on_deleted(event)
+
+        queue.enqueue.assert_not_called()

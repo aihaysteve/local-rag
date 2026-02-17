@@ -118,6 +118,10 @@ class _Handler(FileSystemEventHandler):
         """Handle file modification events."""
         self._handle(event)
 
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        """Handle file deletion events."""
+        self._handle(event)
+
     def _handle(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
