@@ -497,3 +497,78 @@ class TestTwoPassGitIndexing:
         # _parse_and_chunk should not be called for .py files (they're code)
         mock_parse.assert_not_called()
         conn.close()
+
+
+class TestBackwardCompatibility:
+    def _setup_db(self, tmp_path: Path) -> tuple:
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+        return conn, config
+
+    def test_flat_project_unchanged_when_no_markers(self, tmp_path: Path) -> None:
+        """ProjectIndexer with no markers behaves exactly as before discovery."""
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "docs"
+        project_dir.mkdir()
+        (project_dir / "readme.txt").write_text("Hello world")
+        (project_dir / "notes.md").write_text("# Notes")
+
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("flat-project", [project_dir])
+
+        with (
+            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.get_embeddings") as mock_embed,
+        ):
+            mock_parse.return_value = [Chunk(text="text", title="test", chunk_index=0)]
+            mock_embed.return_value = [[0.1, 0.2, 0.3, 0.4]]
+            result = indexer.index(conn, config)
+
+        # Should have found and attempted to index 2 files
+        assert result.total_found == 2
+
+        # Collection should be "flat-project" with type "project"
+        row = conn.execute(
+            "SELECT collection_type FROM collections WHERE name = ?",
+            ("flat-project",),
+        ).fetchone()
+        assert row["collection_type"] == "project"
+
+        # No sub-collections should exist
+        sub = conn.execute(
+            "SELECT name FROM collections WHERE name LIKE 'flat-project/%'"
+        ).fetchall()
+        assert len(sub) == 0
+        conn.close()
+
+    def test_single_file_path_still_works(self, tmp_path: Path) -> None:
+        """Passing a single file (not directory) still works."""
+        conn, config = self._setup_db(tmp_path)
+
+        single_file = tmp_path / "report.txt"
+        single_file.write_text("Report content")
+
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("single", [single_file])
+
+        with (
+            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.get_embeddings") as mock_embed,
+        ):
+            mock_parse.return_value = [Chunk(text="text", title="report", chunk_index=0)]
+            mock_embed.return_value = [[0.1, 0.2, 0.3, 0.4]]
+            result = indexer.index(conn, config)
+
+        assert result.total_found == 1
+        conn.close()
