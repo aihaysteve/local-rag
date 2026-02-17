@@ -9,6 +9,34 @@ from ragling.config import Config
 from ragling.indexers.project import _EXTENSION_MAP
 
 
+class TestSupportedExtensions:
+    def test_code_extensions_are_supported(self) -> None:
+        from ragling.indexers.project import is_supported_extension
+
+        assert is_supported_extension(".py") is True
+        assert is_supported_extension(".js") is True
+        assert is_supported_extension(".go") is True
+        assert is_supported_extension(".rs") is True
+
+    def test_document_extensions_are_supported(self) -> None:
+        from ragling.indexers.project import is_supported_extension
+
+        assert is_supported_extension(".pdf") is True
+        assert is_supported_extension(".md") is True
+        assert is_supported_extension(".txt") is True
+
+    def test_unknown_extensions_are_not_supported(self) -> None:
+        from ragling.indexers.project import is_supported_extension
+
+        assert is_supported_extension(".xyz") is False
+        assert is_supported_extension(".zzz") is False
+
+    def test_supported_extensions_is_frozenset(self) -> None:
+        from ragling.indexers.project import _SUPPORTED_EXTENSIONS
+
+        assert isinstance(_SUPPORTED_EXTENSIONS, frozenset)
+
+
 class TestExtensionMap:
     def test_pdf_maps_to_pdf(self) -> None:
         assert _EXTENSION_MAP[".pdf"] == "pdf"

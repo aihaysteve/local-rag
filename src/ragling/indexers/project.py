@@ -31,6 +31,7 @@ from ragling.indexers.base import (
     upsert_source_with_chunks,
 )
 from ragling.indexers.discovery import DiscoveredSource, discover_sources, reconcile_sub_collections
+from ragling.parsers.code import get_supported_extensions as _get_code_extensions
 from ragling.parsers.code import is_code_file
 from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
@@ -68,17 +69,22 @@ _EXTENSION_MAP: dict[str, str] = {
     ".yml": "plaintext",
 }
 
+_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_EXTENSION_MAP) | _get_code_extensions()
+
 
 def is_supported_extension(ext: str) -> bool:
     """Check if a file extension is supported for indexing.
+
+    Covers both document extensions (_EXTENSION_MAP) and code extensions
+    (_CODE_EXTENSION_MAP from parsers.code).
 
     Args:
         ext: File extension including the dot (e.g. ".pdf").
 
     Returns:
-        True if the extension is in the supported extension map.
+        True if the extension is supported for any indexing path.
     """
-    return ext in _EXTENSION_MAP
+    return ext in _SUPPORTED_EXTENSIONS
 
 
 def _is_hidden(path: Path) -> bool:

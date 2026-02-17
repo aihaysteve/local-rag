@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Set as AbstractSet
 from pathlib import Path
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -119,7 +119,7 @@ class DebouncedIndexQueue:
 class _Handler(FileSystemEventHandler):
     """Watchdog event handler that filters by extension and enqueues changes."""
 
-    def __init__(self, queue: DebouncedIndexQueue, supported_extensions: set[str]) -> None:
+    def __init__(self, queue: DebouncedIndexQueue, supported_extensions: AbstractSet[str]) -> None:
         self._queue = queue
         self._extensions = supported_extensions
 
@@ -146,7 +146,7 @@ class _Handler(FileSystemEventHandler):
 def start_watcher(
     config: Config,
     callback: Callable[[list[Path]], None],
-    supported_extensions: set[str] | None = None,
+    supported_extensions: AbstractSet[str] | None = None,
 ) -> BaseObserver | None:
     """Start watching configured directories for file changes.
 
@@ -158,14 +158,14 @@ def start_watcher(
         config: Application configuration.
         callback: Function called with batched list of changed file paths.
         supported_extensions: File extensions to watch. Defaults to
-            the keys of ``_EXTENSION_MAP`` from the project indexer.
+            ``_SUPPORTED_EXTENSIONS`` which covers both document and code extensions.
 
     Returns:
         The started Observer instance, or None if no directories to watch.
     """
-    from ragling.indexers.project import _EXTENSION_MAP
+    from ragling.indexers.project import _SUPPORTED_EXTENSIONS
 
-    extensions = supported_extensions or set(_EXTENSION_MAP)
+    extensions = supported_extensions or _SUPPORTED_EXTENSIONS
     watch_paths = get_watch_paths(config)
     if not watch_paths:
         logger.info("No directories to watch.")
