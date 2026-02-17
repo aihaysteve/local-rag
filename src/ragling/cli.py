@@ -748,10 +748,11 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
                 except Exception:
                     logger.exception("Error indexing changed file: %s", file_path)
 
-        # Wait for initial sync before starting watcher
-        sync_done.wait()
+        def _start_watcher_after_sync() -> None:
+            sync_done.wait()
+            start_watcher(config, _on_files_changed)
 
-        start_watcher(config, _on_files_changed)
+        threading.Thread(target=_start_watcher_after_sync, name="watcher-wait", daemon=True).start()
 
     server = create_server(
         group_name=group,
