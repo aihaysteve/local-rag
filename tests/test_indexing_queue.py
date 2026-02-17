@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ragling.config import Config
-from ragling.indexing_queue import IndexJob, IndexingQueue
+from ragling.indexing_queue import IndexJob, IndexingQueue, IndexRequest
 from ragling.indexing_status import IndexingStatus
 
 
@@ -339,3 +339,18 @@ class TestProcessRouter:
         )
         with pytest.raises(ValueError, match="Unknown indexer_type"):
             self._make_queue_and_process(job)
+
+
+class TestIndexRequest:
+    """Tests for the IndexRequest synchronous wrapper."""
+
+    def test_index_request_has_event_and_result(self) -> None:
+        job = IndexJob(
+            job_type="directory",
+            path=Path("/tmp/test"),
+            collection_name="test",
+            indexer_type="project",
+        )
+        request = IndexRequest(job=job)
+        assert not request.done.is_set()
+        assert request.result is None

@@ -18,7 +18,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +28,7 @@ from ragling.indexing_status import IndexingStatus
 
 if TYPE_CHECKING:
     from ragling.doc_store import DocStore
+    from ragling.indexers.base import IndexResult
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,19 @@ class IndexJob:
     collection_name: str
     indexer_type: str
     force: bool = False
+
+
+@dataclass
+class IndexRequest:
+    """Wrapper for synchronous job submission with completion signaling.
+
+    Wraps an IndexJob with a threading.Event for blocking until the
+    worker completes processing, and a result slot for the IndexResult.
+    """
+
+    job: IndexJob
+    done: threading.Event = field(default_factory=threading.Event)
+    result: IndexResult | None = None
 
 
 class IndexingQueue:
