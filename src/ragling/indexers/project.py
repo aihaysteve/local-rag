@@ -20,7 +20,13 @@ from ragling.docling_bridge import (
 )
 from ragling.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings
-from ragling.indexers.base import BaseIndexer, IndexResult, file_hash, upsert_source_with_chunks
+from ragling.indexers.base import (
+    BaseIndexer,
+    IndexResult,
+    file_hash,
+    prune_stale_sources,
+    upsert_source_with_chunks,
+)
 from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
 
@@ -210,6 +216,8 @@ class ProjectIndexer(BaseIndexer):
                 logger.error("Error indexing %s: %s", file_path, e)
                 errors += 1
 
+        pruned = prune_stale_sources(conn, collection_id)
+
         logger.info(
             "Project indexer done: %d indexed, %d skipped, %d errors out of %d files",
             indexed,
@@ -218,7 +226,9 @@ class ProjectIndexer(BaseIndexer):
             total_found,
         )
 
-        return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
+        return IndexResult(
+            indexed=indexed, skipped=skipped, errors=errors, total_found=total_found, pruned=pruned
+        )
 
     def _index_file(
         self,

@@ -240,3 +240,28 @@ class TestParseAndChunkUnifiedChunking:
 
         mock_hybrid.assert_called_once()
         assert len(chunks) == 1
+
+
+class TestProjectIndexerPruning:
+    def test_prune_called_after_indexing(self, tmp_path: Path) -> None:
+        """ProjectIndexer.index() calls prune_stale_sources after processing files."""
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.project import ProjectIndexer
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        indexer = ProjectIndexer("test-coll", [tmp_path])
+
+        with patch("ragling.indexers.project.prune_stale_sources", return_value=2) as mock_prune:
+            result = indexer.index(conn, config)
+
+        mock_prune.assert_called_once()
+        assert result.pruned == 2
+        conn.close()
