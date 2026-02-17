@@ -69,6 +69,18 @@ _EXTENSION_MAP: dict[str, str] = {
 }
 
 
+def is_supported_extension(ext: str) -> bool:
+    """Check if a file extension is supported for indexing.
+
+    Args:
+        ext: File extension including the dot (e.g. ".pdf").
+
+    Returns:
+        True if the extension is in the supported extension map.
+    """
+    return ext in _EXTENSION_MAP
+
+
 def _is_hidden(path: Path) -> bool:
     """Check if any component of the path starts with a dot."""
     return any(part.startswith(".") for part in path.parts)

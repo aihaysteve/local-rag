@@ -145,14 +145,14 @@ def start_watcher(
         config: Application configuration.
         callback: Function called with batched list of changed file paths.
         supported_extensions: File extensions to watch. Defaults to
-            ``_SUPPORTED_EXTENSIONS`` from the sync module.
+            the keys of ``_EXTENSION_MAP`` from the project indexer.
 
     Returns:
         The started Observer instance, or None if no directories to watch.
     """
-    from ragling.sync import _SUPPORTED_EXTENSIONS
+    from ragling.indexers.project import _EXTENSION_MAP
 
-    extensions = supported_extensions or set(_SUPPORTED_EXTENSIONS)
+    extensions = supported_extensions or set(_EXTENSION_MAP)
     watch_paths = get_watch_paths(config)
     if not watch_paths:
         logger.info("No directories to watch.")

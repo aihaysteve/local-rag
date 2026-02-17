@@ -14,37 +14,6 @@ from ragling.indexing_status import IndexingStatus
 
 logger = logging.getLogger(__name__)
 
-# File extensions worth indexing (matches project indexer's _EXTENSION_MAP)
-_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
-    {
-        ".pdf",
-        ".docx",
-        ".pptx",
-        ".xlsx",
-        ".html",
-        ".htm",
-        ".epub",
-        ".txt",
-        ".tex",
-        ".latex",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".tiff",
-        ".bmp",
-        ".webp",
-        ".csv",
-        ".adoc",
-        ".vtt",
-        ".mp3",
-        ".wav",
-        ".md",
-        ".json",
-        ".yaml",
-        ".yml",
-    }
-)
-
 
 def map_file_to_collection(file_path: Path, config: Config) -> str | None:
     """Determine which collection a file belongs to based on its path.

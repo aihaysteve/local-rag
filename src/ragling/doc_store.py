@@ -4,13 +4,14 @@ Multiple MCP instances share this DB via WAL mode. Documents are keyed
 by SHA-256 hash of file contents so identical files are never converted twice.
 """
 
-import hashlib
 import json
 import logging
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Callable
+
+from ragling.indexers.base import file_hash as _file_hash
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +42,6 @@ CREATE TABLE IF NOT EXISTS converted_documents (
 CREATE INDEX IF NOT EXISTS idx_sources_hash ON sources(content_hash);
 CREATE INDEX IF NOT EXISTS idx_converted_source ON converted_documents(source_id);
 """
-
-
-def _file_hash(path: Path) -> str:
-    """Compute SHA-256 hex digest of a file's contents."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 class DocStore:

@@ -368,6 +368,11 @@ def create_server(
             date_to: Only results before this date (YYYY-MM-DD).
             sender: Filter by email sender (case-insensitive substring match).
             author: Filter by book author (case-insensitive substring match).
+
+        Returns:
+            Dict with ``results`` (list of matched chunks, each with title, content,
+            collection, source_type, source_path, source_uri, score, and metadata)
+            and optional ``indexing_status`` when background indexing is active.
         """
         from ragling.embeddings import OllamaConnectionError
         from ragling.search import perform_search

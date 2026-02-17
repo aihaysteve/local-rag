@@ -235,3 +235,52 @@ class TestUpsertSourceWithChunks:
             "SELECT metadata FROM documents WHERE source_id = ?", (sid,)
         ).fetchone()
         assert doc["metadata"] is None
+
+    def test_two_pass_indexing_no_duplicates(self, db_conn: sqlite3.Connection) -> None:
+        """Re-indexing a file (e.g., from two-pass git+document scan) produces no duplicates."""
+        cid = _coll_id(db_conn)
+        path = "/repo/docs/spec.md"
+
+        # First pass: indexed as markdown with initial content
+        sid1 = upsert_source_with_chunks(
+            db_conn,
+            collection_id=cid,
+            source_path=path,
+            source_type="markdown",
+            chunks=_make_chunks(2),
+            embeddings=_make_embeddings(2),
+            file_hash="hash_v1",
+        )
+
+        # Second pass: same file re-indexed (simulates two-pass scan)
+        sid2 = upsert_source_with_chunks(
+            db_conn,
+            collection_id=cid,
+            source_path=path,
+            source_type="markdown",
+            chunks=_make_chunks(3),
+            embeddings=_make_embeddings(3),
+            file_hash="hash_v1",
+        )
+
+        # Same source ID reused
+        assert sid1 == sid2
+
+        # Exactly one source row
+        sources = db_conn.execute(
+            "SELECT * FROM sources WHERE collection_id = ? AND source_path = ?",
+            (cid, path),
+        ).fetchall()
+        assert len(sources) == 1
+
+        # Documents replaced, not duplicated — should have 3 (from second pass)
+        docs = db_conn.execute("SELECT * FROM documents WHERE source_id = ?", (sid1,)).fetchall()
+        assert len(docs) == 3
+
+        # Vectors match document count
+        vec_count = db_conn.execute(
+            "SELECT COUNT(*) as cnt FROM vec_documents WHERE document_id IN "
+            "(SELECT id FROM documents WHERE source_id = ?)",
+            (sid1,),
+        ).fetchone()["cnt"]
+        assert vec_count == 3
