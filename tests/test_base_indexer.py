@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ragling.config import Config
 from ragling.db import get_connection, init_db
-from ragling.indexers.base import delete_source, upsert_source_with_chunks
+from ragling.indexers.base import delete_source, prune_stale_sources, upsert_source_with_chunks
 
 
 def _make_conn(tmp_path: Path) -> sqlite3.Connection:
@@ -76,3 +76,107 @@ class TestDeleteSource:
         assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
         remaining = conn.execute("SELECT source_path FROM sources").fetchone()
         assert remaining["source_path"] == "/tmp/keep.txt"
+
+
+class TestPruneStaleSources:
+    def test_prunes_source_whose_file_is_gone(self, tmp_path: Path) -> None:
+        conn = _make_conn(tmp_path)
+        from ragling.db import get_or_create_collection
+
+        cid = get_or_create_collection(conn, "test-coll", "project")
+
+        # Create a real file, index it, then delete it
+        real_file = tmp_path / "doc.txt"
+        real_file.write_text("content")
+        _insert_source(conn, cid, str(real_file))
+        real_file.unlink()
+
+        pruned = prune_stale_sources(conn, cid)
+
+        assert pruned == 1
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+
+    def test_keeps_source_whose_file_exists(self, tmp_path: Path) -> None:
+        conn = _make_conn(tmp_path)
+        from ragling.db import get_or_create_collection
+
+        cid = get_or_create_collection(conn, "test-coll", "project")
+
+        real_file = tmp_path / "doc.txt"
+        real_file.write_text("content")
+        _insert_source(conn, cid, str(real_file))
+
+        pruned = prune_stale_sources(conn, cid)
+
+        assert pruned == 0
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
+
+    def test_skips_sources_without_file_hash(self, tmp_path: Path) -> None:
+        """Sources like email/RSS have no file_hash and should not be pruned."""
+        conn = _make_conn(tmp_path)
+        from ragling.db import get_or_create_collection
+
+        cid = get_or_create_collection(conn, "test-coll", "project")
+
+        # Insert a source with no file_hash (like email)
+        conn.execute(
+            "INSERT INTO sources (collection_id, source_type, source_path) "
+            "VALUES (?, 'email', 'msg://12345')",
+            (cid,),
+        )
+        conn.commit()
+
+        pruned = prune_stale_sources(conn, cid)
+
+        assert pruned == 0
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
+
+    def test_skips_sources_with_virtual_uri(self, tmp_path: Path) -> None:
+        """Sources like calibre descriptions use virtual URIs and should not be pruned."""
+        conn = _make_conn(tmp_path)
+        from ragling.db import get_or_create_collection
+
+        cid = get_or_create_collection(conn, "test-coll", "project")
+
+        # Insert a source with file_hash but non-filesystem path
+        conn.execute(
+            "INSERT INTO sources (collection_id, source_type, source_path, file_hash) "
+            "VALUES (?, 'calibre-description', 'calibre:///lib/book', 'hash123')",
+            (cid,),
+        )
+        conn.commit()
+
+        pruned = prune_stale_sources(conn, cid)
+
+        assert pruned == 0
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
+
+    def test_mixed_sources_only_prunes_missing_files(self, tmp_path: Path) -> None:
+        conn = _make_conn(tmp_path)
+        from ragling.db import get_or_create_collection
+
+        cid = get_or_create_collection(conn, "test-coll", "project")
+
+        # Existing file -- should keep
+        existing = tmp_path / "keep.txt"
+        existing.write_text("keep")
+        _insert_source(conn, cid, str(existing))
+
+        # Deleted file -- should prune
+        deleted = tmp_path / "gone.txt"
+        deleted.write_text("gone")
+        _insert_source(conn, cid, str(deleted))
+        deleted.unlink()
+
+        # Virtual URI -- should skip
+        conn.execute(
+            "INSERT INTO sources (collection_id, source_type, source_path, file_hash) "
+            "VALUES (?, 'calibre-description', 'calibre:///lib/book', 'hash123')",
+            (cid,),
+        )
+        conn.commit()
+
+        pruned = prune_stale_sources(conn, cid)
+
+        assert pruned == 1
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 2

@@ -182,6 +182,39 @@ def delete_source(
     return True
 
 
+def prune_stale_sources(conn: sqlite3.Connection, collection_id: int) -> int:
+    """Remove sources whose backing files no longer exist on disk.
+
+    Only checks sources that have a file_hash (file-backed) and an absolute
+    filesystem path (starts with /). Skips virtual URIs and sources without
+    file hashes (email, RSS, git commits).
+
+    Args:
+        conn: SQLite database connection.
+        collection_id: Collection to prune.
+
+    Returns:
+        Number of sources pruned.
+    """
+    rows = conn.execute(
+        "SELECT source_path FROM sources "
+        "WHERE collection_id = ? AND file_hash IS NOT NULL AND source_path LIKE '/%'",
+        (collection_id,),
+    ).fetchall()
+
+    pruned = 0
+    for row in rows:
+        source_path = row["source_path"]
+        if not Path(source_path).exists():
+            delete_source(conn, collection_id, source_path)
+            pruned += 1
+
+    if pruned:
+        logger.info("Pruned %d stale source(s) from collection %d", pruned, collection_id)
+
+    return pruned
+
+
 @dataclass
 class IndexResult:
     """Summary of an indexing run."""
