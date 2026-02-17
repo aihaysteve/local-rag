@@ -277,3 +277,77 @@ class TestIndexFile:
             mock_indexer.index.assert_called_once_with(mock_conn, config)
             mock_doc_store.close.assert_called_once()
             mock_conn.close.assert_called_once()
+
+
+class TestIndexFileDeleted:
+    """Tests for _index_file handling deleted files."""
+
+    def test_deleted_file_calls_delete_source(self, tmp_path: Path) -> None:
+        from ragling.sync import _index_file
+
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        user_dir.mkdir(parents=True)
+
+        # File path that doesn't exist on disk (simulating deletion)
+        deleted_file = user_dir / "gone.md"
+
+        config = Config(
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+
+        with (
+            patch("ragling.db.get_connection") as mock_get_conn,
+            patch("ragling.db.init_db"),
+            patch("ragling.indexers.base.delete_source") as mock_delete,
+            patch("ragling.db.get_or_create_collection", return_value=1),
+        ):
+            mock_conn = MagicMock()
+            mock_get_conn.return_value = mock_conn
+
+            _index_file(deleted_file, config)
+
+            mock_delete.assert_called_once_with(mock_conn, 1, str(deleted_file.resolve()))
+            mock_conn.close.assert_called_once()
+
+    def test_existing_file_still_indexes(self, tmp_path: Path) -> None:
+        """Existing files should be indexed as before, not pruned."""
+        from ragling.sync import _index_file
+
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        user_dir.mkdir(parents=True)
+        test_file = user_dir / "notes.md"
+        test_file.write_text("# Notes")
+
+        config = Config(
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+
+        with (
+            patch("ragling.db.get_connection") as mock_get_conn,
+            patch("ragling.db.init_db"),
+            patch("ragling.doc_store.DocStore") as MockDocStore,
+            patch("ragling.indexers.project.ProjectIndexer") as MockProject,
+        ):
+            mock_conn = MagicMock()
+            mock_get_conn.return_value = mock_conn
+            mock_doc_store = MagicMock()
+            MockDocStore.return_value = mock_doc_store
+            mock_indexer = MagicMock()
+            mock_indexer.index.return_value = MagicMock(
+                indexed=1, skipped=0, errors=0, total_found=1
+            )
+            MockProject.return_value = mock_indexer
+
+            _index_file(test_file, config)
+
+            MockProject.assert_called_once()

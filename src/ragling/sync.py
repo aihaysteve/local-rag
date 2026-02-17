@@ -157,25 +157,40 @@ def _index_directory(
 
 
 def _index_file(file_path: Path, config: Config) -> None:
-    """Index or re-index a single file.
+    """Index or re-index a single file, or prune it if deleted.
 
-    Determines the collection from the file path, then uses the project
-    indexer to process the single file. For files inside git repos or
-    obsidian vaults, falls back to project indexer (full re-index of
-    those directories is handled by startup sync).
+    If the file exists on disk, re-indexes it using the project indexer.
+    If the file has been deleted, removes its source and vectors from the DB.
 
     Args:
-        file_path: Path to the changed file.
+        file_path: Path to the changed or deleted file.
         config: Application configuration.
     """
-    from ragling.db import get_connection, init_db
-    from ragling.doc_store import DocStore
-    from ragling.indexers.project import ProjectIndexer
-
     collection = map_file_to_collection(file_path, config)
     if collection is None:
         logger.warning("Cannot map file to collection: %s", file_path)
         return
+
+    if not file_path.exists():
+        # File was deleted -- prune from DB
+        from ragling.db import get_connection, get_or_create_collection, init_db
+        from ragling.indexers.base import delete_source
+
+        conn = get_connection(config)
+        init_db(conn, config)
+        try:
+            collection_id = get_or_create_collection(conn, collection, "project")
+            delete_source(conn, collection_id, str(file_path.resolve()))
+        except Exception:
+            logger.exception("Error pruning deleted file: %s", file_path)
+        finally:
+            conn.close()
+        return
+
+    # File exists -- re-index
+    from ragling.db import get_connection, init_db
+    from ragling.doc_store import DocStore
+    from ragling.indexers.project import ProjectIndexer
 
     conn = get_connection(config)
     init_db(conn, config)
