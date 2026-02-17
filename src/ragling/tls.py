@@ -68,6 +68,13 @@ def ensure_tls_certs(tls_dir: Path | None = None) -> TLSConfig:
     elif _is_expired(cfg.server_cert):
         logger.info("Server certificate expired, regenerating")
         _generate_server_cert(cfg)
+    else:
+        # Check for near-expiry
+        cert = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
+        now = datetime.now(timezone.utc)
+        days_left = (cert.not_valid_after_utc - now).days
+        if days_left < 30:
+            logger.warning("Server certificate expires in %d days", days_left)
 
     return cfg
 

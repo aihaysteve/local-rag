@@ -259,6 +259,60 @@ class TestTLSHandshake:
         # No exception means the CA is loadable as a trust anchor
 
 
+class TestNearExpiryWarning:
+    """Tests for certificate near-expiry warning."""
+
+    def test_near_expiry_logs_warning(self, tmp_path: Path, caplog) -> None:  # type: ignore[no-untyped-def]
+        import logging
+
+        from ragling.tls import ensure_tls_certs
+
+        tls_dir = tmp_path / "tls"
+        cfg = ensure_tls_certs(tls_dir)
+
+        # Replace server cert with one expiring in 15 days
+        _write_near_expiry_cert(cfg, days_remaining=15)
+
+        with caplog.at_level(logging.WARNING, logger="ragling.tls"):
+            ensure_tls_certs(tls_dir)
+
+        assert any("expires in" in r.message for r in caplog.records)
+
+
+def _write_near_expiry_cert(cfg: TLSConfig, days_remaining: int = 15) -> None:
+    """Helper: overwrite server cert with one expiring in N days."""
+    from datetime import timedelta
+
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    ca_cert = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
+    ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc)
+
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]))
+        .issuer_name(ca_cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=350))
+        .not_valid_after(now + timedelta(days=days_remaining))
+        .sign(ca_key, hashes.SHA256())
+    )
+
+    cfg.server_cert.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    cfg.server_key.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+
+
 def _write_expired_cert(cfg: TLSConfig) -> None:
     """Helper: overwrite server cert with one that expired yesterday."""
     from datetime import timedelta

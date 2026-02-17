@@ -288,7 +288,7 @@ def create_server(
         mcp_kwargs["token_verifier"] = RaglingTokenVerifier(server_config)
         mcp_kwargs["auth"] = AuthSettings(
             issuer_url=AnyHttpUrl(
-                "http://localhost"
+                "https://localhost"
             ),  # Required placeholder; not used for simple bearer auth
             resource_server_url=None,
             required_scopes=[],
