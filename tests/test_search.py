@@ -794,6 +794,57 @@ class TestMarkStaleResults:
         )
         assert result.stale is False
 
+    def test_non_file_path_not_marked_stale(self) -> None:
+        from ragling.search import _mark_stale_results
+
+        results = [
+            SearchResult(
+                content="test",
+                title="test",
+                metadata={},
+                score=1.0,
+                collection="email",
+                source_path="msg://12345",
+                source_type="email",
+            ),
+        ]
+        _mark_stale_results(results, {"msg://12345": None})
+        assert results[0].stale is False
+
+    def test_rss_url_not_marked_stale(self) -> None:
+        from ragling.search import _mark_stale_results
+
+        results = [
+            SearchResult(
+                content="test",
+                title="test",
+                metadata={},
+                score=1.0,
+                collection="rss",
+                source_path="https://example.com/article",
+                source_type="rss",
+            ),
+        ]
+        _mark_stale_results(results, {"https://example.com/article": None})
+        assert results[0].stale is False
+
+    def test_deleted_file_marked_stale(self) -> None:
+        from ragling.search import _mark_stale_results
+
+        results = [
+            SearchResult(
+                content="test",
+                title="test",
+                metadata={},
+                score=1.0,
+                collection="obsidian",
+                source_path="/tmp/nonexistent_file.md",
+                source_type="markdown",
+            ),
+        ]
+        _mark_stale_results(results, {"/tmp/nonexistent_file.md": None})
+        assert results[0].stale is True
+
 
 class TestPerformSearchParams:
     """Tests for perform_search config and visible_collections parameters."""

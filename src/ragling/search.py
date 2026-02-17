@@ -224,14 +224,29 @@ def _mark_stale_results(
 ) -> None:
     """Mark results whose source files have changed or been deleted.
 
+    Only checks paths that start with '/' (filesystem paths). Non-file
+    sources (email message IDs, RSS URLs, calibre:// URIs) are skipped.
+
     Args:
         results: Search results to check (mutated in-place).
         file_modified_at_map: Map from source_path to file_modified_at timestamp.
     """
+    stat_cache: dict[str, os.stat_result | None] = {}
+
     for result in results:
-        try:
-            st = os.stat(result.source_path)
-        except (FileNotFoundError, OSError):
+        # Skip non-filesystem paths
+        if not result.source_path.startswith("/"):
+            continue
+
+        # Use cache to avoid re-statting the same file for multi-chunk results
+        if result.source_path not in stat_cache:
+            try:
+                stat_cache[result.source_path] = os.stat(result.source_path)
+            except (FileNotFoundError, OSError):
+                stat_cache[result.source_path] = None
+
+        st = stat_cache[result.source_path]
+        if st is None:
             result.stale = True
             continue
 
