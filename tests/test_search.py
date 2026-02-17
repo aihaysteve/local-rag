@@ -885,3 +885,139 @@ class TestPerformSearchParams:
         perform_search("test query")
         _, kwargs = mock_search.call_args
         assert kwargs["visible_collections"] is None
+
+
+@requires_sqlite_extensions
+class TestMetadataCache:
+    """Tests for metadata cache in _batch_load_metadata."""
+
+    @pytest.fixture()
+    def db(self, tmp_path):
+        """Create a DB with schema initialized."""
+        import sqlite_vec
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+        )
+        conn = sqlite3.connect(str(config.db_path))
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+
+        from ragling.db import init_db
+
+        init_db(conn, config)
+
+        yield conn, config
+        conn.close()
+
+    @staticmethod
+    def _insert_document(
+        conn,
+        collection_name,
+        source_path,
+        title,
+        content,
+        embedding,
+        metadata=None,
+        source_type="markdown",
+    ):
+        from ragling.db import get_or_create_collection
+        from ragling.embeddings import serialize_float32
+
+        col_id = get_or_create_collection(conn, collection_name)
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path, file_modified_at) VALUES (?, ?, ?, ?)",
+            (col_id, source_type, source_path, "2025-01-15T10:00:00"),
+        )
+        if cursor.lastrowid == 0:
+            source_id = conn.execute(
+                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
+                (col_id, source_path),
+            ).fetchone()["id"]
+        else:
+            source_id = cursor.lastrowid
+        cursor = conn.execute(
+            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
+            "VALUES (?, ?, 0, ?, ?, ?)",
+            (source_id, col_id, title, content, json.dumps(metadata or {})),
+        )
+        doc_id = cursor.lastrowid
+        conn.execute(
+            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
+            (doc_id, serialize_float32(embedding), doc_id),
+        )
+        conn.commit()
+        return doc_id
+
+    def test_cache_stores_results(self, db) -> None:
+        """Results from _batch_load_metadata are stored in the provided cache."""
+        conn, config = db
+        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        cache: dict[int, sqlite3.Row] = {}
+        result = _batch_load_metadata(conn, [id1], cache=cache)
+
+        assert id1 in cache
+        assert cache[id1]["title"] == "A"
+        assert result[id1]["title"] == "A"
+
+    def test_cache_avoids_redundant_queries(self, db) -> None:
+        """Second call with same IDs should not hit the database."""
+        conn, config = db
+        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        cache: dict[int, sqlite3.Row] = {}
+        _batch_load_metadata(conn, [id1], cache=cache)
+
+        # Now call again with a mock connection to verify no DB query is made
+        from unittest.mock import MagicMock
+
+        mock_conn = MagicMock()
+        result = _batch_load_metadata(mock_conn, [id1], cache=cache)
+
+        # The mock connection should not have been used for any execute calls
+        mock_conn.execute.assert_not_called()
+        assert id1 in result
+        assert result[id1]["title"] == "A"
+
+    def test_cache_partial_hit(self, db) -> None:
+        """When some IDs are cached and some are not, only uncached IDs are queried."""
+        conn, config = db
+        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id2 = self._insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        cache: dict[int, sqlite3.Row] = {}
+        # Cache id1 only
+        _batch_load_metadata(conn, [id1], cache=cache)
+        assert id1 in cache
+        assert id2 not in cache
+
+        # Now request both - id1 should come from cache, id2 from DB
+        result = _batch_load_metadata(conn, [id1, id2], cache=cache)
+        assert id1 in result
+        assert id2 in result
+        assert result[id1]["title"] == "A"
+        assert result[id2]["title"] == "B"
+        # Both should now be in cache
+        assert id2 in cache
+
+    def test_cache_none_behaves_as_before(self, db) -> None:
+        """When cache is None, _batch_load_metadata works as before."""
+        conn, config = db
+        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+
+        from ragling.search import _batch_load_metadata
+
+        result = _batch_load_metadata(conn, [id1], cache=None)
+        assert id1 in result
+        assert result[id1]["title"] == "A"

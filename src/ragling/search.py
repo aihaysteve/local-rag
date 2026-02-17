@@ -69,6 +69,7 @@ def _apply_filters(
     candidates: list[tuple[int, float]],
     top_k: int,
     filters: SearchFilters | None,
+    metadata_cache: dict[int, sqlite3.Row] | None = None,
 ) -> list[tuple[int, float]]:
     """Batch-load metadata and filter candidates in-memory.
 
@@ -78,7 +79,7 @@ def _apply_filters(
         return candidates[:top_k]
 
     all_ids = [doc_id for doc_id, _ in candidates]
-    meta = _batch_load_metadata(conn, all_ids)
+    meta = _batch_load_metadata(conn, all_ids, cache=metadata_cache)
 
     filtered = []
     for doc_id, score in candidates:
@@ -96,6 +97,7 @@ def _vector_search(
     query_embedding: list[float],
     top_k: int,
     filters: SearchFilters | None,
+    metadata_cache: dict[int, sqlite3.Row] | None = None,
 ) -> list[tuple[int, float]]:
     """Run vector similarity search via sqlite-vec.
 
@@ -115,7 +117,7 @@ def _vector_search(
     ).fetchall()
 
     candidates = [(row["document_id"], row["distance"]) for row in rows]
-    return _apply_filters(conn, candidates, top_k, filters)
+    return _apply_filters(conn, candidates, top_k, filters, metadata_cache=metadata_cache)
 
 
 def _fts_search(
@@ -123,6 +125,7 @@ def _fts_search(
     query_text: str,
     top_k: int,
     filters: SearchFilters | None,
+    metadata_cache: dict[int, sqlite3.Row] | None = None,
 ) -> list[tuple[int, float]]:
     """Run full-text search via FTS5.
 
@@ -148,34 +151,70 @@ def _fts_search(
         return []
 
     candidates = [(row["rowid"], row["rank"]) for row in rows]
-    return _apply_filters(conn, candidates, top_k, filters)
+    return _apply_filters(conn, candidates, top_k, filters, metadata_cache=metadata_cache)
 
 
 _COLLECTION_TYPES = {"system", "project", "code"}
 
 
-def _batch_load_metadata(conn: sqlite3.Connection, doc_ids: list[int]) -> dict[int, sqlite3.Row]:
+def _batch_load_metadata(
+    conn: sqlite3.Connection,
+    doc_ids: list[int],
+    cache: dict[int, sqlite3.Row] | None = None,
+) -> dict[int, sqlite3.Row]:
     """Load metadata for multiple documents in a single query.
 
-    Returns a dict mapping document ID to its joined row data.
+    When a cache dict is provided, already-cached IDs are skipped and
+    newly fetched rows are stored back into the cache for reuse.
+
+    Args:
+        conn: SQLite connection.
+        doc_ids: List of document IDs to load metadata for.
+        cache: Optional dict mapping doc ID to row. Populated in-place
+            with any newly fetched results.
+
+    Returns:
+        Dict mapping document ID to its joined row data (for the
+        requested IDs only).
     """
     if not doc_ids:
         return {}
-    placeholders = ",".join("?" * len(doc_ids))
-    rows = conn.execute(
-        f"""
-        SELECT d.id, d.content, d.title, d.metadata,
-               d.collection_id, c.name AS collection_name,
-               c.collection_type, s.source_type, s.source_path,
-               s.file_modified_at
-        FROM documents d
-        JOIN collections c ON d.collection_id = c.id
-        JOIN sources s ON d.source_id = s.id
-        WHERE d.id IN ({placeholders})
-        """,
-        doc_ids,
-    ).fetchall()
-    return {row["id"]: row for row in rows}
+
+    # Determine which IDs need fetching
+    if cache is not None:
+        uncached_ids = [did for did in doc_ids if did not in cache]
+    else:
+        uncached_ids = doc_ids
+
+    # Only query the database for uncached IDs
+    if uncached_ids:
+        placeholders = ",".join("?" * len(uncached_ids))
+        rows = conn.execute(
+            f"""
+            SELECT d.id, d.content, d.title, d.metadata,
+                   d.collection_id, c.name AS collection_name,
+                   c.collection_type, s.source_type, s.source_path,
+                   s.file_modified_at
+            FROM documents d
+            JOIN collections c ON d.collection_id = c.id
+            JOIN sources s ON d.source_id = s.id
+            WHERE d.id IN ({placeholders})
+            """,
+            uncached_ids,
+        ).fetchall()
+
+        new_results = {row["id"]: row for row in rows}
+
+        # Store new results in the cache
+        if cache is not None:
+            cache.update(new_results)
+    else:
+        new_results = {}
+
+    # Build the return dict from cache (if available) or new results
+    if cache is not None:
+        return {did: cache[did] for did in doc_ids if did in cache}
+    return new_results
 
 
 def _check_filters(row: sqlite3.Row | dict, filters: SearchFilters) -> bool:
@@ -333,8 +372,12 @@ def search(
         else:
             filters = SearchFilters(visible_collection_ids=allowed_ids)
 
-    vec_results = _vector_search(conn, query_embedding, top_k, filters)
-    fts_results = _fts_search(conn, query_text, top_k, filters)
+    metadata_cache: dict[int, sqlite3.Row] = {}
+
+    vec_results = _vector_search(
+        conn, query_embedding, top_k, filters, metadata_cache=metadata_cache
+    )
+    fts_results = _fts_search(conn, query_text, top_k, filters, metadata_cache=metadata_cache)
 
     merged = rrf_merge(
         vec_results,
@@ -346,7 +389,7 @@ def search(
 
     top_merged = merged[:top_k]
     result_ids = [doc_id for doc_id, _ in top_merged]
-    meta = _batch_load_metadata(conn, result_ids)
+    meta = _batch_load_metadata(conn, result_ids, cache=metadata_cache)
 
     results: list[SearchResult] = []
     file_modified_at_map: dict[str, str | None] = {}

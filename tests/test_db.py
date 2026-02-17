@@ -181,3 +181,19 @@ class TestDeleteCollection:
         deleted = delete_collection(conn, "nonexistent")
         assert deleted is False
         conn.close()
+
+
+class TestCollectionIndex:
+    """Tests for idx_documents_collection_id index."""
+
+    def test_index_exists_after_init(self, tmp_path: Path) -> None:
+        from ragling.db import get_connection, init_db
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        indexes = conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        index_names = {row[0] for row in indexes}
+        assert "idx_documents_collection_id" in index_names
+        conn.close()

@@ -115,6 +115,9 @@ def init_db(conn: sqlite3.Connection, config: Config) -> None:
             VALUES (new.id, new.title, new.content);
         END;
 
+        CREATE INDEX IF NOT EXISTS idx_documents_collection_id
+            ON documents(collection_id);
+
         -- Schema version tracking
         CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
