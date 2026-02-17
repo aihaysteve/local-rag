@@ -415,3 +415,85 @@ class TestProjectIndexerDiscovery:
         MockObsidian.assert_not_called()
         MockGit.assert_not_called()
         conn.close()
+
+
+class TestTwoPassGitIndexing:
+    def _setup_db(self, tmp_path: Path) -> tuple:
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+        return conn, config
+
+    def test_docx_in_git_repo_gets_indexed(self, tmp_path: Path) -> None:
+        """Non-code document files in a git repo are indexed via the document pass."""
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        repo = project_dir / "my-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "main.py").write_text("print('hello')")
+        (repo / "docs").mkdir()
+        (repo / "docs" / "spec.md").write_text("# Specification\n\nDetails here.")
+
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        git_result = IndexResult(indexed=1)
+        with (
+            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitClass,
+            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.get_embeddings") as mock_embed,
+        ):
+            MockGitClass.return_value.index.return_value = git_result
+            mock_parse.return_value = [
+                Chunk(text="Specification details", title="spec.md", chunk_index=0)
+            ]
+            mock_embed.return_value = [[0.1, 0.2, 0.3, 0.4]]
+
+            result = indexer.index(conn, config)
+
+        # The document pass should have attempted to index spec.md
+        assert mock_parse.called
+        # Should have at least the git result + document result
+        assert result.indexed >= 1
+        conn.close()
+
+    def test_code_files_not_double_indexed_in_doc_pass(self, tmp_path: Path) -> None:
+        """Code files (.py, .js, etc.) are NOT included in the document pass."""
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        repo = project_dir / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "main.py").write_text("print('hello')")
+        # Only code files, no documents
+
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        git_result = IndexResult(indexed=1)
+        with (
+            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitClass,
+            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+        ):
+            MockGitClass.return_value.index.return_value = git_result
+            indexer.index(conn, config)
+
+        # _parse_and_chunk should not be called for .py files (they're code)
+        mock_parse.assert_not_called()
+        conn.close()
