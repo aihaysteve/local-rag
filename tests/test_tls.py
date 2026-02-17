@@ -184,6 +184,20 @@ class TestServerCertGeneration:
         assert bc.value.ca is False
 
 
+class TestDockerSAN:
+    """Tests for host.docker.internal in server certificate SAN."""
+
+    def test_server_san_includes_docker_internal(self, tmp_path: Path) -> None:
+        from ragling.tls import ensure_tls_certs
+
+        cfg = ensure_tls_certs(tmp_path / "tls")
+        server = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
+
+        san = server.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        dns_names = san.value.get_values_for_type(x509.DNSName)
+        assert "host.docker.internal" in dns_names
+
+
 class TestServerCertRenewal:
     """Tests for expired server cert auto-renewal."""
 

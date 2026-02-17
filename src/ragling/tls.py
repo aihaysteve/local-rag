@@ -134,6 +134,7 @@ def _generate_server_cert(cfg: TLSConfig) -> None:
             x509.SubjectAlternativeName(
                 [
                     x509.DNSName("localhost"),
+                    x509.DNSName("host.docker.internal"),
                     x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
                 ]
             ),
