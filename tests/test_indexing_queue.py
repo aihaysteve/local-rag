@@ -1,5 +1,6 @@
 """Tests for ragling.indexing_queue module."""
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -381,8 +382,28 @@ class TestSubmitAndWait:
         )
         status = IndexingStatus()
         queue = IndexingQueue(config, status)
-        # Don't start the worker — job will never be processed
+        queue.start()
 
+        # Block the worker with a slow job so our second job times out
+        slow_event = threading.Event()
+        original_process = queue._process
+
+        def _blocking_process(job: IndexJob) -> None:  # type: ignore[return]
+            slow_event.wait(timeout=10)
+            return original_process(job)
+
+        queue._process = _blocking_process  # type: ignore[assignment]
+
+        # Submit a blocker job first
+        blocker = IndexJob(
+            job_type="directory",
+            path=tmp_path,
+            collection_name="test-coll",
+            indexer_type="project",
+        )
+        queue.submit(blocker)
+
+        # Now submit our real job — it will queue behind the blocker
         job = IndexJob(
             job_type="directory",
             path=tmp_path,
@@ -392,6 +413,9 @@ class TestSubmitAndWait:
 
         result = queue.submit_and_wait(job, timeout=0.1)
         assert result is None
+
+        # Unblock the worker and shut down cleanly
+        slow_event.set()
         queue.shutdown()
 
 

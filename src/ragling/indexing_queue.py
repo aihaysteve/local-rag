@@ -109,7 +109,14 @@ class IndexingQueue:
             timeout: Maximum seconds to wait for completion.
 
         Returns:
-            The IndexResult, or None if the timeout expired.
+            The IndexResult, or None if the timeout expired or processing
+            raised an exception.
+
+        Note:
+            On timeout the job remains in the queue and will still be
+            processed by the worker; only the result is discarded. If the
+            worker raises during processing, the done event is still set
+            and this method returns None.
         """
         request = IndexRequest(job=job)
         self._queue.put(request)
@@ -120,11 +127,10 @@ class IndexingQueue:
 
     def shutdown(self) -> None:
         """Signal the worker to stop and wait for it to finish."""
-        self._queue.put(None)  # sentinel
+        self._queue.put(None)
+        self._worker.join(timeout=30)
         if self._worker.is_alive():
-            self._worker.join(timeout=30)
-            if self._worker.is_alive():
-                logger.warning("Index worker did not shut down within 30s")
+            logger.warning("Index worker did not shut down within 30 s")
 
     def _run(self) -> None:
         """Worker loop: process jobs until sentinel (None) is received."""
