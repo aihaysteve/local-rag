@@ -470,11 +470,12 @@ Key settings:
 
 ```
 src/ragling/
-  cli.py                   CLI entry point
-  config.py                Configuration loading
+  cli.py                   CLI entry point (index, search, serve, mcp-config)
+  config.py                Frozen Config dataclass with with_overrides()
   db.py                    Database init, migrations
   embeddings.py            Ollama embedding helpers
-  search.py                Hybrid search engine (vector + FTS + RRF)
+  search.py                Hybrid search engine (vector + FTS + RRF, batch lookups)
+  search_utils.py          FTS5 query escaping
   chunker.py               Chunk dataclass and utilities
   doc_store.py             Content-addressed document cache
   docling_convert.py       Docling DocumentConverter wrapper + enrichments
@@ -482,10 +483,14 @@ src/ragling/
   mcp_server.py            MCP server (stdio + SSE)
   auth.py                  API key resolution and user context
   token_verifier.py        SSE Bearer token validation
-  sync.py                  Startup sync (background indexing)
+  tls.py                   Self-signed CA and server cert for SSE
+  sync.py                  Startup sync engine with per-collection status
   watcher.py               File watcher (watchdog, debounced)
+  config_watcher.py        Atomic config reload on file change
+  system_watcher.py        Monitors external DB files (eM Client, Calibre, NNW)
+  indexing_queue.py        Single queue, single worker thread for indexing
+  indexing_status.py       Per-collection indexing progress tracker
   path_mapping.py          Host/container path translation
-  indexing_status.py       Thread-safe indexing progress tracker
   parsers/
     markdown.py            Obsidian .md parser
     email.py               eM Client SQLite reader
@@ -502,4 +507,5 @@ src/ragling/
     git_indexer.py         Git repository indexer
     project.py             Project document indexer
     auto_indexer.py        Auto-detection routing
+    discovery.py           Path discovery and marker detection
 ```

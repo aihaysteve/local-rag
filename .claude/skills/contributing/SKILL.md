@@ -84,13 +84,19 @@ Run tests frequently: `uv run pytest -x` to stop on first failure.
 Key modules in `src/ragling/`:
 
 - `cli.py` — Click CLI entry point
-- `config.py` — Configuration loading and validation
+- `config.py` — Frozen Config dataclass with `with_overrides()`
 - `db.py` — Database init, migrations, connections
-- `search.py` — Hybrid search engine (vector + FTS + RRF)
+- `search.py` — Hybrid search engine (vector + FTS + RRF, batch source lookup)
 - `mcp_server.py` — MCP server (stdio + SSE transports)
 - `doc_store.py` — Content-addressed document cache
 - `docling_convert.py` — Docling DocumentConverter wrapper
-- `indexers/` — Per-source indexers (obsidian, email, calibre, rss, git, project)
+- `sync.py` — Startup sync engine with per-collection status tracking
+- `watcher.py` — File watcher (watchdog, debounced)
+- `indexing_queue.py` — Single queue, single worker thread for all indexing
+- `config_watcher.py` — Atomic config reload on file change
+- `system_watcher.py` — Monitors external DB files (eM Client, Calibre, NetNewsWire)
+- `tls.py` — Self-signed CA and server cert generation for SSE
+- `indexers/` — Per-source indexers (obsidian, email, calibre, rss, git, project, auto)
 - `parsers/` — Format parsers (markdown, email, calibre, rss, code, epub)
 
 For detailed architecture: read `docs/architecture.md`.
