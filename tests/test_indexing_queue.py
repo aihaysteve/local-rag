@@ -341,6 +341,60 @@ class TestProcessRouter:
             self._make_queue_and_process(job)
 
 
+class TestSubmitAndWait:
+    """Tests for IndexingQueue.submit_and_wait()."""
+
+    def test_blocks_until_job_completes(self, tmp_path: Path) -> None:
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        queue = IndexingQueue(config, status)
+        queue.start()
+
+        job = IndexJob(
+            job_type="directory",
+            path=tmp_path,
+            collection_name="test-coll",
+            indexer_type="project",
+        )
+
+        try:
+            result = queue.submit_and_wait(job, timeout=30)
+            assert result is not None
+        finally:
+            queue.shutdown()
+
+    def test_timeout_returns_none(self, tmp_path: Path) -> None:
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        queue = IndexingQueue(config, status)
+        # Don't start the worker — job will never be processed
+
+        job = IndexJob(
+            job_type="directory",
+            path=tmp_path,
+            collection_name="test-coll",
+            indexer_type="project",
+        )
+
+        result = queue.submit_and_wait(job, timeout=0.1)
+        assert result is None
+        queue.shutdown()
+
+
 class TestIndexRequest:
     """Tests for the IndexRequest synchronous wrapper."""
 

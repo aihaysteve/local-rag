@@ -81,7 +81,7 @@ class IndexingQueue:
     """
 
     def __init__(self, config: Config, status: IndexingStatus) -> None:
-        self._queue: queue.Queue[IndexJob | None] = queue.Queue()
+        self._queue: queue.Queue[IndexJob | IndexRequest | None] = queue.Queue()
         self._config = config
         self._status = status
         self._worker = threading.Thread(target=self._run, name="index-worker", daemon=True)
@@ -101,27 +101,55 @@ class IndexingQueue:
         self._queue.put(job)
         self._status.increment(job.collection_name)
 
+    def submit_and_wait(self, job: IndexJob, timeout: float = 300) -> IndexResult | None:
+        """Submit a job and block until it completes.
+
+        Args:
+            job: The indexing job to enqueue.
+            timeout: Maximum seconds to wait for completion.
+
+        Returns:
+            The IndexResult, or None if the timeout expired.
+        """
+        request = IndexRequest(job=job)
+        self._queue.put(request)
+        self._status.increment(job.collection_name)
+        if request.done.wait(timeout=timeout):
+            return request.result
+        return None
+
     def shutdown(self) -> None:
         """Signal the worker to stop and wait for it to finish."""
         self._queue.put(None)  # sentinel
-        self._worker.join(timeout=30)
         if self._worker.is_alive():
-            logger.warning("Index worker did not shut down within 30s")
+            self._worker.join(timeout=30)
+            if self._worker.is_alive():
+                logger.warning("Index worker did not shut down within 30s")
 
     def _run(self) -> None:
         """Worker loop: process jobs until sentinel (None) is received."""
         while True:
-            job = self._queue.get()
-            if job is None:
+            item = self._queue.get()
+            if item is None:
                 break
+
+            if isinstance(item, IndexRequest):
+                job = item.job
+            else:
+                job = item
+
             try:
-                self._process(job)
+                result = self._process(job)
+                if isinstance(item, IndexRequest):
+                    item.result = result
             except Exception:
                 logger.exception("Indexing failed: %s", job)
             finally:
                 self._status.decrement(job.collection_name)
+                if isinstance(item, IndexRequest):
+                    item.done.set()
 
-    def _process(self, job: IndexJob) -> None:
+    def _process(self, job: IndexJob) -> IndexResult | None:
         """Route a job to the correct indexer.
 
         This is the single place where indexer routing lives.
@@ -129,23 +157,27 @@ class IndexingQueue:
         Args:
             job: The indexing job to process.
 
+        Returns:
+            The IndexResult from the indexer, or None for prune jobs.
+
         Raises:
             ValueError: If the indexer_type is not recognized.
         """
         if job.indexer_type == "project":
-            self._index_project(job)
+            return self._index_project(job)
         elif job.indexer_type == "code":
-            self._index_code(job)
+            return self._index_code(job)
         elif job.indexer_type == "obsidian":
-            self._index_obsidian(job)
+            return self._index_obsidian(job)
         elif job.indexer_type == "email":
-            self._index_email(job)
+            return self._index_email(job)
         elif job.indexer_type == "calibre":
-            self._index_calibre(job)
+            return self._index_calibre(job)
         elif job.indexer_type == "rss":
-            self._index_rss(job)
+            return self._index_rss(job)
         elif job.indexer_type == "prune":
             self._prune(job)
+            return None
         else:
             raise ValueError(f"Unknown indexer_type: {job.indexer_type!r}")
 
@@ -178,7 +210,7 @@ class IndexingQueue:
             raise ValueError(f"{job.indexer_type} job requires a path")
         return job.path
 
-    def _index_project(self, job: IndexJob) -> None:
+    def _index_project(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.project import ProjectIndexer
 
         with self._open_conn_and_docstore() as (conn, doc_store):
@@ -186,8 +218,9 @@ class IndexingQueue:
             indexer = ProjectIndexer(job.collection_name, paths, doc_store=doc_store)
             result = indexer.index(conn, self._config, force=job.force)
             logger.info("Indexed project %s: %s", job.collection_name, result)
+            return result
 
-    def _index_code(self, job: IndexJob) -> None:
+    def _index_code(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.git_indexer import GitRepoIndexer
 
         path = self._require_path(job)
@@ -195,8 +228,9 @@ class IndexingQueue:
             indexer = GitRepoIndexer(path, collection_name=job.collection_name)
             result = indexer.index(conn, self._config, force=job.force, index_history=True)
             logger.info("Indexed code %s: %s", job.collection_name, result)
+            return result
 
-    def _index_obsidian(self, job: IndexJob) -> None:
+    def _index_obsidian(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.obsidian import ObsidianIndexer
 
         with self._open_conn_and_docstore() as (conn, doc_store):
@@ -206,8 +240,9 @@ class IndexingQueue:
             )
             result = indexer.index(conn, self._config, force=job.force)
             logger.info("Indexed obsidian: %s", result)
+            return result
 
-    def _index_email(self, job: IndexJob) -> None:
+    def _index_email(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.email_indexer import EmailIndexer
 
         with self._open_conn() as conn:
@@ -215,8 +250,9 @@ class IndexingQueue:
             indexer = EmailIndexer(db_path)
             result = indexer.index(conn, self._config, force=job.force)
             logger.info("Indexed email: %s", result)
+            return result
 
-    def _index_calibre(self, job: IndexJob) -> None:
+    def _index_calibre(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.calibre_indexer import CalibreIndexer
 
         with self._open_conn_and_docstore() as (conn, doc_store):
@@ -224,8 +260,9 @@ class IndexingQueue:
             indexer = CalibreIndexer(libraries, doc_store=doc_store)
             result = indexer.index(conn, self._config, force=job.force)
             logger.info("Indexed calibre: %s", result)
+            return result
 
-    def _index_rss(self, job: IndexJob) -> None:
+    def _index_rss(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.rss_indexer import RSSIndexer
 
         with self._open_conn() as conn:
@@ -233,6 +270,7 @@ class IndexingQueue:
             indexer = RSSIndexer(db_path)
             result = indexer.index(conn, self._config, force=job.force)
             logger.info("Indexed rss: %s", result)
+            return result
 
     def _prune(self, job: IndexJob) -> None:
         from ragling.indexers.base import delete_source
