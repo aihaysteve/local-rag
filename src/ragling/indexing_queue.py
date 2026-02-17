@@ -236,12 +236,27 @@ class IndexingQueue:
 
     def _index_code(self, job: IndexJob) -> IndexResult | None:
         from ragling.indexers.git_indexer import GitRepoIndexer
+        from ragling.indexers.project import ProjectIndexer
 
         path = self._require_path(job)
-        with self._open_conn() as conn:
+        with self._open_conn_and_docstore() as (conn, doc_store):
             indexer = GitRepoIndexer(path, collection_name=job.collection_name)
             result = indexer.index(conn, self._config, force=job.force, index_history=True)
             logger.info("Indexed code %s: %s", job.collection_name, result)
+
+            # Document pass: index non-code files (docx, pdf, etc.) via ProjectIndexer
+            from ragling.indexers.discovery import DiscoveredSource
+
+            repo_source = DiscoveredSource(path=path, source_type="code", relative_name="")
+            proj = ProjectIndexer(job.collection_name, [path], doc_store=doc_store)
+            doc_result = proj._index_repo_documents(
+                conn, self._config, repo_source, job.collection_name, job.force
+            )
+            if doc_result.indexed > 0:
+                logger.info(
+                    "Document pass for %s: %d indexed", job.collection_name, doc_result.indexed
+                )
+
             return result
 
     def _index_obsidian(self, job: IndexJob) -> IndexResult | None:

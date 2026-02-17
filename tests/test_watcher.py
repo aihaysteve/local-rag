@@ -279,3 +279,77 @@ class TestHandlerExtensionFiltering:
         handler.on_modified(event)
 
         queue.enqueue.assert_not_called()
+
+
+class TestHandlerGitStateFiles:
+    """Tests for _Handler passing through .git/HEAD and .git/refs/ changes."""
+
+    def test_git_head_change_is_enqueued(self) -> None:
+        """Changes to .git/HEAD should be enqueued despite no extension."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/HEAD")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/repo/.git/HEAD"))
+
+    def test_git_refs_heads_change_is_enqueued(self) -> None:
+        """Changes to .git/refs/heads/main should be enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/refs/heads/main")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/repo/.git/refs/heads/main"))
+
+    def test_git_refs_remotes_change_is_enqueued(self) -> None:
+        """Changes to .git/refs/remotes/ should be enqueued (e.g. git fetch)."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/refs/remotes/origin/main")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/repo/.git/refs/remotes/origin/main"))
+
+    def test_git_objects_change_is_not_enqueued(self) -> None:
+        """Changes to .git/objects/ should NOT be enqueued (noisy)."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/objects/ab/cdef1234")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_git_index_change_is_not_enqueued(self) -> None:
+        """Changes to .git/index should NOT be enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/index")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_git_logs_change_is_not_enqueued(self) -> None:
+        """Changes to .git/logs/ should NOT be enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/logs/HEAD")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_git_head_created_is_enqueued(self) -> None:
+        """Created events on .git/refs/ should also be enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".pdf", ".py"})
+
+        event = FileCreatedEvent(src_path="/repo/.git/refs/heads/new-branch")
+        handler.on_created(event)
+
+        queue.enqueue.assert_called_once_with(Path("/repo/.git/refs/heads/new-branch"))

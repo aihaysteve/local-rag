@@ -141,6 +141,30 @@ class _Handler(FileSystemEventHandler):
         path = Path(str(event.src_path))
         if path.suffix.lower() in self._extensions:
             self._queue.enqueue(path)
+        elif _is_git_state_file(path):
+            self._queue.enqueue(path)
+
+
+def _is_git_state_file(path: Path) -> bool:
+    """Check if a path is a git state file that signals repo changes.
+
+    Matches .git/HEAD and anything under .git/refs/ (branch updates,
+    remote tracking refs). Excludes noisy paths like .git/objects/,
+    .git/index, and .git/logs/.
+    """
+    parts = path.parts
+    try:
+        git_idx = parts.index(".git")
+    except ValueError:
+        return False
+    rest = parts[git_idx + 1 :]
+    if not rest:
+        return False
+    if rest == ("HEAD",):
+        return True
+    if rest[0] == "refs":
+        return True
+    return False
 
 
 def start_watcher(

@@ -523,6 +523,116 @@ class TestSystemCollectionReindex:
 # ---------------------------------------------------------------------------
 
 
+class TestSubmitFileChangeGitStateRouting:
+    """Tests for submit_file_change routing .git/ state file changes to code re-index."""
+
+    def test_git_head_change_submits_code_reindex(self, tmp_path: Path) -> None:
+        """A change to .git/HEAD should submit a code re-index for the repo root."""
+        from ragling.sync import submit_file_change
+
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        git_head = repo / ".git" / "HEAD"
+        git_head.write_text("ref: refs/heads/main\n")
+
+        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
+        queue = MagicMock()
+
+        submit_file_change(git_head, config, queue)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "code"
+        assert job.collection_name == "my-org"
+        assert job.path == repo
+
+    def test_git_refs_change_submits_code_reindex(self, tmp_path: Path) -> None:
+        """A change to .git/refs/heads/main should submit a code re-index."""
+        from ragling.sync import submit_file_change
+
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git" / "refs" / "heads").mkdir(parents=True)
+        ref_file = repo / ".git" / "refs" / "heads" / "main"
+        ref_file.write_text("abc123\n")
+
+        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
+        queue = MagicMock()
+
+        submit_file_change(ref_file, config, queue)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "code"
+        assert job.path == repo
+
+    def test_git_state_change_in_home_repo_routes_correctly(self, tmp_path: Path) -> None:
+        """A .git/ change in a repo under home dir maps to the user's collection."""
+        from ragling.sync import submit_file_change
+
+        home = tmp_path / "groups"
+        user_dir = home / "kitchen"
+        repo = user_dir / "myrepo"
+        (repo / ".git" / "refs" / "heads").mkdir(parents=True)
+        ref_file = repo / ".git" / "refs" / "heads" / "main"
+        ref_file.write_text("abc123\n")
+
+        config = Config(
+            home=home,
+            users={"kitchen": UserConfig(api_key="k")},
+        )
+        queue = MagicMock()
+
+        submit_file_change(ref_file, config, queue)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "code"
+        assert job.collection_name == "kitchen"
+
+    def test_git_state_change_disabled_collection_skipped(self, tmp_path: Path) -> None:
+        """A .git/ change in a disabled collection is silently skipped."""
+        from ragling.sync import submit_file_change
+
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        git_head = repo / ".git" / "HEAD"
+        git_head.write_text("ref: refs/heads/main\n")
+
+        config = Config(
+            code_groups=MappingProxyType({"my-org": (repo,)}),
+            disabled_collections=frozenset({"my-org"}),
+        )
+        queue = MagicMock()
+
+        submit_file_change(git_head, config, queue)
+
+        queue.submit.assert_not_called()
+
+    def test_git_state_change_unmapped_repo_logs_warning(
+        self, tmp_path: Path, caplog: object
+    ) -> None:
+        """A .git/ change in an unknown repo logs a warning."""
+        import logging
+
+        from ragling.sync import submit_file_change
+
+        repo = tmp_path / "unknown_repo"
+        (repo / ".git").mkdir(parents=True)
+        git_head = repo / ".git" / "HEAD"
+        git_head.write_text("ref: refs/heads/main\n")
+
+        config = Config()
+        queue = MagicMock()
+
+        with caplog.at_level(logging.WARNING, logger="ragling.sync"):  # type: ignore[union-attr]
+            submit_file_change(git_head, config, queue)
+
+        queue.submit.assert_not_called()
+
+
 class TestSubmitFileChangeDisabledCollection:
     """Tests for submit_file_change skipping disabled collections."""
 

@@ -236,6 +236,39 @@ class TestProcessRouter:
     @patch("ragling.doc_store.DocStore")
     @patch("ragling.indexing_queue.init_db")
     @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.git_indexer.GitRepoIndexer")
+    @patch("ragling.indexers.project.ProjectIndexer")
+    def test_code_route_runs_document_pass(
+        self,
+        mock_proj: MagicMock,
+        mock_git: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+        mock_ds: MagicMock,
+    ) -> None:
+        """Code indexing should also run a document pass for non-code files."""
+        from ragling.indexers.base import IndexResult
+
+        mock_conn.return_value = MagicMock()
+        mock_ds.return_value = MagicMock()
+        mock_git.return_value.index.return_value = IndexResult(indexed=3)
+        mock_proj.return_value._index_repo_documents.return_value = IndexResult(indexed=1)
+
+        job = IndexJob(
+            job_type="directory",
+            path=Path("/repo"),
+            collection_name="my-org",
+            indexer_type="code",
+        )
+        self._make_queue_and_process(job)
+
+        mock_git.assert_called_once()
+        # ProjectIndexer should be instantiated for the document pass
+        mock_proj.assert_called_once()
+
+    @patch("ragling.doc_store.DocStore")
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
     @patch("ragling.indexers.obsidian.ObsidianIndexer")
     def test_routes_obsidian(
         self, mock_obs: MagicMock, mock_conn: MagicMock, mock_init: MagicMock, mock_ds: MagicMock
