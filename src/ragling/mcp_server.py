@@ -451,6 +451,7 @@ def create_server(
                 ),
                 "score": round(r.score, 4),
                 "metadata": r.metadata,
+                "stale": r.stale,
             }
             for r in results
         ]

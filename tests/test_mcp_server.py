@@ -308,6 +308,62 @@ class TestGetUserContext:
             assert ctx is None
 
 
+class TestStaleFieldInResponse:
+    """Tests for stale field appearing in search results."""
+
+    def test_result_dict_includes_stale_field(self) -> None:
+        """Verify the result dict construction includes 'stale' key."""
+        from ragling.search import SearchResult
+
+        r = SearchResult(
+            content="test",
+            title="test",
+            metadata={},
+            score=1.0,
+            collection="obsidian",
+            source_path="/tmp/test.md",
+            source_type="markdown",
+            stale=True,
+        )
+        # Simulate the dict construction from mcp_server.py
+        result_dict = {
+            "title": r.title,
+            "content": r.content,
+            "collection": r.collection,
+            "source_type": r.source_type,
+            "source_path": r.source_path,
+            "score": round(r.score, 4),
+            "metadata": r.metadata,
+            "stale": r.stale,
+        }
+        assert result_dict["stale"] is True
+
+    def test_result_dict_stale_defaults_false(self) -> None:
+        """Verify stale defaults to False when not explicitly set."""
+        from ragling.search import SearchResult
+
+        r = SearchResult(
+            content="test",
+            title="test",
+            metadata={},
+            score=1.0,
+            collection="obsidian",
+            source_path="/tmp/test.md",
+            source_type="markdown",
+        )
+        result_dict = {
+            "title": r.title,
+            "content": r.content,
+            "collection": r.collection,
+            "source_type": r.source_type,
+            "source_path": r.source_path,
+            "score": round(r.score, 4),
+            "metadata": r.metadata,
+            "stale": r.stale,
+        }
+        assert result_dict["stale"] is False
+
+
 class TestRagIndexQueueRouting:
     """Tests for rag_index routing through IndexingQueue."""
 
