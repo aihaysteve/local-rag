@@ -68,6 +68,25 @@ class TestGetConnection:
             conn.close()
 
 
+class TestBusyTimeout:
+    """Tests for PRAGMA busy_timeout on connections."""
+
+    def test_busy_timeout_is_set(self, tmp_path: Path) -> None:
+        from ragling.db import get_connection
+
+        config = Config(
+            group_name="timeout-test",
+            group_db_dir=tmp_path / "groups",
+            embedding_dimensions=4,
+        )
+        conn = get_connection(config)
+        try:
+            row = conn.execute("PRAGMA busy_timeout").fetchone()
+            assert row[0] == 5000
+        finally:
+            conn.close()
+
+
 class TestInitDbThroughGroupConnection:
     """Tests for init_db working through per-group connections."""
 
