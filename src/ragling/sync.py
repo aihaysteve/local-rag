@@ -170,7 +170,11 @@ def run_startup_sync(
                     )
 
             # --- System collections ---
-            if config.is_collection_enabled("email"):
+            if (
+                config.is_collection_enabled("email")
+                and config.emclient_db_path
+                and config.emclient_db_path.exists()
+            ):
                 queue.submit(
                     IndexJob(
                         job_type="system_collection",
@@ -182,6 +186,8 @@ def run_startup_sync(
 
             if config.is_collection_enabled("calibre"):
                 for lib in config.calibre_libraries:
+                    if not lib.exists():
+                        continue
                     queue.submit(
                         IndexJob(
                             job_type="system_collection",
@@ -191,7 +197,11 @@ def run_startup_sync(
                         )
                     )
 
-            if config.is_collection_enabled("rss"):
+            if (
+                config.is_collection_enabled("rss")
+                and config.netnewswire_db_path
+                and config.netnewswire_db_path.exists()
+            ):
                 queue.submit(
                     IndexJob(
                         job_type="system_collection",

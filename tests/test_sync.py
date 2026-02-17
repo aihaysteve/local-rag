@@ -220,10 +220,16 @@ class TestRunStartupSync:
         """System collections (email, calibre, rss) are submitted."""
         from ragling.sync import run_startup_sync
 
+        emclient = tmp_path / "emclient"
+        emclient.touch()
+        calibre = tmp_path / "calibre"
+        calibre.mkdir()
+        nnw = tmp_path / "nnw"
+        nnw.touch()
         config = Config(
-            emclient_db_path=tmp_path / "emclient",
-            calibre_libraries=(tmp_path / "calibre",),
-            netnewswire_db_path=tmp_path / "nnw",
+            emclient_db_path=emclient,
+            calibre_libraries=(calibre,),
+            netnewswire_db_path=nnw,
         )
         queue = MagicMock()
         done = threading.Event()
@@ -240,9 +246,11 @@ class TestRunStartupSync:
         """Disabled collections are not submitted."""
         from ragling.sync import run_startup_sync
 
+        calibre = tmp_path / "calibre"
+        calibre.mkdir()
         config = Config(
             emclient_db_path=tmp_path / "emclient",
-            calibre_libraries=(tmp_path / "calibre",),
+            calibre_libraries=(calibre,),
             netnewswire_db_path=tmp_path / "nnw",
             disabled_collections=frozenset({"email", "rss"}),
         )
@@ -256,6 +264,26 @@ class TestRunStartupSync:
         assert "email" not in submitted_types
         assert "rss" not in submitted_types
         assert "calibre" in submitted_types
+
+    def test_skips_system_collections_with_missing_paths(self, tmp_path: Path) -> None:
+        """System collections with non-existent paths are not submitted."""
+        from ragling.sync import run_startup_sync
+
+        config = Config(
+            emclient_db_path=tmp_path / "nonexistent_emclient",
+            calibre_libraries=(tmp_path / "nonexistent_calibre",),
+            netnewswire_db_path=tmp_path / "nonexistent_nnw",
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        submitted_types = {call[0][0].indexer_type for call in queue.submit.call_args_list}
+        assert "email" not in submitted_types
+        assert "calibre" not in submitted_types
+        assert "rss" not in submitted_types
 
     def test_submits_code_groups(self, tmp_path: Path) -> None:
         """Code groups from config are submitted with code indexer_type."""
