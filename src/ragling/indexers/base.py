@@ -83,7 +83,7 @@ def upsert_source_with_chunks(
         if old_doc_ids:
             placeholders = ",".join("?" * len(old_doc_ids))
             conn.execute(
-                f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
+                f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",  # noqa: S608 — parameterized placeholders, not user input
                 old_doc_ids,
             )
             conn.execute("DELETE FROM documents WHERE source_id = ?", (source_id,))
@@ -167,7 +167,7 @@ def delete_source(
     if old_doc_ids:
         placeholders = ",".join("?" * len(old_doc_ids))
         conn.execute(
-            f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",
+            f"DELETE FROM vec_documents WHERE document_id IN ({placeholders})",  # noqa: S608 — parameterized placeholders, not user input
             old_doc_ids,
         )
 

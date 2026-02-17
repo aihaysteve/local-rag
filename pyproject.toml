@@ -43,5 +43,8 @@ where = ["src"]
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.lint]
+extend-select = ["S608"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

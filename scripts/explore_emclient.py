@@ -87,7 +87,7 @@ def _print_schema(conn: sqlite3.Connection, db_name: str) -> None:
         table_name = t["name"]
         columns = conn.execute(f"PRAGMA table_info([{table_name}])").fetchall()
         try:
-            count = conn.execute(f"SELECT COUNT(*) as cnt FROM [{table_name}]").fetchone()
+            count = conn.execute(f"SELECT COUNT(*) as cnt FROM [{table_name}]").fetchone()  # noqa: S608 — table_name from PRAGMA table_list, not user input
             row_count = count["cnt"]
         except sqlite3.OperationalError:
             row_count = "?"

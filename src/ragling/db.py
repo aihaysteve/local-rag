@@ -52,8 +52,8 @@ def init_db(conn: sqlite3.Connection, config: Config) -> None:
     """
     dim = config.embedding_dimensions
 
-    conn.executescript(
-        f"""
+    # dim is config.embedding_dimensions (int), not user input
+    schema_sql = f"""
         CREATE TABLE IF NOT EXISTS collections (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -123,8 +123,8 @@ def init_db(conn: sqlite3.Connection, config: Config) -> None:
             key TEXT PRIMARY KEY,
             value TEXT
         );
-    """
-    )
+    """  # noqa: S608 — dim is config.embedding_dimensions (int), not user input
+    conn.executescript(schema_sql)
 
     # Set schema version if not already set
     row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()

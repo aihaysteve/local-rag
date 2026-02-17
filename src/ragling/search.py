@@ -199,7 +199,7 @@ def _batch_load_metadata(
             JOIN collections c ON d.collection_id = c.id
             JOIN sources s ON d.source_id = s.id
             WHERE d.id IN ({placeholders})
-            """,
+            """,  # noqa: S608 — parameterized placeholders, not user input
             uncached_ids,
         ).fetchall()
 
@@ -361,7 +361,7 @@ def search(
         if not visible_collections:
             return []  # empty list = no access
         rows = conn.execute(
-            f"SELECT id FROM collections WHERE name IN ({','.join('?' * len(visible_collections))})",
+            f"SELECT id FROM collections WHERE name IN ({','.join('?' * len(visible_collections))})",  # noqa: S608 — parameterized placeholders, not user input
             visible_collections,
         ).fetchall()
         allowed_ids = {row["id"] for row in rows}
