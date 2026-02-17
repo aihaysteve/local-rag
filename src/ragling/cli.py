@@ -3,6 +3,7 @@
 import logging
 import signal
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
@@ -267,7 +268,7 @@ def index_group(ctx: click.Context, name: str | None, force: bool, history: bool
         if name not in config.code_groups:
             click.echo(f"Error: Group '{name}' not found in code_groups config.", err=True)
             sys.exit(1)
-        groups = {name: config.code_groups[name]}
+        groups: Mapping[str, tuple[Path, ...]] = {name: config.code_groups[name]}
     elif config.code_groups:
         groups = config.code_groups
     else:

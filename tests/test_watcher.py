@@ -2,6 +2,7 @@
 
 import time
 from pathlib import Path
+from types import MappingProxyType
 from unittest.mock import MagicMock
 
 from watchdog.events import FileDeletedEvent
@@ -72,7 +73,7 @@ class TestWatcherPaths:
         home.mkdir()
         global_dir.mkdir()
 
-        config = Config(home=home, global_paths=[global_dir])
+        config = Config(home=home, global_paths=(global_dir,))
         paths = get_watch_paths(config)
         assert home in paths
         assert global_dir in paths
@@ -82,7 +83,7 @@ class TestWatcherPaths:
 
         config = Config(
             home=tmp_path / "nonexistent",
-            global_paths=[tmp_path / "also-nonexistent"],
+            global_paths=(tmp_path / "also-nonexistent",),
         )
         paths = get_watch_paths(config)
         assert len(paths) == 0
@@ -96,7 +97,7 @@ class TestWatchPathsIncludesObsidianAndCode:
 
         vault = tmp_path / "vault"
         vault.mkdir()
-        config = Config(obsidian_vaults=[vault])
+        config = Config(obsidian_vaults=(vault,))
         paths = get_watch_paths(config)
         assert vault in paths
 
@@ -105,21 +106,21 @@ class TestWatchPathsIncludesObsidianAndCode:
 
         repo = tmp_path / "repo"
         repo.mkdir()
-        config = Config(code_groups={"my-org": [repo]})
+        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
         paths = get_watch_paths(config)
         assert repo in paths
 
     def test_skips_nonexistent_obsidian_vaults(self, tmp_path: Path) -> None:
         from ragling.watcher import get_watch_paths
 
-        config = Config(obsidian_vaults=[tmp_path / "nonexistent"])
+        config = Config(obsidian_vaults=(tmp_path / "nonexistent",))
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
     def test_skips_nonexistent_code_repos(self, tmp_path: Path) -> None:
         from ragling.watcher import get_watch_paths
 
-        config = Config(code_groups={"org": [tmp_path / "nonexistent"]})
+        config = Config(code_groups=MappingProxyType({"org": (tmp_path / "nonexistent",)}))
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
@@ -131,7 +132,7 @@ class TestWatchPathsIncludesObsidianAndCode:
         shared_dir.mkdir()
         config = Config(
             home=shared_dir,
-            obsidian_vaults=[shared_dir],
+            obsidian_vaults=(shared_dir,),
         )
         paths = get_watch_paths(config)
         assert paths.count(shared_dir) == 1
@@ -148,9 +149,9 @@ class TestWatchPathsIncludesObsidianAndCode:
 
         config = Config(
             home=home,
-            global_paths=[global_dir],
-            obsidian_vaults=[vault],
-            code_groups={"org": [repo]},
+            global_paths=(global_dir,),
+            obsidian_vaults=(vault,),
+            code_groups=MappingProxyType({"org": (repo,)}),
         )
         paths = get_watch_paths(config)
         assert home in paths

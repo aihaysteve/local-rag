@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 
 from ragling.chunker import Chunk
@@ -34,7 +35,7 @@ PREFERRED_FORMATS = ["EPUB", "PDF"]
 class CalibreIndexer(BaseIndexer):
     """Indexes ebooks from Calibre libraries with rich metadata."""
 
-    def __init__(self, library_paths: list[Path], doc_store: DocStore | None = None) -> None:
+    def __init__(self, library_paths: Sequence[Path], doc_store: DocStore | None = None) -> None:
         self.library_paths = library_paths
         self.doc_store = doc_store
 

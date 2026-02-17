@@ -24,7 +24,7 @@ class TestSystemCollectionWatcher:
 
         config = Config(
             emclient_db_path=email_db,
-            calibre_libraries=[calibre_lib],
+            calibre_libraries=(calibre_lib,),
             netnewswire_db_path=nnw_db,
         )
         queue = MagicMock()
@@ -119,7 +119,7 @@ class TestSystemCollectionWatcher:
 
         config = Config(
             emclient_db_path=email_db,
-            calibre_libraries=[calibre_lib],
+            calibre_libraries=(calibre_lib,),
             netnewswire_db_path=nnw_db,
         )
         queue = MagicMock()

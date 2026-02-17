@@ -2,6 +2,7 @@
 
 import threading
 from pathlib import Path
+from types import MappingProxyType
 from unittest.mock import MagicMock, patch
 
 from ragling.config import Config, UserConfig
@@ -23,14 +24,14 @@ class TestSyncMapFileToCollection:
         from ragling.sync import map_file_to_collection
 
         global_dir = tmp_path / "global"
-        config = Config(global_paths=[global_dir])
+        config = Config(global_paths=(global_dir,))
         name = map_file_to_collection(global_dir / "shared.md", config)
         assert name == "global"
 
     def test_file_outside_known_dirs_returns_none(self, tmp_path: Path) -> None:
         from ragling.sync import map_file_to_collection
 
-        config = Config(home=tmp_path / "groups", global_paths=[])
+        config = Config(home=tmp_path / "groups", global_paths=())
         name = map_file_to_collection(tmp_path / "random" / "file.md", config)
         assert name is None
 
@@ -43,7 +44,7 @@ class TestMapFileToCollectionObsidianAndCode:
 
         vault = tmp_path / "vault"
         vault.mkdir()
-        config = Config(obsidian_vaults=[vault])
+        config = Config(obsidian_vaults=(vault,))
         name = map_file_to_collection(vault / "notes" / "daily.md", config)
         assert name == "obsidian"
 
@@ -52,7 +53,7 @@ class TestMapFileToCollectionObsidianAndCode:
 
         repo = tmp_path / "myrepo"
         repo.mkdir()
-        config = Config(code_groups={"my-org": [repo]})
+        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
         name = map_file_to_collection(repo / "src" / "main.py", config)
         assert name == "my-org"
 
@@ -61,7 +62,7 @@ class TestMapFileToCollectionObsidianAndCode:
 
         vault = tmp_path / "vault"
         vault.mkdir()
-        config = Config(obsidian_vaults=[vault])
+        config = Config(obsidian_vaults=(vault,))
         name = map_file_to_collection(tmp_path / "other" / "file.md", config)
         assert name is None
 
@@ -72,7 +73,7 @@ class TestMapFileToCollectionObsidianAndCode:
         repo2 = tmp_path / "repo2"
         repo1.mkdir()
         repo2.mkdir()
-        config = Config(code_groups={"my-org": [repo1, repo2]})
+        config = Config(code_groups=MappingProxyType({"my-org": (repo1, repo2)}))
         name = map_file_to_collection(repo2 / "lib.py", config)
         assert name == "my-org"
 
@@ -86,7 +87,7 @@ class TestMapFileToCollectionObsidianAndCode:
         config = Config(
             home=home,
             users={"kitchen": UserConfig(api_key="k")},
-            obsidian_vaults=[vault],
+            obsidian_vaults=(vault,),
         )
         name = map_file_to_collection(vault / "note.md", config)
         assert name == "kitchen"
@@ -181,7 +182,7 @@ class TestRunStartupSync:
         global_dir = tmp_path / "global"
         global_dir.mkdir()
 
-        config = Config(global_paths=[global_dir])
+        config = Config(global_paths=(global_dir,))
         queue = MagicMock()
         done = threading.Event()
 
@@ -202,7 +203,7 @@ class TestRunStartupSync:
         vault = tmp_path / "vault"
         vault.mkdir()
 
-        config = Config(obsidian_vaults=[vault])
+        config = Config(obsidian_vaults=(vault,))
         queue = MagicMock()
         done = threading.Event()
 
@@ -221,7 +222,7 @@ class TestRunStartupSync:
 
         config = Config(
             emclient_db_path=tmp_path / "emclient",
-            calibre_libraries=[tmp_path / "calibre"],
+            calibre_libraries=(tmp_path / "calibre",),
             netnewswire_db_path=tmp_path / "nnw",
         )
         queue = MagicMock()
@@ -241,9 +242,9 @@ class TestRunStartupSync:
 
         config = Config(
             emclient_db_path=tmp_path / "emclient",
-            calibre_libraries=[tmp_path / "calibre"],
+            calibre_libraries=(tmp_path / "calibre",),
             netnewswire_db_path=tmp_path / "nnw",
-            disabled_collections=["email", "rss"],
+            disabled_collections=frozenset({"email", "rss"}),
         )
         queue = MagicMock()
         done = threading.Event()
@@ -263,7 +264,7 @@ class TestRunStartupSync:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        config = Config(code_groups={"my-org": [repo]})
+        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
         queue = MagicMock()
         done = threading.Event()
 
@@ -281,7 +282,7 @@ class TestRunStartupSync:
         from ragling.sync import run_startup_sync
 
         config = Config(
-            disabled_collections=["email", "calibre", "rss"],
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
         )
         queue = MagicMock()
         done = threading.Event()
@@ -294,7 +295,7 @@ class TestRunStartupSync:
     def test_done_event_is_set_after_sync(self) -> None:
         from ragling.sync import run_startup_sync
 
-        config = Config(disabled_collections=["email", "calibre", "rss"])
+        config = Config(disabled_collections=frozenset({"email", "calibre", "rss"}))
         queue = MagicMock()
         done = threading.Event()
 
@@ -326,7 +327,7 @@ class TestRunStartupSync:
         """Backward compatibility: done_event=None (default) still works."""
         from ragling.sync import run_startup_sync
 
-        config = Config(disabled_collections=["email", "calibre", "rss"])
+        config = Config(disabled_collections=frozenset({"email", "calibre", "rss"}))
         queue = MagicMock()
 
         thread = run_startup_sync(config, queue)
@@ -386,7 +387,7 @@ class TestSubmitFileChange:
     def test_unmapped_file_does_not_submit(self, tmp_path: Path) -> None:
         from ragling.sync import submit_file_change
 
-        config = Config(home=tmp_path / "groups", users={}, global_paths=[])
+        config = Config(home=tmp_path / "groups", users={}, global_paths=())
         queue = MagicMock()
 
         submit_file_change(tmp_path / "random" / "file.md", config, queue)
@@ -401,7 +402,7 @@ class TestSubmitFileChange:
         test_file = global_dir / "shared.md"
         test_file.write_text("# Shared")
 
-        config = Config(global_paths=[global_dir])
+        config = Config(global_paths=(global_dir,))
         queue = MagicMock()
 
         with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):

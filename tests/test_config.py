@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -83,7 +84,7 @@ class TestUserConfig:
 
     def test_default_global_paths_is_empty(self) -> None:
         config = Config()
-        assert config.global_paths == []
+        assert config.global_paths == ()
 
     def test_default_users_is_empty(self) -> None:
         config = Config()
@@ -100,7 +101,7 @@ class TestUserConfig:
         global_dir = tmp_path / "global"
         config_file.write_text(json.dumps({"global_paths": [str(global_dir)]}))
         config = load_config(config_file)
-        assert config.global_paths == [global_dir]
+        assert config.global_paths == (global_dir,)
 
     def test_loads_users_from_json(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.json"
@@ -137,8 +138,8 @@ class TestUserConfig:
             )
         )
         config = load_config(config_file)
-        assert config.obsidian_vaults == [tmp_path / "vault"]
-        assert config.calibre_libraries == [tmp_path / "calibre"]
+        assert config.obsidian_vaults == (tmp_path / "vault",)
+        assert config.calibre_libraries == (tmp_path / "calibre",)
 
     def test_tilde_expansion_in_home(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.json"
@@ -201,3 +202,76 @@ class TestConfigImmutability:
         config = Config()
         with pytest.raises(TypeError):
             config.with_overrides(nonexistent_field="value")
+
+    def test_obsidian_vaults_is_tuple(self) -> None:
+        config = Config(obsidian_vaults=(Path("/a"), Path("/b")))
+        assert isinstance(config.obsidian_vaults, tuple)
+
+    def test_calibre_libraries_is_tuple(self) -> None:
+        config = Config(calibre_libraries=(Path("/lib"),))
+        assert isinstance(config.calibre_libraries, tuple)
+
+    def test_global_paths_is_tuple(self) -> None:
+        config = Config(global_paths=(Path("/g"),))
+        assert isinstance(config.global_paths, tuple)
+
+    def test_disabled_collections_is_frozenset(self) -> None:
+        config = Config(disabled_collections=frozenset({"email"}))
+        assert isinstance(config.disabled_collections, frozenset)
+
+    def test_obsidian_exclude_folders_is_tuple(self) -> None:
+        config = Config(obsidian_exclude_folders=("_Inbox",))
+        assert isinstance(config.obsidian_exclude_folders, tuple)
+
+    def test_code_groups_is_mapping_proxy(self) -> None:
+        config = Config(code_groups=MappingProxyType({"org": (Path("/repo"),)}))
+        assert isinstance(config.code_groups, MappingProxyType)
+
+    def test_code_groups_values_are_tuples(self) -> None:
+        config = Config(code_groups=MappingProxyType({"org": (Path("/repo"),)}))
+        assert isinstance(config.code_groups["org"], tuple)
+
+    def test_git_commit_subject_blacklist_is_tuple(self) -> None:
+        config = Config(git_commit_subject_blacklist=("merge",))
+        assert isinstance(config.git_commit_subject_blacklist, tuple)
+
+    def test_default_containers_are_immutable(self) -> None:
+        """Default values for container fields should be immutable types."""
+        config = Config()
+        assert isinstance(config.obsidian_vaults, tuple)
+        assert isinstance(config.obsidian_exclude_folders, tuple)
+        assert isinstance(config.calibre_libraries, tuple)
+        assert isinstance(config.code_groups, MappingProxyType)
+        assert isinstance(config.disabled_collections, frozenset)
+        assert isinstance(config.git_commit_subject_blacklist, tuple)
+        assert isinstance(config.global_paths, tuple)
+
+    def test_load_config_produces_immutable_containers(self, tmp_path: Path) -> None:
+        """load_config should produce immutable container types."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "obsidian_vaults": [str(tmp_path / "vault")],
+                    "calibre_libraries": [str(tmp_path / "calibre")],
+                    "code_groups": {"org": [str(tmp_path / "repo")]},
+                    "disabled_collections": ["email"],
+                    "git_commit_subject_blacklist": ["merge"],
+                    "global_paths": [str(tmp_path / "global")],
+                }
+            )
+        )
+        config = load_config(config_file)
+        assert isinstance(config.obsidian_vaults, tuple)
+        assert isinstance(config.calibre_libraries, tuple)
+        assert isinstance(config.code_groups, MappingProxyType)
+        assert isinstance(config.code_groups["org"], tuple)
+        assert isinstance(config.disabled_collections, frozenset)
+        assert isinstance(config.git_commit_subject_blacklist, tuple)
+        assert isinstance(config.global_paths, tuple)
+
+    def test_with_overrides_converts_code_groups_dict(self) -> None:
+        """with_overrides should accept a plain dict for code_groups and convert it."""
+        config = Config()
+        new_config = config.with_overrides(code_groups={"org": (Path("/repo"),)})
+        assert isinstance(new_config.code_groups, MappingProxyType)

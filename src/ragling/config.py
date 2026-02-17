@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -48,12 +49,12 @@ class Config:
     embedding_dimensions: int = 1024
     chunk_size_tokens: int = 256
     chunk_overlap_tokens: int = 50
-    obsidian_vaults: list[Path] = field(default_factory=list)
-    obsidian_exclude_folders: list[str] = field(default_factory=list)
+    obsidian_vaults: tuple[Path, ...] = ()
+    obsidian_exclude_folders: tuple[str, ...] = ()
     emclient_db_path: Path = field(
         default_factory=lambda: Path.home() / "Library" / "Application Support" / "eM Client"
     )
-    calibre_libraries: list[Path] = field(default_factory=list)
+    calibre_libraries: tuple[Path, ...] = ()
     netnewswire_db_path: Path = field(
         default_factory=lambda: (
             Path.home()
@@ -67,16 +68,20 @@ class Config:
             / "Accounts"
         )
     )
-    code_groups: dict[str, list[Path]] = field(default_factory=dict)
-    disabled_collections: set[str] = field(default_factory=set)
+    code_groups: MappingProxyType[str, tuple[Path, ...]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    disabled_collections: frozenset[str] = frozenset()
     git_history_in_months: int = 6
-    git_commit_subject_blacklist: list[str] = field(default_factory=list)
+    git_commit_subject_blacklist: tuple[str, ...] = ()
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
     shared_db_path: Path = field(default_factory=lambda: DEFAULT_SHARED_DB_PATH)
     group_name: str = "default"
     group_db_dir: Path = field(default_factory=lambda: DEFAULT_GROUP_DB_DIR)
     home: Path | None = None
-    global_paths: list[Path] = field(default_factory=list)
+    global_paths: tuple[Path, ...] = ()
+    # TODO: users could be MappingProxyType[str, UserConfig] for full immutability,
+    # but the churn is not worth it since users is not mutated after construction.
     users: dict[str, UserConfig] = field(default_factory=dict)
 
     @property
@@ -99,12 +104,17 @@ class Config:
     def with_overrides(self, **kwargs: Any) -> Config:
         """Return a new Config with the specified fields replaced.
 
+        Automatically converts plain dicts for ``code_groups`` to
+        ``MappingProxyType`` so callers don't need to import it.
+
         Args:
             **kwargs: Field names and new values.
 
         Returns:
             A new Config instance with the overridden fields.
         """
+        if "code_groups" in kwargs and isinstance(kwargs["code_groups"], dict):
+            kwargs["code_groups"] = MappingProxyType(kwargs["code_groups"])
         return replace(self, **kwargs)
 
 
@@ -160,27 +170,28 @@ def load_config(path: Path | None = None) -> Config:
         if "obsidian_vaults" in data
         else system_sources.get("obsidian_vaults", [])
     )
-    obsidian_vaults = [_expand_path(v) for v in obsidian_vaults_raw]
-    obsidian_exclude_folders = data.get("obsidian_exclude_folders", [])
+    obsidian_vaults = tuple(_expand_path(v) for v in obsidian_vaults_raw)
+    obsidian_exclude_folders = tuple(data.get("obsidian_exclude_folders", []))
 
     calibre_raw = (
         data["calibre_libraries"]
         if "calibre_libraries" in data
         else system_sources.get("calibre_libraries", [])
     )
-    calibre_libraries = [_expand_path(v) for v in calibre_raw]
+    calibre_libraries = tuple(_expand_path(v) for v in calibre_raw)
 
-    code_groups: dict[str, list[Path]] = {}
+    code_groups_raw: dict[str, tuple[Path, ...]] = {}
     for cg_name, paths in data.get("code_groups", {}).items():
-        code_groups[cg_name] = [_expand_path(p) for p in paths]
-    disabled_collections = set(data.get("disabled_collections", []))
+        code_groups_raw[cg_name] = tuple(_expand_path(p) for p in paths)
+    code_groups: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(code_groups_raw)
+    disabled_collections = frozenset(data.get("disabled_collections", []))
 
     # Parse home
     home_raw = data.get("home")
     home = _expand_path(home_raw) if home_raw is not None else None
 
     # Parse global_paths
-    global_paths = [_expand_path(p) for p in data.get("global_paths", [])]
+    global_paths = tuple(_expand_path(p) for p in data.get("global_paths", []))
 
     # Parse users
     users: dict[str, UserConfig] = {}
@@ -237,7 +248,7 @@ def load_config(path: Path | None = None) -> Config:
         code_groups=code_groups,
         disabled_collections=disabled_collections,
         git_history_in_months=data.get("git_history_in_months", 6),
-        git_commit_subject_blacklist=data.get("git_commit_subject_blacklist", []),
+        git_commit_subject_blacklist=tuple(data.get("git_commit_subject_blacklist", [])),
         search_defaults=search_defaults,
         shared_db_path=_expand_path(data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH))),
         group_name=data.get("group_name", "default"),

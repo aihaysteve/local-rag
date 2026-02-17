@@ -6,6 +6,7 @@ DOCX, HTML, plaintext, etc.) into the "obsidian" system collection.
 
 import logging
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,8 +34,8 @@ class ObsidianIndexer(BaseIndexer):
 
     def __init__(
         self,
-        vault_paths: list[Path],
-        exclude_folders: list[str] | None = None,
+        vault_paths: Sequence[Path],
+        exclude_folders: Sequence[str] | None = None,
         doc_store: DocStore | None = None,
     ) -> None:
         self.vault_paths = vault_paths

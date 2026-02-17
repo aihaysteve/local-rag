@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -26,7 +26,7 @@ def _build_source_uri(
     source_type: str,
     metadata: dict,
     collection: str,
-    obsidian_vaults: list | None = None,
+    obsidian_vaults: Sequence[Any] | None = None,
 ) -> str | None:
     """Build a clickable URI for a search result's original source.
 
@@ -75,7 +75,7 @@ def _build_source_uri(
     return f"file://{quote(source_path, safe='/')}"
 
 
-def _build_obsidian_uri(source_path: str, vault_paths: list) -> str | None:
+def _build_obsidian_uri(source_path: str, vault_paths: Sequence[Any]) -> str | None:
     """Build an obsidian://open URI for a file inside an Obsidian vault.
 
     Matches the source_path against known vault paths to extract the vault
