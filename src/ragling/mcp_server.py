@@ -14,6 +14,7 @@ from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
 
 if TYPE_CHECKING:
+    from ragling.indexing_queue import IndexingQueue
     from ragling.indexing_status import IndexingStatus
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,27 @@ def _build_search_response(
     }
 
 
+def _build_list_response(
+    collections: list[dict[str, Any]],
+    indexing_status: IndexingStatus | None = None,
+) -> dict[str, Any]:
+    """Build list-collections response with optional indexing status.
+
+    Args:
+        collections: List of collection dicts.
+        indexing_status: Optional indexing status tracker.
+
+    Returns:
+        Response dict with 'result' key, plus 'indexing' when active.
+    """
+    response: dict[str, Any] = {"result": collections}
+    if indexing_status:
+        status = indexing_status.to_dict()
+        if status:
+            response["indexing"] = status
+    return response
+
+
 def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:
     """Convert a document to markdown text.
 
@@ -224,6 +246,7 @@ def create_server(
     group_name: str = "default",
     config: Config | None = None,
     indexing_status: IndexingStatus | None = None,
+    indexing_queue: IndexingQueue | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all tools registered.
 
@@ -234,6 +257,9 @@ def create_server(
             load_config() on each invocation (backwards compatible).
         indexing_status: Optional IndexingStatus tracker for reporting
             indexing progress in search responses.
+        indexing_queue: Optional IndexingQueue for routing indexing jobs
+            through the single-writer queue (serve mode). When None,
+            rag_index falls back to direct indexing (CLI mode).
     """
     # Capture config for use inside tool closures. When provided, tools
     # use this instead of calling load_config() each time.
@@ -436,7 +462,7 @@ def create_server(
         return _build_search_response(result_dicts, indexing_status)
 
     @mcp.tool()
-    def rag_list_collections() -> list[dict[str, Any]]:
+    def rag_list_collections() -> dict[str, Any]:
         """List all available collections with source file counts, chunk counts, and metadata.
 
         Collections of type 'code' represent code groups that may contain multiple git repos.
@@ -455,7 +481,7 @@ def create_server(
                 ORDER BY c.name
             """).fetchall()
 
-            return [
+            collections = [
                 {
                     "name": row["name"],
                     "type": row["collection_type"],
@@ -467,6 +493,7 @@ def create_server(
                 }
                 for row in rows
             ]
+            return _build_list_response(collections, indexing_status)
         finally:
             conn.close()
 
@@ -484,79 +511,17 @@ def create_server(
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
         """
-        from pathlib import Path as P
-
-        from ragling.doc_store import DocStore
-        from ragling.indexers.base import BaseIndexer
-        from ragling.indexers.calibre_indexer import CalibreIndexer
-        from ragling.indexers.email_indexer import EmailIndexer
-        from ragling.indexers.git_indexer import GitRepoIndexer
-        from ragling.indexers.obsidian import ObsidianIndexer
-        from ragling.indexers.project import ProjectIndexer
-        from ragling.indexers.rss_indexer import RSSIndexer
-
         config = _get_config()
-        conn = get_connection(config)
-        init_db(conn, config)
-        doc_store = DocStore(config.shared_db_path)
 
-        try:
-            if not config.is_collection_enabled(collection):
-                return {"error": f"Collection '{collection}' is disabled in config."}
+        if not config.is_collection_enabled(collection):
+            return {"error": f"Collection '{collection}' is disabled in config."}
 
-            indexer: BaseIndexer
-            if collection == "obsidian":
-                indexer = ObsidianIndexer(
-                    config.obsidian_vaults, config.obsidian_exclude_folders, doc_store=doc_store
-                )
-                result = indexer.index(conn, config)
-            elif collection == "email":
-                indexer = EmailIndexer(str(config.emclient_db_path))
-                result = indexer.index(conn, config)
-            elif collection == "calibre":
-                indexer = CalibreIndexer(config.calibre_libraries, doc_store=doc_store)
-                result = indexer.index(conn, config)
-            elif collection == "rss":
-                indexer = RSSIndexer(str(config.netnewswire_db_path))
-                result = indexer.index(conn, config)
-            elif collection in config.code_groups:
-                # Code group — index all repos in this group (with commit history)
-                total_indexed = 0
-                total_skipped = 0
-                total_errors = 0
-                total_found = 0
-                for repo_path in config.code_groups[collection]:
-                    idx = GitRepoIndexer(repo_path, collection_name=collection)
-                    r = idx.index(conn, config, index_history=True)
-                    total_indexed += r.indexed
-                    total_skipped += r.skipped
-                    total_errors += r.errors
-                    total_found += r.total_found
-                return {
-                    "collection": collection,
-                    "indexed": total_indexed,
-                    "skipped": total_skipped,
-                    "errors": total_errors,
-                    "total_found": total_found,
-                }
-            elif path:
-                indexer = ProjectIndexer(collection, [P(path)], doc_store=doc_store)
-                result = indexer.index(conn, config)
-            else:
-                return {
-                    "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
-                }
+        # Route through queue when available (serve mode)
+        if indexing_queue is not None:
+            return _rag_index_via_queue(collection, path, config)
 
-            return {
-                "collection": collection,
-                "indexed": result.indexed,
-                "skipped": result.skipped,
-                "errors": result.errors,
-                "total_found": result.total_found,
-            }
-        finally:
-            doc_store.close()
-            conn.close()
+        # Direct indexing fallback (CLI / stdio without queue)
+        return _rag_index_direct(collection, path, config)
 
     @mcp.tool()
     def rag_doc_store_info() -> list[dict[str, Any]]:
@@ -653,5 +618,134 @@ def create_server(
         user_ctx = _get_user_context(server_config)
         mappings = user_ctx.path_mappings if user_ctx else {}
         return _convert_document(file_path, path_mappings=mappings)
+
+    def _rag_index_via_queue(collection: str, path: str | None, config: Config) -> dict[str, Any]:
+        """Route indexing through the IndexingQueue."""
+        from pathlib import Path as P
+
+        from ragling.indexing_queue import IndexJob
+
+        if indexing_queue is None:
+            raise RuntimeError("_rag_index_via_queue called without a queue")
+
+        if collection == "obsidian":
+            job = IndexJob("directory", P(path) if path else None, "obsidian", "obsidian")
+        elif collection == "email":
+            job = IndexJob("system_collection", P(path) if path else None, "email", "email")
+        elif collection == "calibre":
+            job = IndexJob("system_collection", P(path) if path else None, "calibre", "calibre")
+        elif collection == "rss":
+            job = IndexJob("system_collection", P(path) if path else None, "rss", "rss")
+        elif collection in config.code_groups:
+            results = []
+            timed_out = 0
+            for repo_path in config.code_groups[collection]:
+                job = IndexJob("directory", repo_path, collection, "code")
+                result = indexing_queue.submit_and_wait(job, timeout=300)
+                if result:
+                    results.append(result)
+                else:
+                    timed_out += 1
+            response: dict[str, Any] = {
+                "collection": collection,
+                "indexed": sum(r.indexed for r in results),
+                "skipped": sum(r.skipped for r in results),
+                "errors": sum(r.errors for r in results),
+                "total_found": sum(r.total_found for r in results),
+            }
+            if timed_out > 0:
+                response["timed_out"] = timed_out
+            return response
+        elif path:
+            job = IndexJob("directory", P(path), collection, "project")
+        else:
+            return {
+                "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
+            }
+
+        result = indexing_queue.submit_and_wait(job, timeout=300)
+        if result is None:
+            return {"error": f"Indexing timed out for collection '{collection}'."}
+        return {
+            "collection": collection,
+            "indexed": result.indexed,
+            "skipped": result.skipped,
+            "errors": result.errors,
+            "total_found": result.total_found,
+        }
+
+    def _rag_index_direct(collection: str, path: str | None, config: Config) -> dict[str, Any]:
+        """Direct indexing without queue (backwards compatibility)."""
+        from pathlib import Path as P
+
+        from ragling.doc_store import DocStore
+        from ragling.indexers.base import BaseIndexer
+        from ragling.indexers.calibre_indexer import CalibreIndexer
+        from ragling.indexers.email_indexer import EmailIndexer
+        from ragling.indexers.git_indexer import GitRepoIndexer
+        from ragling.indexers.obsidian import ObsidianIndexer
+        from ragling.indexers.project import ProjectIndexer
+        from ragling.indexers.rss_indexer import RSSIndexer
+
+        conn = get_connection(config)
+        init_db(conn, config)
+        doc_store = DocStore(config.shared_db_path)
+
+        try:
+            indexer: BaseIndexer
+            if collection == "obsidian":
+                indexer = ObsidianIndexer(
+                    config.obsidian_vaults,
+                    config.obsidian_exclude_folders,
+                    doc_store=doc_store,
+                )
+                result = indexer.index(conn, config)
+            elif collection == "email":
+                indexer = EmailIndexer(str(config.emclient_db_path))
+                result = indexer.index(conn, config)
+            elif collection == "calibre":
+                indexer = CalibreIndexer(config.calibre_libraries, doc_store=doc_store)
+                result = indexer.index(conn, config)
+            elif collection == "rss":
+                indexer = RSSIndexer(str(config.netnewswire_db_path))
+                result = indexer.index(conn, config)
+            elif collection in config.code_groups:
+                total_indexed = 0
+                total_skipped = 0
+                total_errors = 0
+                total_found = 0
+                for repo_path in config.code_groups[collection]:
+                    idx = GitRepoIndexer(repo_path, collection_name=collection)
+                    r = idx.index(conn, config, index_history=True)
+                    total_indexed += r.indexed
+                    total_skipped += r.skipped
+                    total_errors += r.errors
+                    total_found += r.total_found
+                return {
+                    "collection": collection,
+                    "indexed": total_indexed,
+                    "skipped": total_skipped,
+                    "errors": total_errors,
+                    "total_found": total_found,
+                }
+            elif path:
+                indexer = ProjectIndexer(collection, [P(path)], doc_store=doc_store)
+                result = indexer.index(conn, config)
+            else:
+                return {
+                    "error": f"Unknown collection '{collection}'. "
+                    "Provide a path for project indexing."
+                }
+
+            return {
+                "collection": collection,
+                "indexed": result.indexed,
+                "skipped": result.skipped,
+                "errors": result.errors,
+                "total_found": result.total_found,
+            }
+        finally:
+            doc_store.close()
+            conn.close()
 
     return mcp

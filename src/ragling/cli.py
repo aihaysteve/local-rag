@@ -742,6 +742,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         group_name=group,
         config=config,
         indexing_status=indexing_status,
+        indexing_queue=indexing_queue,
     )
 
     if sse:
