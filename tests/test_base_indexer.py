@@ -201,3 +201,40 @@ class TestIndexResultPruned:
         result = IndexResult(indexed=5, skipped=10, pruned=0, errors=0, total_found=15)
         s = str(result)
         assert "Pruned" not in s
+
+
+class TestPruneEndToEnd:
+    """End-to-end: index files, delete some, prune, verify search wouldn't find them."""
+
+    def test_full_lifecycle(self, tmp_path: Path) -> None:
+        conn = _make_conn(tmp_path)
+        from ragling.db import get_or_create_collection
+
+        cid = get_or_create_collection(conn, "e2e", "project")
+
+        # Create and index 3 files
+        files = []
+        for i in range(3):
+            f = tmp_path / f"doc{i}.txt"
+            f.write_text(f"Content {i}")
+            _insert_source(conn, cid, str(f))
+            files.append(f)
+
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 3
+        assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 3
+
+        # Delete 2 of the 3 files
+        files[0].unlink()
+        files[2].unlink()
+
+        # Prune
+        pruned = prune_stale_sources(conn, cid)
+
+        assert pruned == 2
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM vec_documents").fetchone()[0] == 1
+
+        # The remaining source is the one whose file still exists
+        remaining = conn.execute("SELECT source_path FROM sources").fetchone()
+        assert remaining["source_path"] == str(files[1])
