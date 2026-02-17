@@ -632,17 +632,9 @@ def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
                 click.echo("Cancelled.")
                 return
 
-        coll_id = row["id"]
+        from ragling.db import delete_collection
 
-        # Delete vec_documents entries for documents in this collection
-        conn.execute(
-            "DELETE FROM vec_documents WHERE document_id IN (SELECT id FROM documents WHERE collection_id = ?)",
-            (coll_id,),
-        )
-        # CASCADE will handle sources and documents
-        conn.execute("DELETE FROM collections WHERE id = ?", (coll_id,))
-        conn.commit()
-
+        delete_collection(conn, name)
         click.echo(f"Collection '{name}' deleted.")
     finally:
         conn.close()

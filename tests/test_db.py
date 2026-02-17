@@ -122,3 +122,43 @@ class TestInitDbThroughGroupConnection:
         finally:
             conn1.close()
             conn2.close()
+
+
+class TestDeleteCollection:
+    """Tests for delete_collection."""
+
+    def test_delete_collection_removes_all_data(self, tmp_path: Path) -> None:
+        """delete_collection removes the collection, its sources, documents, and vectors."""
+        from ragling.db import delete_collection, get_connection, get_or_create_collection, init_db
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        coll_id = get_or_create_collection(conn, "test-coll", "project")
+        # Insert a source and document to verify cascade
+        conn.execute(
+            "INSERT INTO sources (collection_id, source_type, source_path) VALUES (?, ?, ?)",
+            (coll_id, "markdown", "/tmp/test.md"),
+        )
+        conn.commit()
+
+        deleted = delete_collection(conn, "test-coll")
+        assert deleted is True
+
+        # Verify collection is gone
+        row = conn.execute("SELECT id FROM collections WHERE name = ?", ("test-coll",)).fetchone()
+        assert row is None
+        conn.close()
+
+    def test_delete_collection_nonexistent_returns_false(self, tmp_path: Path) -> None:
+        """delete_collection returns False if the collection doesn't exist."""
+        from ragling.db import delete_collection, get_connection, init_db
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        deleted = delete_collection(conn, "nonexistent")
+        assert deleted is False
+        conn.close()

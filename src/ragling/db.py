@@ -207,3 +207,35 @@ def get_or_create_collection(
     assert cursor.lastrowid is not None
     logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, cursor.lastrowid)
     return cursor.lastrowid
+
+
+def delete_collection(conn: sqlite3.Connection, name: str) -> bool:
+    """Delete a collection and all its data (sources, documents, vectors).
+
+    Args:
+        conn: SQLite connection.
+        name: Collection name to delete.
+
+    Returns:
+        True if the collection existed and was deleted, False if not found.
+    """
+    row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
+    if not row:
+        return False
+
+    coll_id = row["id"]
+
+    # Delete vector embeddings (not covered by CASCADE since vec_documents
+    # is a virtual table without foreign key support)
+    conn.execute(
+        "DELETE FROM vec_documents WHERE document_id IN "
+        "(SELECT id FROM documents WHERE collection_id = ?)",
+        (coll_id,),
+    )
+
+    # CASCADE handles sources and documents
+    conn.execute("DELETE FROM collections WHERE id = ?", (coll_id,))
+    conn.commit()
+
+    logger.info("Deleted collection '%s' (id=%d)", name, coll_id)
+    return True
