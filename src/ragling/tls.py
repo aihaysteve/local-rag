@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import ssl
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -153,20 +152,6 @@ def _generate_server_cert(cfg: TLSConfig) -> None:
     _write_key(cfg.server_key, key)
     cfg.server_cert.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     logger.info("Generated server certificate: %s", cfg.server_cert)
-
-
-def create_ssl_context(cfg: TLSConfig) -> ssl.SSLContext:
-    """Create an ssl.SSLContext for the TLS server.
-
-    Args:
-        cfg: TLS certificate paths from ensure_tls_certs().
-
-    Returns:
-        Configured SSLContext for use with uvicorn or other ASGI servers.
-    """
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(str(cfg.server_cert), str(cfg.server_key))
-    return ctx
 
 
 def _write_key(path: Path, key: rsa.RSAPrivateKey) -> None:

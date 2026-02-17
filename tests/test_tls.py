@@ -223,18 +223,6 @@ class TestServerCertRenewal:
         assert cfg2.ca_cert.stat().st_mtime == ca_mtime
 
 
-class TestCreateSSLContext:
-    """Tests for create_ssl_context() helper."""
-
-    def test_returns_server_ssl_context(self, tmp_path: Path) -> None:
-        from ragling.tls import create_ssl_context, ensure_tls_certs
-
-        cfg = ensure_tls_certs(tmp_path / "tls")
-        ctx = create_ssl_context(cfg)
-
-        assert isinstance(ctx, ssl.SSLContext)
-
-
 class TestTLSHandshake:
     """Integration test: verify certs actually work for a TLS handshake."""
 
