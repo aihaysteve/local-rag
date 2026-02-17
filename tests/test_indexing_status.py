@@ -129,3 +129,49 @@ class TestIndexingStatus:
             t.join()
 
         assert status.to_dict() is None  # 500 - 500 = 0 each
+
+
+class TestFileLevelStatus:
+    """Tests for file-level indexing progress."""
+
+    def test_set_file_total_and_processed(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 100)
+        status.file_processed("obsidian", 55)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["collections"]["obsidian"]["total"] == 100
+        assert result["collections"]["obsidian"]["processed"] == 55
+        assert result["collections"]["obsidian"]["remaining"] == 45
+        assert result["total_remaining"] == 45
+
+    def test_file_counts_replace_job_counts_when_present(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")  # job-level: 1 remaining
+        status.set_file_total("obsidian", 50)  # file-level: 50 remaining
+
+        result = status.to_dict()
+        assert result is not None
+        # File-level should take precedence
+        assert result["total_remaining"] == 50
+
+    def test_to_dict_shape(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("email", 30)
+        status.file_processed("email", 30)
+        status.set_file_total("obsidian", 100)
+        status.file_processed("obsidian", 55)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["active"] is True
+        assert "collections" in result
+        assert result["collections"]["obsidian"]["remaining"] == 45
+        assert result["collections"]["email"]["remaining"] == 0

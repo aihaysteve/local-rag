@@ -7,12 +7,20 @@ from typing import Any
 class IndexingStatus:
     """Tracks remaining files to index, broken down by collection.
 
+    Supports two levels of tracking:
+    - **Job-level** (increment/decrement): coarse "N jobs remaining" per collection.
+    - **File-level** (set_file_total/file_processed): fine-grained "M of N files done".
+
+    When both exist for the same collection, file-level takes precedence in
+    ``to_dict()`` output.
+
     Thread-safe. All public methods acquire the internal lock.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._counts: dict[str, int] = {}
+        self._file_counts: dict[str, dict[str, int]] = {}
 
     def increment(self, collection: str, count: int = 1) -> None:
         """Increment remaining count for a collection.
@@ -41,15 +49,49 @@ class IndexingStatus:
             else:
                 self._counts[collection] = new_val
 
+    def set_file_total(self, collection: str, total: int) -> None:
+        """Set the total file count for a collection.
+
+        Initialises the processed count to zero if the collection has not
+        been seen before at the file level.
+
+        Args:
+            collection: Collection name.
+            total: Total number of files to index.
+        """
+        with self._lock:
+            entry = self._file_counts.get(collection)
+            if entry is None:
+                self._file_counts[collection] = {"total": total, "processed": 0}
+            else:
+                entry["total"] = total
+
+    def file_processed(self, collection: str, count: int = 1) -> None:
+        """Record that *count* files have been processed for a collection.
+
+        The collection must already have a total set via ``set_file_total``.
+
+        Args:
+            collection: Collection name.
+            count: Number of files just processed (default 1).
+        """
+        with self._lock:
+            entry = self._file_counts.get(collection)
+            if entry is None:
+                self._file_counts[collection] = {"total": 0, "processed": count}
+            else:
+                entry["processed"] = entry["processed"] + count
+
     def finish(self) -> None:
         """Mark all indexing as complete."""
         with self._lock:
             self._counts.clear()
+            self._file_counts.clear()
 
     def is_active(self) -> bool:
         """Check if any indexing is in progress."""
         with self._lock:
-            return bool(self._counts)
+            return bool(self._counts) or bool(self._file_counts)
 
     def to_dict(self) -> dict[str, Any] | None:
         """Return status dict for inclusion in search responses.
@@ -59,14 +101,44 @@ class IndexingStatus:
             {
                 "active": True,
                 "total_remaining": <int>,
-                "collections": {"obsidian": 3, "email": 2, ...}
+                "collections": {
+                    "obsidian": {"total": 100, "processed": 55, "remaining": 45},
+                    "email": 2,
+                    ...
+                }
             }
+
+        Collections with file-level tracking get a dict entry; collections
+        with only job-level tracking get a plain int (backward compatible).
+        File-level counts take precedence when both exist for a collection.
         """
         with self._lock:
-            if not self._counts:
+            if not self._counts and not self._file_counts:
                 return None
+
+            collections: dict[str, Any] = {}
+            total_remaining = 0
+
+            # Collect all collection names from both sources.
+            all_names = set(self._counts) | set(self._file_counts)
+
+            for name in sorted(all_names):
+                file_entry = self._file_counts.get(name)
+                if file_entry is not None:
+                    remaining = file_entry["total"] - file_entry["processed"]
+                    collections[name] = {
+                        "total": file_entry["total"],
+                        "processed": file_entry["processed"],
+                        "remaining": remaining,
+                    }
+                    total_remaining += remaining
+                else:
+                    job_count = self._counts[name]
+                    collections[name] = job_count
+                    total_remaining += job_count
+
             return {
                 "active": True,
-                "total_remaining": sum(self._counts.values()),
-                "collections": dict(self._counts),
+                "total_remaining": total_remaining,
+                "collections": collections,
             }
