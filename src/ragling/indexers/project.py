@@ -1,8 +1,11 @@
 """Project document indexer for ragling.
 
 Indexes arbitrary document folders (PDF, DOCX, TXT, HTML, MD) into named
-project collections.
+project collections. Supports auto-discovery of Obsidian vaults and git repos,
+delegating to specialised indexers when markers are found.
 """
+
+from __future__ import annotations
 
 import logging
 import sqlite3
@@ -27,6 +30,8 @@ from ragling.indexers.base import (
     prune_stale_sources,
     upsert_source_with_chunks,
 )
+from ragling.indexers.discovery import DiscoveredSource, discover_sources, reconcile_sub_collections
+from ragling.parsers.code import is_code_file
 from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
 
@@ -160,6 +165,27 @@ def _parse_and_chunk(
     return []
 
 
+def _merge_results(a: IndexResult, b: IndexResult) -> IndexResult:
+    """Merge two IndexResult instances by summing their fields.
+
+    Args:
+        a: First result.
+        b: Second result.
+
+    Returns:
+        A new IndexResult with summed counts.
+    """
+    return IndexResult(
+        indexed=a.indexed + b.indexed,
+        skipped=a.skipped + b.skipped,
+        skipped_empty=a.skipped_empty + b.skipped_empty,
+        pruned=a.pruned + b.pruned,
+        errors=a.errors + b.errors,
+        total_found=a.total_found + b.total_found,
+        error_messages=a.error_messages + b.error_messages,
+    )
+
+
 class ProjectIndexer(BaseIndexer):
     """Indexes documents from file paths into a named project collection."""
 
@@ -183,6 +209,105 @@ class ProjectIndexer(BaseIndexer):
     def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
         """Index all supported files into the project collection.
 
+        Runs auto-discovery on each directory path to detect Obsidian vaults
+        and git repos. When markers are found, delegates to specialised indexers.
+        Falls back to flat indexing when no markers are found anywhere.
+
+        Args:
+            conn: SQLite database connection.
+            config: Application configuration.
+            force: If True, re-index all files regardless of change detection.
+
+        Returns:
+            IndexResult summarizing the indexing run.
+        """
+        # Collect discoveries from all directory paths; single files go to leftovers
+        all_vaults: list[DiscoveredSource] = []
+        all_repos: list[DiscoveredSource] = []
+        all_leftovers: list[Path] = []
+        single_files: list[Path] = []
+
+        for p in self.paths:
+            if p.is_file():
+                single_files.append(p)
+                continue
+            if not p.is_dir():
+                logger.warning("Path does not exist: %s", p)
+                continue
+
+            discovery = discover_sources(p)
+            all_vaults.extend(discovery.vaults)
+            all_repos.extend(discovery.repos)
+            all_leftovers.extend(discovery.leftover_paths)
+
+            # Reconcile stale sub-collections for this path
+            reconcile_sub_collections(conn, self.collection_name, discovery)
+
+        # If no markers found anywhere, fall back to flat indexing
+        if not all_vaults and not all_repos:
+            return self._index_flat(conn, config, force)
+
+        # Discovery-aware indexing: delegate to specialised indexers
+        aggregate = IndexResult()
+
+        # Delegate vaults to ObsidianIndexer
+        for vault in all_vaults:
+            sub_name = (
+                f"{self.collection_name}/{vault.relative_name}"
+                if vault.relative_name
+                else self.collection_name
+            )
+            result = self._index_sub_collection(conn, config, vault, sub_name, "project", force)
+            aggregate = _merge_results(aggregate, result)
+
+        # Delegate repos to GitRepoIndexer
+        for repo in all_repos:
+            sub_name = (
+                f"{self.collection_name}/{repo.relative_name}"
+                if repo.relative_name
+                else self.collection_name
+            )
+            result = self._index_repo(conn, config, repo, sub_name, force)
+            aggregate = _merge_results(aggregate, result)
+
+            # Run document pass for non-code files in the repo
+            doc_result = self._index_repo_documents(conn, config, repo, sub_name, force)
+            aggregate = _merge_results(aggregate, doc_result)
+
+        # Index leftover files (and single files) into the parent project collection
+        leftover_files = single_files + [
+            f for f in all_leftovers if f.suffix.lower() in _EXTENSION_MAP
+        ]
+        if leftover_files:
+            collection_id = get_or_create_collection(conn, self.collection_name, "project")
+            leftover_result = self._index_files(conn, config, leftover_files, collection_id, force)
+            pruned = prune_stale_sources(conn, collection_id)
+            leftover_result = IndexResult(
+                indexed=leftover_result.indexed,
+                skipped=leftover_result.skipped,
+                errors=leftover_result.errors,
+                total_found=leftover_result.total_found,
+                pruned=pruned,
+            )
+            aggregate = _merge_results(aggregate, leftover_result)
+
+        logger.info(
+            "Project indexer done (discovery): %d indexed, %d skipped, %d errors",
+            aggregate.indexed,
+            aggregate.skipped,
+            aggregate.errors,
+        )
+
+        return aggregate
+
+    def _index_flat(
+        self, conn: sqlite3.Connection, config: Config, force: bool = False
+    ) -> IndexResult:
+        """Original flat indexing behavior — no discovery delegation.
+
+        Creates the project collection, collects all files, indexes them,
+        and prunes stale sources.
+
         Args:
             conn: SQLite database connection.
             config: Application configuration.
@@ -194,6 +319,45 @@ class ProjectIndexer(BaseIndexer):
         collection_id = get_or_create_collection(conn, self.collection_name, "project")
 
         files = _collect_files(self.paths)
+        result = self._index_files(conn, config, files, collection_id, force)
+        pruned = prune_stale_sources(conn, collection_id)
+
+        logger.info(
+            "Project indexer done (flat): %d indexed, %d skipped, %d errors out of %d files",
+            result.indexed,
+            result.skipped,
+            result.errors,
+            result.total_found,
+        )
+
+        return IndexResult(
+            indexed=result.indexed,
+            skipped=result.skipped,
+            errors=result.errors,
+            total_found=result.total_found,
+            pruned=pruned,
+        )
+
+    def _index_files(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        files: list[Path],
+        collection_id: int,
+        force: bool,
+    ) -> IndexResult:
+        """Index a list of files into a given collection.
+
+        Args:
+            conn: SQLite database connection.
+            config: Application configuration.
+            files: List of file paths to index.
+            collection_id: Collection ID to index into.
+            force: If True, re-index regardless of change detection.
+
+        Returns:
+            IndexResult summarizing the indexing run.
+        """
         total_found = len(files)
         indexed = 0
         skipped = 0
@@ -216,19 +380,146 @@ class ProjectIndexer(BaseIndexer):
                 logger.error("Error indexing %s: %s", file_path, e)
                 errors += 1
 
-        pruned = prune_stale_sources(conn, collection_id)
+        return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
-        logger.info(
-            "Project indexer done: %d indexed, %d skipped, %d errors out of %d files",
-            indexed,
-            skipped,
-            errors,
-            total_found,
-        )
+    def _index_sub_collection(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        vault: DiscoveredSource,
+        sub_name: str,
+        collection_type: str,
+        force: bool,
+    ) -> IndexResult:
+        """Delegate an Obsidian vault to ObsidianIndexer with sub-collection naming.
 
-        return IndexResult(
-            indexed=indexed, skipped=skipped, errors=errors, total_found=total_found, pruned=pruned
-        )
+        Monkey-patches get_or_create_collection in the obsidian module so
+        that ObsidianIndexer writes to the correct sub-collection name
+        instead of hardcoded "obsidian".
+
+        Args:
+            conn: SQLite database connection.
+            config: Application configuration.
+            vault: The discovered vault source.
+            sub_name: Sub-collection name (e.g. "project/my-vault").
+            collection_type: Collection type for the sub-collection.
+            force: If True, re-index all files.
+
+        Returns:
+            IndexResult from the ObsidianIndexer.
+        """
+        import ragling.indexers.obsidian as obsidian_mod
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        indexer = ObsidianIndexer([vault.path], doc_store=self.doc_store)
+
+        original_func = obsidian_mod.get_or_create_collection  # type: ignore[attr-defined]
+
+        def patched_get_or_create(
+            conn: sqlite3.Connection,
+            name: str,
+            ctype: str = "project",
+            description: str | None = None,
+        ) -> int:
+            return original_func(conn, sub_name, collection_type, description)
+
+        obsidian_mod.get_or_create_collection = patched_get_or_create  # type: ignore[assignment]
+        try:
+            return indexer.index(conn, config, force=force)
+        finally:
+            obsidian_mod.get_or_create_collection = original_func  # type: ignore[attr-defined]
+
+    def _index_repo(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        repo: DiscoveredSource,
+        sub_name: str,
+        force: bool,
+    ) -> IndexResult:
+        """Delegate a git repo to GitRepoIndexer.
+
+        Args:
+            conn: SQLite database connection.
+            config: Application configuration.
+            repo: The discovered git repo source.
+            sub_name: Sub-collection name (e.g. "project/my-repo").
+            force: If True, re-index all files.
+
+        Returns:
+            IndexResult from the GitRepoIndexer.
+        """
+        from ragling.indexers.git_indexer import GitRepoIndexer
+
+        indexer = GitRepoIndexer(repo.path, collection_name=sub_name)
+        return indexer.index(conn, config, force=force, index_history=True)
+
+    def _index_repo_documents(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        repo: DiscoveredSource,
+        sub_name: str,
+        force: bool,
+    ) -> IndexResult:
+        """Index non-code document files found inside a git repo.
+
+        Scans the repo for files with extensions in _EXTENSION_MAP that are
+        NOT code files (per is_code_file), and indexes them into the repo's
+        sub-collection.
+
+        Args:
+            conn: SQLite database connection.
+            config: Application configuration.
+            repo: The discovered git repo source.
+            sub_name: Sub-collection name for the repo.
+            force: If True, re-index all files.
+
+        Returns:
+            IndexResult summarizing the document indexing.
+        """
+        collection_id = get_or_create_collection(conn, sub_name, "code")
+        doc_files: list[Path] = []
+        for item in sorted(repo.path.rglob("*")):
+            if not item.is_file() or item.name.startswith("."):
+                continue
+            rel_parts = item.relative_to(repo.path).parts
+            if any(part.startswith(".") for part in rel_parts[:-1]):
+                continue
+            ext = item.suffix.lower()
+            if ext in _EXTENSION_MAP and not is_code_file(item):
+                doc_files.append(item)
+        if not doc_files:
+            return IndexResult()
+        return self._index_files(conn, config, doc_files, collection_id, force)
+
+    @staticmethod
+    def _get_child_marker_dirs(
+        parent: Path,
+        all_vaults: list[DiscoveredSource],
+        all_repos: list[DiscoveredSource],
+    ) -> set[str]:
+        """Find which child directories of a parent have their own markers.
+
+        Used to exclude nested discoveries from a parent vault or repo.
+
+        Args:
+            parent: Parent directory path.
+            all_vaults: All discovered vaults.
+            all_repos: All discovered repos.
+
+        Returns:
+            Set of immediate child directory names that have markers.
+        """
+        exclude: set[str] = set()
+        for d in [*all_vaults, *all_repos]:
+            if d.path != parent:
+                try:
+                    rel = d.path.relative_to(parent)
+                    exclude.add(rel.parts[0])
+                except ValueError:
+                    continue
+        return exclude
 
     def _index_file(
         self,

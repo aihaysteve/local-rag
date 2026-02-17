@@ -327,3 +327,91 @@ class TestCalibreIndexerPruning:
         mock_prune.assert_called_once()
         assert result.pruned == 3
         conn.close()
+
+
+class TestProjectIndexerDiscovery:
+    def _setup_db(self, tmp_path: Path) -> tuple:
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+        return conn, config
+
+    def test_obsidian_vault_delegates_to_obsidian_indexer(self, tmp_path: Path) -> None:
+        """When a vault is discovered, ObsidianIndexer is called for that subdirectory."""
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        vault = project_dir / "my-vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        (vault / "note.md").write_text("# Hello")
+
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
+        with patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian:
+            MockObsidian.return_value.index.return_value = mock_result
+            result = indexer.index(conn, config)
+
+        MockObsidian.assert_called_once()
+        assert result.indexed >= 1
+        conn.close()
+
+    def test_git_repo_delegates_to_git_indexer(self, tmp_path: Path) -> None:
+        """When a git repo is discovered, GitRepoIndexer is called for that subdirectory."""
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        repo = project_dir / "my-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "main.py").write_text("print('hello')")
+
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
+        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
+            MockGit.return_value.index.return_value = mock_result
+            result = indexer.index(conn, config)
+
+        MockGit.assert_called_once()
+        assert result.indexed >= 1
+        conn.close()
+
+    def test_no_markers_uses_flat_indexing(self, tmp_path: Path) -> None:
+        """When no markers are found, falls back to existing flat behavior."""
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "readme.txt").write_text("hello")
+
+        from ragling.indexers.project import ProjectIndexer
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        with (
+            patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian,
+            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit,
+            patch("ragling.indexers.project._parse_and_chunk", return_value=[]),
+        ):
+            indexer.index(conn, config)
+
+        MockObsidian.assert_not_called()
+        MockGit.assert_not_called()
+        conn.close()
