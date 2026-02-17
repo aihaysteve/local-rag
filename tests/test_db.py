@@ -1,5 +1,6 @@
 """Tests for ragling.db module."""
 
+import threading
 from pathlib import Path
 
 from ragling.config import Config
@@ -197,3 +198,43 @@ class TestCollectionIndex:
         index_names = {row[0] for row in indexes}
         assert "idx_documents_collection_id" in index_names
         conn.close()
+
+
+class TestConcurrentCollectionCreation:
+    """Tests for concurrent get_or_create_collection calls."""
+
+    def test_get_or_create_collection_concurrent(self, tmp_path: Path) -> None:
+        """Two threads calling get_or_create_collection with the same name both succeed."""
+        from ragling.db import get_connection, get_or_create_collection, init_db
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+
+        # Initialize DB once
+        conn = get_connection(config)
+        init_db(conn, config)
+        conn.close()
+
+        results: list[int] = []
+        errors: list[Exception] = []
+        barrier = threading.Barrier(2, timeout=5)
+
+        def worker() -> None:
+            try:
+                worker_conn = get_connection(config)
+                barrier.wait()
+                coll_id = get_or_create_collection(worker_conn, "shared-coll", "project", "test")
+                results.append(coll_id)
+                worker_conn.close()
+            except Exception as exc:
+                errors.append(exc)
+
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        assert not errors, f"Thread failed: {errors[0]}"
+        assert len(results) == 2
+        assert results[0] == results[1], "Both threads should get the same collection ID"

@@ -138,16 +138,11 @@ class DocStore:
                 if doc_row is not None:
                     logger.debug("Cache hit for %s", path)
                     return json.loads(doc_row["docling_json"])
-
-            # Cache miss: content or config changed -- remove stale conversions
-            self._conn.execute(
-                "DELETE FROM converted_documents WHERE source_id = ?",
-                (source_id,),
-            )
         else:
             source_id = None
 
-        # Cache miss or stale -- run conversion
+        # Cache miss or stale -- run conversion BEFORE any DML so we don't
+        # hold a write lock during the (potentially slow) converter call.
         logger.info("Converting %s (hash %s)", path, content_hash)
         start = time.monotonic_ns()
         result = converter(path)
@@ -157,26 +152,36 @@ class DocStore:
         file_size = stat.st_size
         file_mtime = stat.st_mtime
 
+        # All DML is grouped together for a short transaction
         if source_id is not None:
-            # Update existing source row with new hash
+            # Remove stale conversions and update source hash
+            self._conn.execute(
+                "DELETE FROM converted_documents WHERE source_id = ?",
+                (source_id,),
+            )
             self._conn.execute(
                 "UPDATE sources SET content_hash = ?, file_size = ?, "
                 "file_modified_at = ? WHERE id = ?",
                 (content_hash, file_size, str(file_mtime), source_id),
             )
         else:
-            cursor = self._conn.execute(
-                "INSERT INTO sources (source_path, content_hash, file_size, file_modified_at) "
+            self._conn.execute(
+                "INSERT OR IGNORE INTO sources "
+                "(source_path, content_hash, file_size, file_modified_at) "
                 "VALUES (?, ?, ?, ?)",
                 (str(path), content_hash, file_size, str(file_mtime)),
             )
-            source_id = cursor.lastrowid
+            row = self._conn.execute(
+                "SELECT id FROM sources WHERE source_path = ?", (str(path),)
+            ).fetchone()
+            assert row is not None
+            source_id = row["id"]
 
         # Determine format from file extension
         fmt = path.suffix.lstrip(".") or "unknown"
 
         self._conn.execute(
-            "INSERT INTO converted_documents "
+            "INSERT OR IGNORE INTO converted_documents "
             "(source_id, content_hash, config_hash, docling_json, format, conversion_time_ms) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (source_id, content_hash, config_hash, json.dumps(result), fmt, elapsed_ms),

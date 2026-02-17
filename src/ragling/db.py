@@ -203,14 +203,16 @@ def get_or_create_collection(
     if row:
         return row["id"]
 
-    cursor = conn.execute(
-        "INSERT INTO collections (name, collection_type, description) VALUES (?, ?, ?)",
+    conn.execute(
+        "INSERT OR IGNORE INTO collections (name, collection_type, description) VALUES (?, ?, ?)",
         (name, collection_type, description),
     )
     conn.commit()
-    assert cursor.lastrowid is not None
-    logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, cursor.lastrowid)
-    return cursor.lastrowid
+    row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
+    assert row is not None
+    coll_id: int = row["id"]
+    logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, coll_id)
+    return coll_id
 
 
 def delete_collection(conn: sqlite3.Connection, name: str) -> bool:

@@ -1,6 +1,7 @@
 """Tests for ragling.doc_store module."""
 
 import sqlite3
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -181,6 +182,94 @@ class TestDocStoreBusyTimeout:
         store = DocStore(db_path)
         row = store._conn.execute("PRAGMA busy_timeout").fetchone()
         assert row[0] == 5000
+
+
+class TestMultiProcessSafety:
+    """Tests for multi-process write safety."""
+
+    def test_get_or_convert_transaction_not_held_during_conversion(
+        self, tmp_path: Path, sample_file: Path
+    ) -> None:
+        """Another writer can write to the doc_store while a reconversion is in progress.
+
+        The bug: when a stale entry exists, DELETE starts a transaction, then
+        the converter runs (slow), holding the write lock. Other writers hit
+        busy_timeout and fail. After the fix, the converter runs before DML,
+        so the lock is only held briefly.
+        """
+        db_path = tmp_path / "doc_store.sqlite"
+        store = DocStore(db_path)
+
+        # Pre-populate the cache so the next call takes the stale-entry path
+        fast_converter = MagicMock(return_value={"v": 1})
+        store.get_or_convert(sample_file, fast_converter, config_hash="old")
+
+        conversion_started = threading.Event()
+        write_completed = threading.Event()
+        write_error: list[Exception] = []
+
+        def slow_converter(path: Path) -> dict:
+            conversion_started.set()
+            # Wait for the other thread to complete its write
+            assert write_completed.wait(timeout=5), "Second writer timed out"
+            return {"v": 2}
+
+        def second_writer() -> None:
+            """Try to write to the same DB while conversion is in progress."""
+            conversion_started.wait(timeout=5)
+            try:
+                conn2 = sqlite3.connect(str(db_path))
+                conn2.execute("PRAGMA busy_timeout=1000")
+                conn2.execute("PRAGMA journal_mode=WAL")
+                conn2.execute(
+                    "INSERT INTO sources (source_path, content_hash, file_size, file_modified_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("/other/file.txt", "abc123", 100, "2024-01-01"),
+                )
+                conn2.commit()
+                conn2.close()
+            except Exception as exc:
+                write_error.append(exc)
+            finally:
+                write_completed.set()
+
+        writer_thread = threading.Thread(target=second_writer)
+        writer_thread.start()
+
+        # This triggers reconversion because config_hash changed
+        result = store.get_or_convert(sample_file, slow_converter, config_hash="new")
+        writer_thread.join(timeout=10)
+
+        assert result == {"v": 2}
+        assert not write_error, f"Second writer failed: {write_error[0]}"
+
+    def test_concurrent_get_or_convert_same_file(self, tmp_path: Path, sample_file: Path) -> None:
+        """Two threads calling get_or_convert for the same file both succeed."""
+        db_path = tmp_path / "doc_store.sqlite"
+
+        results: list[dict] = []
+        errors: list[Exception] = []
+
+        def worker() -> None:
+            try:
+                store = DocStore(db_path)
+                converter = MagicMock(return_value={"text": "converted"})
+                result = store.get_or_convert(sample_file, converter)
+                results.append(result)
+            except Exception as exc:
+                errors.append(exc)
+
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        assert not errors, f"Thread failed: {errors[0]}"
+        assert len(results) == 2
+        assert results[0] == {"text": "converted"}
+        assert results[1] == {"text": "converted"}
 
 
 class TestMigrateConfigHash:
