@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 
 from ragling.config import Config
 from ragling.indexing_queue import IndexJob
@@ -187,3 +189,26 @@ class _SystemDbHandler(FileSystemEventHandler):
             if file_path.is_relative_to(watched_dir):
                 self._watcher.notify_change(watched_dir)
                 return
+
+
+def start_system_watcher(
+    config: Config, queue: IndexingQueue
+) -> tuple[BaseObserver, SystemCollectionWatcher]:
+    """Start a watchdog observer for system collection databases.
+
+    Args:
+        config: Application configuration.
+        queue: The indexing queue to submit jobs to.
+
+    Returns:
+        Tuple of (observer, watcher) for shutdown cleanup.
+    """
+    watcher = SystemCollectionWatcher(config, queue)
+    handler = _SystemDbHandler(watcher)
+    observer = Observer()
+    observer.daemon = True
+    for directory in watcher.get_watch_directories():
+        observer.schedule(handler, str(directory), recursive=False)
+        logger.info("Watching system DB directory: %s", directory)
+    observer.start()
+    return observer, watcher

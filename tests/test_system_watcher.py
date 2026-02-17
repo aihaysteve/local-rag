@@ -242,3 +242,24 @@ class TestSystemDbHandler:
         handler.on_modified(event)
 
         assert len(watcher._pending) == 0
+
+
+class TestStartSystemWatcher:
+    """Tests for start_system_watcher convenience function."""
+
+    def test_returns_observer_and_watcher(self, tmp_path: Path) -> None:
+        from ragling.system_watcher import start_system_watcher
+
+        config = Config(
+            emclient_db_path=tmp_path / "emclient.db",
+            embedding_dimensions=4,
+        )
+        queue = MagicMock()
+
+        # Create the DB file so the watch directory exists
+        (tmp_path / "emclient.db").touch()
+
+        observer, watcher = start_system_watcher(config, queue)
+        assert observer.is_alive()
+        observer.stop()
+        observer.join(timeout=5)

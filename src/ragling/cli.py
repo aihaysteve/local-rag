@@ -738,6 +738,23 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
 
         threading.Thread(target=_start_watcher_after_sync, name="watcher-wait", daemon=True).start()
 
+    # Start system collection watcher after startup sync completes
+    def _start_system_watcher_after_sync() -> None:
+        sync_done.wait()
+        try:
+            from ragling.system_watcher import start_system_watcher
+
+            start_system_watcher(config, indexing_queue)
+            logger.info("System collection watcher started")
+        except Exception:
+            logger.exception("Failed to start system collection watcher")
+
+    threading.Thread(
+        target=_start_system_watcher_after_sync,
+        name="sys-watcher-wait",
+        daemon=True,
+    ).start()
+
     server = create_server(
         group_name=group,
         config=config,
