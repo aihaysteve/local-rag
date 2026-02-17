@@ -348,31 +348,31 @@ def create_server(
 
         ## Collection filtering
 
-        The `collection` parameter accepts either a collection name or a collection type:
-        - Name (e.g., "obsidian", "email", "rustyquill", "terraform") — searches that specific collection.
+        The ``collection`` parameter accepts either a collection name or a collection type:
+        - Name (e.g., "obsidian", "email", "my-project") — searches that specific collection.
         - Type ("system", "project", "code") — searches all collections of that type.
           Use "code" to search across all code groups at once.
 
         ## Source URIs
 
-        Each result includes a `source_uri` field with a clickable link to the original source
+        Each result includes a ``source_uri`` field with a clickable link to the original source
         when available. Use these to let the user open or navigate to the original document.
 
         - **Obsidian vault files** (markdown, PDFs, etc. inside a vault):
-          Returns an `obsidian://open?vault=...&file=...` URI that opens the note directly
-          in the Obsidian app. Example: `obsidian://open?vault=MyVault&file=notes/report.md`.
+          Returns an ``obsidian://open?vault=...&file=...`` URI that opens the note directly
+          in the Obsidian app. Example: ``obsidian://open?vault=MyVault&file=notes/report.md``.
         - **Code files** (from code groups):
-          Returns a `vscode://file/...` URI that opens the file in VS Code at the correct line.
-          Example: `vscode://file/Users/you/repos/project/src/main.py:42`.
+          Returns a ``vscode://file/...`` URI that opens the file in VS Code at the correct line.
+          Example: ``vscode://file/Users/you/repos/project/src/main.py:42``.
         - **Other file-based sources** (calibre books, project docs):
-          Returns a `file://` URI, e.g. `file:///Users/you/CalibreLibrary/book.epub`.
+          Returns a ``file://`` URI, e.g. ``file:///Users/you/CalibreLibrary/book.epub``.
           These open the file in the default macOS application (Preview for PDFs, editor for code, etc.).
-        - **RSS articles**: Returns the original article `https://` URL from metadata.
+        - **RSS articles**: Returns the original article ``https://`` URL from metadata.
           Opens the article in the default browser.
-        - **Email and git commits**: Returns `null` — no meaningful URI is available for these.
-        - **Calibre description-only entries**: Returns `null` — no actual file exists.
+        - **Email and git commits**: Returns ``null`` — no meaningful URI is available for these.
+        - **Calibre description-only entries**: Returns ``null`` — no actual file exists.
 
-        When presenting results to the user, include the `source_uri` as a markdown link so
+        When presenting results to the user, include the ``source_uri`` as a markdown link so
         the user can click to open the original. Example:
           [Open in Obsidian](obsidian://open?vault=MyVault&file=notes/report.md)
           [Open PDF](file:///Users/you/CalibreLibrary/Author/book.pdf)
