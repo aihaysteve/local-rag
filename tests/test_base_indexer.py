@@ -5,7 +5,12 @@ from pathlib import Path
 
 from ragling.config import Config
 from ragling.db import get_connection, init_db
-from ragling.indexers.base import delete_source, prune_stale_sources, upsert_source_with_chunks
+from ragling.indexers.base import (
+    IndexResult,
+    delete_source,
+    prune_stale_sources,
+    upsert_source_with_chunks,
+)
 
 
 def _make_conn(tmp_path: Path) -> sqlite3.Connection:
@@ -180,3 +185,19 @@ class TestPruneStaleSources:
 
         assert pruned == 1
         assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 2
+
+
+class TestIndexResultPruned:
+    def test_pruned_defaults_to_zero(self) -> None:
+        result = IndexResult()
+        assert result.pruned == 0
+
+    def test_str_includes_pruned_when_nonzero(self) -> None:
+        result = IndexResult(indexed=5, skipped=10, pruned=3, errors=0, total_found=15)
+        s = str(result)
+        assert "Pruned: 3" in s
+
+    def test_str_omits_pruned_when_zero(self) -> None:
+        result = IndexResult(indexed=5, skipped=10, pruned=0, errors=0, total_found=15)
+        s = str(result)
+        assert "Pruned" not in s

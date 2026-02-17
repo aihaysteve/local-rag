@@ -222,6 +222,7 @@ class IndexResult:
     indexed: int = 0
     skipped: int = 0
     skipped_empty: int = 0
+    pruned: int = 0
     errors: int = 0
     total_found: int = 0
     error_messages: list[str] = field(default_factory=list)
@@ -233,6 +234,8 @@ class IndexResult:
         ]
         if self.skipped_empty:
             parts.append(f"Skipped empty: {self.skipped_empty}")
+        if self.pruned:
+            parts.append(f"Pruned: {self.pruned}")
         parts.extend(
             [
                 f"Errors: {self.errors}",
