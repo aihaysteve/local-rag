@@ -1,13 +1,15 @@
 # tests/test_integration.py
-"""Integration test for the full NanoBot RAG flow."""
+"""Integration tests for ragling: multi-group sharing, cache reuse, and WAL concurrency."""
 
 import sqlite3
+import threading
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ragling.config import Config, UserConfig
+from ragling.doc_store import DocStore
 
 # Skip if sqlite-vec not available
 _conn = sqlite3.connect(":memory:")
@@ -129,3 +131,176 @@ class TestFullFlow:
                 assert "garage" not in collections_in_results
 
                 conn.close()
+
+
+@requires_sqlite_extensions
+class TestMultiGroupDocSharing:
+    """Verify shared doc_store with per-group vector indexes."""
+
+    def test_two_groups_share_doc_store_with_separate_indexes(self, tmp_path: Path) -> None:
+        """Index same doc in two groups: one doc_store entry, two separate index DBs."""
+        shared_db = tmp_path / "doc_store.sqlite"
+        group_db_dir = tmp_path / "groups"
+
+        # Create a test document
+        doc = tmp_path / "report.txt"
+        doc.write_text("Quarterly earnings report with detailed analysis.")
+
+        converter = MagicMock(return_value={"text": "converted report"})
+        store = DocStore(shared_db)
+
+        # Both groups convert through the same shared store
+        result_alpha = store.get_or_convert(doc, converter)
+        result_beta = store.get_or_convert(doc, converter)
+
+        # Converter called only once — second group gets cache hit
+        assert converter.call_count == 1
+        assert result_alpha == result_beta
+
+        # Shared doc_store has exactly one source entry
+        sources = store.list_sources()
+        assert len(sources) == 1
+        assert sources[0]["source_path"] == str(doc)
+
+        # Per-group index DBs are at separate paths
+        config_alpha = Config(
+            group_name="alpha",
+            group_db_dir=group_db_dir,
+            shared_db_path=shared_db,
+            embedding_dimensions=4,
+        )
+        config_beta = Config(
+            group_name="beta",
+            group_db_dir=group_db_dir,
+            shared_db_path=shared_db,
+            embedding_dimensions=4,
+        )
+
+        assert config_alpha.group_index_db_path != config_beta.group_index_db_path
+        assert "alpha" in str(config_alpha.group_index_db_path)
+        assert "beta" in str(config_beta.group_index_db_path)
+
+        # Create actual per-group index DBs to confirm isolation
+        from ragling.db import get_connection, init_db
+
+        conn_alpha = get_connection(config_alpha)
+        init_db(conn_alpha, config_alpha)
+        conn_beta = get_connection(config_beta)
+        init_db(conn_beta, config_beta)
+
+        # Verify they are distinct files
+        assert config_alpha.group_index_db_path.exists()
+        assert config_beta.group_index_db_path.exists()
+        assert config_alpha.group_index_db_path != config_beta.group_index_db_path
+
+        conn_alpha.close()
+        conn_beta.close()
+        store.close()
+
+
+class TestCacheReuseAcrossGroups:
+    """Verify DocStore cache reuse when re-indexing in a new group."""
+
+    def test_reindex_new_group_hits_cache(self, tmp_path: Path) -> None:
+        """Re-indexing same documents in a new group does not re-convert."""
+        shared_db = tmp_path / "doc_store.sqlite"
+        store = DocStore(shared_db)
+
+        # Create test files
+        files = []
+        for i in range(3):
+            p = tmp_path / f"doc{i}.md"
+            p.write_text(f"Document {i} content with some detail.")
+            files.append(p)
+
+        converter = MagicMock(side_effect=lambda p: {"text": f"converted {p.name}"})
+
+        # "Group alpha" indexes all files — 3 converter calls
+        for f in files:
+            store.get_or_convert(f, converter)
+        assert converter.call_count == 3
+
+        # "Group beta" indexes the same files — 0 additional converter calls
+        for f in files:
+            store.get_or_convert(f, converter)
+        assert converter.call_count == 3  # still 3, no new conversions
+
+        store.close()
+
+
+class TestFileModificationReindex:
+    """Verify re-indexing after file modification replaces cached conversion."""
+
+    def test_modified_file_triggers_reconversion(self, tmp_path: Path) -> None:
+        """Modify a file, re-index, verify new conversion replaces old."""
+        shared_db = tmp_path / "doc_store.sqlite"
+        store = DocStore(shared_db)
+
+        doc = tmp_path / "notes.md"
+        doc.write_text("Original content of the document.")
+
+        converter = MagicMock(side_effect=lambda p: {"text": p.read_text()})
+
+        # Initial conversion
+        result1 = store.get_or_convert(doc, converter)
+        assert result1 == {"text": "Original content of the document."}
+        assert converter.call_count == 1
+
+        # Modify the file
+        doc.write_text("Updated content with new information.")
+
+        # Re-index — should detect hash change and re-convert
+        result2 = store.get_or_convert(doc, converter)
+        assert result2 == {"text": "Updated content with new information."}
+        assert converter.call_count == 2
+
+        # Cached version is the new one
+        cached = store.get_document(str(doc))
+        assert cached == {"text": "Updated content with new information."}
+
+        # Source list still has exactly one entry (updated, not duplicated)
+        sources = store.list_sources()
+        assert len(sources) == 1
+
+        store.close()
+
+
+class TestConcurrentWALReads:
+    """Verify WAL mode allows concurrent reads without blocking."""
+
+    def test_multiple_readers_dont_block(self, tmp_path: Path) -> None:
+        """Multiple connections can read the doc_store simultaneously via WAL."""
+        shared_db = tmp_path / "doc_store.sqlite"
+        store = DocStore(shared_db)
+
+        # Populate with test data
+        for i in range(5):
+            p = tmp_path / f"file{i}.txt"
+            p.write_text(f"Content {i}")
+            store.get_or_convert(p, lambda path: {"text": path.read_text()})
+
+        store.close()
+
+        # Open multiple concurrent readers
+        results: list[list[dict]] = []
+        errors: list[Exception] = []
+
+        def read_sources() -> None:
+            try:
+                reader = DocStore(shared_db)
+                sources = reader.list_sources()
+                results.append(sources)
+                reader.close()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=read_sources) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert not errors, f"Concurrent reads failed: {errors}"
+        assert len(results) == 5
+        for source_list in results:
+            assert len(source_list) == 5
