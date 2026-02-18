@@ -71,4 +71,4 @@ launchctl unload ~/Library/LaunchAgents/com.ragling.index.plist
 launchctl load ~/Library/LaunchAgents/com.ragling.index.plist
 ```
 
-See [Indexing Sources](indexing.md) for what gets indexed, and [Configuration](configuration.md) to control which sources are included.
+See [Indexing Sources](indexing.md) for what each source covers, and [Configuration](configuration.md) to control which sources to index.

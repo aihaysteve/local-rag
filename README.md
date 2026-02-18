@@ -1,6 +1,6 @@
 # ragling
 
-Search your notes, emails, ebooks, RSS feeds, and code repos with one query. Shared document cache with separate indexes per group — index once, search from multiple AI agents. Designed as the RAG backend for [NanoClaw](https://github.com/aihaysteve/nanoclaw). Everything runs locally; nothing leaves your machine.
+Search your notes, emails, ebooks, RSS feeds, and code repos with one query. Shared document cache with separate indexes per group — index once, search from multiple AI agents. Powers the RAG backend for [NanoClaw](https://github.com/aihaysteve/nanoclaw). Everything runs locally; nothing leaves your machine.
 
 Forked from [sebastianhutter/local-rag](https://github.com/sebastianhutter/local-rag). Built with [Claude](https://claude.ai). Powered by [Docling](https://github.com/DS4SD/docling) (IBM). Inspired by [devrag](https://github.com/strickvl/devrag).
 
