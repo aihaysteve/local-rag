@@ -101,46 +101,30 @@ class TestExtensionMap:
         assert _EXTENSION_MAP[".yml"] == "plaintext"
 
 
+_AUDIO_EXTENSIONS = [
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".aac",
+    ".ogg",
+    ".flac",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".opus",
+    ".mkv",
+    ".mka",
+]
+
+
 class TestAudioExtensionMap:
     """All audio/video extensions should map to 'audio' source type."""
 
-    @pytest.mark.parametrize(
-        "ext",
-        [
-            ".mp3",
-            ".wav",
-            ".m4a",
-            ".aac",
-            ".ogg",
-            ".flac",
-            ".mp4",
-            ".avi",
-            ".mov",
-            ".opus",
-            ".mkv",
-            ".mka",
-        ],
-    )
+    @pytest.mark.parametrize("ext", _AUDIO_EXTENSIONS)
     def test_audio_extension_maps_to_audio(self, ext: str) -> None:
         assert _EXTENSION_MAP[ext] == "audio"
 
-    @pytest.mark.parametrize(
-        "ext",
-        [
-            ".mp3",
-            ".wav",
-            ".m4a",
-            ".aac",
-            ".ogg",
-            ".flac",
-            ".mp4",
-            ".avi",
-            ".mov",
-            ".opus",
-            ".mkv",
-            ".mka",
-        ],
-    )
+    @pytest.mark.parametrize("ext", _AUDIO_EXTENSIONS)
     def test_audio_extension_is_supported(self, ext: str) -> None:
         assert is_supported_extension(ext)
 

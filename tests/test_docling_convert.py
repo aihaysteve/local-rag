@@ -577,32 +577,15 @@ class TestGetConverterAsr:
 
 
 class TestAudioFormatRegistration:
-    def test_opus_registered_as_audio(self) -> None:
+    @pytest.mark.parametrize("ext", ["opus", "mkv", "mka"])
+    def test_extra_extension_registered_as_audio(self, ext: str) -> None:
         from ragling.docling_convert import ensure_audio_formats_registered
 
         ensure_audio_formats_registered()
 
         from docling.datamodel.base_models import FormatToExtensions, InputFormat
 
-        assert "opus" in FormatToExtensions[InputFormat.AUDIO]
-
-    def test_mkv_registered_as_audio(self) -> None:
-        from ragling.docling_convert import ensure_audio_formats_registered
-
-        ensure_audio_formats_registered()
-
-        from docling.datamodel.base_models import FormatToExtensions, InputFormat
-
-        assert "mkv" in FormatToExtensions[InputFormat.AUDIO]
-
-    def test_mka_registered_as_audio(self) -> None:
-        from ragling.docling_convert import ensure_audio_formats_registered
-
-        ensure_audio_formats_registered()
-
-        from docling.datamodel.base_models import FormatToExtensions, InputFormat
-
-        assert "mka" in FormatToExtensions[InputFormat.AUDIO]
+        assert ext in FormatToExtensions[InputFormat.AUDIO]
 
     def test_idempotent(self) -> None:
         from ragling.docling_convert import ensure_audio_formats_registered
