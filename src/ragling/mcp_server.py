@@ -656,10 +656,18 @@ def create_server(
     def _rag_index_via_queue(
         collection: str, path: str | None, config: Config, q: IndexingQueue
     ) -> dict[str, Any]:
-        """Route indexing through the IndexingQueue."""
+        """Route indexing through the IndexingQueue (non-blocking)."""
         from pathlib import Path as P
 
         from ragling.indexing_queue import IndexJob
+
+        # Dedup: reject if collection already has queued work
+        if indexing_status and indexing_status.is_collection_active(collection):
+            return {
+                "status": "already_indexing",
+                "collection": collection,
+                "indexing": indexing_status.to_dict(),
+            }
 
         if collection == "obsidian":
             job = IndexJob("directory", P(path) if path else None, "obsidian", "obsidian")
@@ -670,25 +678,15 @@ def create_server(
         elif collection == "rss":
             job = IndexJob("system_collection", P(path) if path else None, "rss", "rss")
         elif collection in config.code_groups:
-            results = []
-            timed_out = 0
             for repo_path in config.code_groups[collection]:
                 job = IndexJob("directory", repo_path, collection, "code")
-                result = q.submit_and_wait(job, timeout=300)
-                if result:
-                    results.append(result)
-                else:
-                    timed_out += 1
-            response: dict[str, Any] = {
+                q.submit(job)
+            return {
+                "status": "submitted",
                 "collection": collection,
-                "indexed": sum(r.indexed for r in results),
-                "skipped": sum(r.skipped for r in results),
-                "errors": sum(r.errors for r in results),
-                "total_found": sum(r.total_found for r in results),
+                "repos": len(config.code_groups[collection]),
+                "indexing": indexing_status.to_dict() if indexing_status else None,
             }
-            if timed_out > 0:
-                response["timed_out"] = timed_out
-            return response
         elif path:
             job = IndexJob("directory", P(path), collection, "project")
         else:
@@ -696,15 +694,11 @@ def create_server(
                 "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
             }
 
-        result = q.submit_and_wait(job, timeout=300)
-        if result is None:
-            return {"error": f"Indexing timed out for collection '{collection}'."}
+        q.submit(job)
         return {
+            "status": "submitted",
             "collection": collection,
-            "indexed": result.indexed,
-            "skipped": result.skipped,
-            "errors": result.errors,
-            "total_found": result.total_found,
+            "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
     def _rag_index_direct(collection: str, path: str | None, config: Config) -> dict[str, Any]:

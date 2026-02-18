@@ -490,12 +490,6 @@ class TestRagIndexQueueRouting:
 
         status = IndexingStatus()
         queue = MagicMock(spec=IndexingQueue)
-        mock_result = MagicMock()
-        mock_result.indexed = 5
-        mock_result.skipped = 0
-        mock_result.errors = 0
-        mock_result.total_found = 5
-        queue.submit_and_wait.return_value = mock_result
 
         server = create_server(
             group_name="default",
@@ -525,8 +519,8 @@ class TestRagIndexQueueRouting:
         )
         assert server is not None
 
-    def test_rag_index_via_queue_returns_result(self, tmp_path: Path) -> None:
-        """When queue is available, rag_index routes through it and returns results."""
+    def test_rag_index_via_queue_returns_submitted_status(self, tmp_path: Path) -> None:
+        """rag_index returns immediately with 'submitted' status."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -544,12 +538,6 @@ class TestRagIndexQueueRouting:
 
         status = IndexingStatus()
         queue = MagicMock(spec=IndexingQueue)
-        mock_result = MagicMock()
-        mock_result.indexed = 5
-        mock_result.skipped = 2
-        mock_result.errors = 0
-        mock_result.total_found = 7
-        queue.submit_and_wait.return_value = mock_result
 
         server = create_server(
             group_name="default",
@@ -558,21 +546,19 @@ class TestRagIndexQueueRouting:
             indexing_queue=queue,
         )
 
-        # Call rag_index through the server's tool registry
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
         result: dict[str, Any] = rag_index_fn(collection="obsidian")
 
-        # Should have routed through the queue
-        queue.submit_and_wait.assert_called_once()
+        # Should use submit (fire-and-forget), NOT submit_and_wait
+        queue.submit.assert_called_once()
+        queue.submit_and_wait.assert_not_called()
+        assert result["status"] == "submitted"
         assert result["collection"] == "obsidian"
-        assert result["indexed"] == 5
-        assert result["skipped"] == 2
-        assert result["errors"] == 0
-        assert result["total_found"] == 7
+        assert "indexing" in result
 
-    def test_rag_index_via_queue_timeout_returns_error(self, tmp_path: Path) -> None:
-        """When queue times out, rag_index returns an error dict."""
+    def test_rag_index_via_queue_dedup_rejects_when_active(self, tmp_path: Path) -> None:
+        """rag_index returns already_indexing when collection is active."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -589,8 +575,9 @@ class TestRagIndexQueueRouting:
         )
 
         status = IndexingStatus()
+        status.increment("obsidian")  # simulate active indexing
+
         queue = MagicMock(spec=IndexingQueue)
-        queue.submit_and_wait.return_value = None  # timeout
 
         server = create_server(
             group_name="default",
@@ -603,11 +590,14 @@ class TestRagIndexQueueRouting:
         rag_index_fn = tools["rag_index"].fn
         result: dict[str, Any] = rag_index_fn(collection="obsidian")
 
-        assert "error" in result
-        assert "timed out" in result["error"].lower()
+        queue.submit.assert_not_called()
+        queue.submit_and_wait.assert_not_called()
+        assert result["status"] == "already_indexing"
+        assert result["collection"] == "obsidian"
+        assert "indexing" in result
 
-    def test_rag_index_via_queue_code_group(self, tmp_path: Path) -> None:
-        """Code groups submit one job per repo and aggregate results."""
+    def test_rag_index_via_queue_code_group_submits_all_repos(self, tmp_path: Path) -> None:
+        """Code groups submit one job per repo via fire-and-forget."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -628,19 +618,6 @@ class TestRagIndexQueueRouting:
         status = IndexingStatus()
         queue = MagicMock(spec=IndexingQueue)
 
-        # Each submit_and_wait call returns a result for one repo
-        result1 = MagicMock()
-        result1.indexed = 3
-        result1.skipped = 1
-        result1.errors = 0
-        result1.total_found = 4
-        result2 = MagicMock()
-        result2.indexed = 2
-        result2.skipped = 0
-        result2.errors = 1
-        result2.total_found = 3
-        queue.submit_and_wait.side_effect = [result1, result2]
-
         server = create_server(
             group_name="default",
             config=config,
@@ -652,62 +629,12 @@ class TestRagIndexQueueRouting:
         rag_index_fn = tools["rag_index"].fn
         result: dict[str, Any] = rag_index_fn(collection="mycode")
 
-        assert queue.submit_and_wait.call_count == 2
+        assert queue.submit.call_count == 2
+        queue.submit_and_wait.assert_not_called()
+        assert result["status"] == "submitted"
         assert result["collection"] == "mycode"
-        assert result["indexed"] == 5
-        assert result["skipped"] == 1
-        assert result["errors"] == 1
-        assert result["total_found"] == 7
-        assert "timed_out" not in result  # no timeouts, key omitted
-
-    def test_rag_index_via_queue_code_group_with_timeout(self, tmp_path: Path) -> None:
-        """Code groups surface timed-out repo count when submit_and_wait returns None."""
-        from ragling.config import Config
-        from ragling.indexing_queue import IndexingQueue
-        from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import create_server
-
-        repo1 = tmp_path / "repo1"
-        repo2 = tmp_path / "repo2"
-        repo1.mkdir()
-        repo2.mkdir()
-
-        config = Config(
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
-            code_groups={"mycode": [repo1, repo2]},
-        )
-
-        status = IndexingStatus()
-        queue = MagicMock(spec=IndexingQueue)
-
-        # First repo succeeds, second times out
-        result1 = MagicMock()
-        result1.indexed = 3
-        result1.skipped = 1
-        result1.errors = 0
-        result1.total_found = 4
-        queue.submit_and_wait.side_effect = [result1, None]
-
-        server = create_server(
-            group_name="default",
-            config=config,
-            indexing_status=status,
-            indexing_queue=queue,
-        )
-
-        tools = server._tool_manager._tools
-        rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="mycode")
-
-        assert queue.submit_and_wait.call_count == 2
-        assert result["collection"] == "mycode"
-        assert result["indexed"] == 3
-        assert result["skipped"] == 1
-        assert result["errors"] == 0
-        assert result["total_found"] == 4
-        assert result["timed_out"] == 1
+        assert result["repos"] == 2
+        assert "indexing" in result
 
     def test_rag_index_disabled_collection(self, tmp_path: Path) -> None:
         """Disabled collections return error regardless of queue."""
@@ -739,7 +666,7 @@ class TestRagIndexQueueRouting:
 
         assert "error" in result
         assert "disabled" in result["error"].lower()
-        queue.submit_and_wait.assert_not_called()
+        queue.submit.assert_not_called()
 
 
 class TestRagIndexFollowerMode:
@@ -804,12 +731,6 @@ class TestRagIndexFollowerMode:
 
         static_queue = MagicMock(spec=IndexingQueue)
         dynamic_queue = MagicMock(spec=IndexingQueue)
-        mock_result = MagicMock()
-        mock_result.indexed = 3
-        mock_result.skipped = 0
-        mock_result.errors = 0
-        mock_result.total_found = 3
-        dynamic_queue.submit_and_wait.return_value = mock_result
 
         server = create_server(
             config=config,
@@ -822,9 +743,9 @@ class TestRagIndexFollowerMode:
         result: dict[str, Any] = rag_index_fn(collection="obsidian")
 
         # dynamic_queue should be used, not static_queue
-        dynamic_queue.submit_and_wait.assert_called_once()
-        static_queue.submit_and_wait.assert_not_called()
-        assert result["indexed"] == 3
+        dynamic_queue.submit.assert_called_once()
+        static_queue.submit.assert_not_called()
+        assert result["status"] == "submitted"
 
     def test_queue_getter_promotion_scenario(self, tmp_path: Path) -> None:
         """Simulates follower->leader promotion: getter initially returns None, then a queue."""
@@ -840,12 +761,6 @@ class TestRagIndexFollowerMode:
         (tmp_path / "vault").mkdir(exist_ok=True)
 
         promoted_queue = MagicMock(spec=IndexingQueue)
-        mock_result = MagicMock()
-        mock_result.indexed = 10
-        mock_result.skipped = 0
-        mock_result.errors = 0
-        mock_result.total_found = 10
-        promoted_queue.submit_and_wait.return_value = mock_result
 
         # Start as follower (getter returns None), then "promote" to leader
         current_queue: IndexingQueue | None = None
@@ -872,8 +787,8 @@ class TestRagIndexFollowerMode:
         # Now should route through the queue
         result2: dict[str, Any] = rag_index_fn(collection="obsidian")
         assert "error" not in result2
-        assert result2["indexed"] == 10
-        promoted_queue.submit_and_wait.assert_called_once()
+        assert result2["status"] == "submitted"
+        promoted_queue.submit.assert_called_once()
 
     def test_no_queue_getter_falls_back_to_static_queue(self, tmp_path: Path) -> None:
         """Without queue_getter, the existing indexing_queue parameter still works."""
@@ -889,12 +804,6 @@ class TestRagIndexFollowerMode:
         (tmp_path / "vault").mkdir(exist_ok=True)
 
         queue = MagicMock(spec=IndexingQueue)
-        mock_result = MagicMock()
-        mock_result.indexed = 5
-        mock_result.skipped = 0
-        mock_result.errors = 0
-        mock_result.total_found = 5
-        queue.submit_and_wait.return_value = mock_result
 
         # No queue_getter — only static indexing_queue
         server = create_server(
@@ -906,5 +815,5 @@ class TestRagIndexFollowerMode:
         rag_index_fn = tools["rag_index"].fn
         result: dict[str, Any] = rag_index_fn(collection="obsidian")
 
-        queue.submit_and_wait.assert_called_once()
-        assert result["indexed"] == 5
+        queue.submit.assert_called_once()
+        assert result["status"] == "submitted"
