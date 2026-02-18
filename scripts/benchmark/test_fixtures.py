@@ -56,10 +56,7 @@ def test_generate_git_fixtures(tmp_path: Path) -> None:
     small_files = list(small.glob("*.py"))
     assert 5 <= len(small_files) <= 15
 
-    large_files = list(
-        f for f in large.rglob("*")
-        if f.is_file() and ".git" not in str(f)
-    )
+    large_files = list(f for f in large.rglob("*") if f.is_file() and ".git" not in str(f))
     assert len(large_files) >= 50
 
 

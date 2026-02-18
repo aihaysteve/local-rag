@@ -62,10 +62,10 @@ def _format_bytes(b: int | None) -> str:
     """Format bytes as human-readable size."""
     if b is None:
         return "N/A"
-    gb = b / (1024 ** 3)
+    gb = b / (1024**3)
     if gb >= 1:
         return f"{gb:.1f} GB"
-    mb = b / (1024 ** 2)
+    mb = b / (1024**2)
     return f"{mb:.0f} MB"
 
 
@@ -166,8 +166,7 @@ def render_markdown(
             cells = []
             for tag, config in columns:
                 match = [
-                    r for r in fixture_rows
-                    if r["tag"] == tag and r["configuration"] == config
+                    r for r in fixture_rows if r["tag"] == tag and r["configuration"] == config
                 ]
                 if match:
                     cells.append(_format_time(match[0]["total_ms"]))

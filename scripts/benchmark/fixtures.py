@@ -199,7 +199,7 @@ def _generate_large_repo(repo_dir: Path) -> None:
             f"def test_handler_{i}():\n"
             f"    from src.module_{i} import Handler{i}\n"
             f"    h = Handler{i}()\n"
-            f"    assert h.process([1, 2, 3]) == [{1+i}, {2+i}, {3+i}]\n"
+            f"    assert h.process([1, 2, 3]) == [{1 + i}, {2 + i}, {3 + i}]\n"
         )
     _run_git(repo_dir, "add", ".")
     _run_git(repo_dir, "commit", "-m", "Add test suite")

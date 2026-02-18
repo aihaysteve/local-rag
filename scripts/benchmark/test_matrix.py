@@ -15,7 +15,8 @@ def test_parse_matrix_minimal(tmp_path: Path) -> None:
     from benchmark.matrix import BenchmarkConfig, parse_matrix
 
     toml_file = tmp_path / "matrix.toml"
-    toml_file.write_text(textwrap.dedent("""\
+    toml_file.write_text(
+        textwrap.dedent("""\
         [fixtures]
         dir = "scripts/fixtures"
 
@@ -31,7 +32,8 @@ def test_parse_matrix_minimal(tmp_path: Path) -> None:
         code_enrichment = false
         formula_enrichment = false
         table_structure = false
-    """))
+    """)
+    )
 
     matrix = parse_matrix(toml_file)
     assert matrix.fixtures_dir == "scripts/fixtures"
@@ -51,7 +53,8 @@ def test_parse_matrix_multiple_configs(tmp_path: Path) -> None:
     from benchmark.matrix import parse_matrix
 
     toml_file = tmp_path / "matrix.toml"
-    toml_file.write_text(textwrap.dedent("""\
+    toml_file.write_text(
+        textwrap.dedent("""\
         [fixtures]
         dir = "fixtures"
 
@@ -76,7 +79,8 @@ def test_parse_matrix_multiple_configs(tmp_path: Path) -> None:
         code_enrichment = true
         formula_enrichment = true
         table_structure = true
-    """))
+    """)
+    )
 
     matrix = parse_matrix(toml_file)
     assert len(matrix.configurations) == 2
