@@ -1,5 +1,7 @@
 """Tests for ragling.leader module."""
 
+import threading
+import time
 from pathlib import Path
 
 from ragling.config import Config
@@ -101,3 +103,108 @@ class TestLeaderLock:
         lock = LeaderLock(tmp_path / "test.lock")
         assert lock.is_leader is False
         lock.close()
+
+
+class TestLeaderLockRetry:
+    """Tests for the periodic retry thread that promotes followers."""
+
+    def test_retry_promotes_after_leader_releases(self, tmp_path: Path) -> None:
+        from ragling.leader import LeaderLock
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        follower = LeaderLock(lock_path)
+
+        assert leader.try_acquire() is True
+        assert follower.try_acquire() is False
+
+        promoted = threading.Event()
+        follower.start_retry(interval=0.1, on_promote=promoted.set)
+
+        # Release leader — follower should promote
+        leader.close()
+        assert promoted.wait(timeout=3.0), "Follower was not promoted"
+        assert follower.is_leader is True
+
+        follower.stop_retry()
+        follower.close()
+
+    def test_on_promote_callback_called(self, tmp_path: Path) -> None:
+        from ragling.leader import LeaderLock
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        follower = LeaderLock(lock_path)
+
+        assert leader.try_acquire() is True
+        assert follower.try_acquire() is False
+
+        callback_args: list[str] = []
+
+        def on_promote() -> None:
+            callback_args.append("promoted")
+
+        follower.start_retry(interval=0.1, on_promote=on_promote)
+        leader.close()
+        time.sleep(0.5)
+
+        assert callback_args == ["promoted"]
+
+        follower.stop_retry()
+        follower.close()
+
+    def test_stop_retry_stops_thread(self, tmp_path: Path) -> None:
+        from ragling.leader import LeaderLock
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        follower = LeaderLock(lock_path)
+
+        assert leader.try_acquire() is True
+        assert follower.try_acquire() is False
+
+        follower.start_retry(interval=0.1)
+        follower.stop_retry()
+
+        assert not follower._retry_thread.is_alive()
+
+        leader.close()
+        follower.close()
+
+    def test_retry_thread_is_daemon(self, tmp_path: Path) -> None:
+        from ragling.leader import LeaderLock
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        follower = LeaderLock(lock_path)
+
+        assert leader.try_acquire() is True
+        assert follower.try_acquire() is False
+
+        follower.start_retry(interval=0.1)
+        assert follower._retry_thread.daemon is True
+
+        follower.stop_retry()
+        leader.close()
+        follower.close()
+
+    def test_close_stops_retry(self, tmp_path: Path) -> None:
+        """close() should also stop the retry thread."""
+        from ragling.leader import LeaderLock
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        follower = LeaderLock(lock_path)
+
+        assert leader.try_acquire() is True
+        assert follower.try_acquire() is False
+
+        follower.start_retry(interval=0.1)
+        retry_thread = follower._retry_thread
+        follower.close()
+
+        assert retry_thread is not None
+        retry_thread.join(timeout=2.0)
+        assert not retry_thread.is_alive()
+
+        leader.close()
