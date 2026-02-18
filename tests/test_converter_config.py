@@ -62,3 +62,43 @@ class TestConverterConfigHash:
         )
         # Just verify it's a valid hex string, not a specific value
         int(result, 16)  # will raise if not hex
+
+
+def test_convert_and_chunk_uses_enrichment_config() -> None:
+    """convert_and_chunk uses Config.enrichments instead of hardcoded True."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from ragling.config import Config, EnrichmentConfig
+    from ragling.docling_convert import convert_and_chunk, converter_config_hash
+
+    enrichments = EnrichmentConfig(
+        image_description=False,
+        code_enrichment=False,
+        formula_enrichment=False,
+        table_structure=False,
+    )
+    config = Config(enrichments=enrichments)
+
+    expected_hash = converter_config_hash(
+        do_picture_description=False,
+        do_code_enrichment=False,
+        do_formula_enrichment=False,
+        table_mode="accurate",
+    )
+
+    doc_store = MagicMock()
+    doc_store.get_or_convert = MagicMock(side_effect=Exception("stop here"))
+
+    test_file = Path("/tmp/test_benchmark_fake.pdf")
+    # We don't need the file to exist since we mock doc_store
+
+    try:
+        convert_and_chunk(test_file, doc_store, config=config)
+    except Exception:
+        pass
+
+    # Verify doc_store.get_or_convert was called with config_hash from enrichment flags
+    call_args = doc_store.get_or_convert.call_args
+    assert call_args is not None
+    assert call_args.kwargs.get("config_hash") == expected_hash

@@ -33,13 +33,20 @@ class TestConvertAndChunk:
         mock_chunker.chunk.return_value = [mock_chunk]
         mock_chunker.contextualize.return_value = "Section 1\nchunk text"
 
+        mock_converter = MagicMock()
+        mock_result = MagicMock()
+        mock_result.document.model_dump.return_value = {
+            "name": "mock",
+            "schema_name": "DoclingDocument",
+        }
+        mock_converter.convert.return_value = mock_result
+
         with (
-            patch("ragling.docling_convert._convert_with_docling") as mock_convert,
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
             patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
-            mock_convert.return_value = {"name": "mock", "schema_name": "DoclingDocument"}
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
 
@@ -58,13 +65,17 @@ class TestConvertAndChunk:
         mock_chunker.chunk.return_value = [mock_chunk]
         mock_chunker.contextualize.return_value = "H1\ntext"
 
+        mock_converter = MagicMock()
+        mock_result = MagicMock()
+        mock_result.document.model_dump.return_value = {"name": "mock"}
+        mock_converter.convert.return_value = mock_result
+
         with (
-            patch("ragling.docling_convert._convert_with_docling") as mock_convert,
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
             patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
-            mock_convert.return_value = {"name": "mock"}
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
 
@@ -83,13 +94,17 @@ class TestConvertAndChunk:
         mock_chunker.chunk.return_value = chunks_data
         mock_chunker.contextualize.side_effect = [f"Section {i}\ntext {i}" for i in range(3)]
 
+        mock_converter = MagicMock()
+        mock_result = MagicMock()
+        mock_result.document.model_dump.return_value = {"name": "mock"}
+        mock_converter.convert.return_value = mock_result
+
         with (
-            patch("ragling.docling_convert._convert_with_docling") as mock_convert,
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
             patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
-            mock_convert.return_value = {"name": "mock"}
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
 

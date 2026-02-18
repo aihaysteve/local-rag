@@ -5,12 +5,17 @@ HybridChunker for structure-aware chunking. Integrates with
 DocStore for content-addressed caching.
 """
 
+from __future__ import annotations
+
 import hashlib as _hashlib
 import json as _json
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ragling.config import Config
 
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
@@ -163,26 +168,36 @@ def _get_asr_model_spec(model_name: str) -> Any:
 
 
 @lru_cache
-def get_converter(asr_model: str = "small") -> DocumentConverter:
+def get_converter(
+    asr_model: str = "small",
+    do_picture_description: bool = True,
+    do_code_enrichment: bool = True,
+    do_formula_enrichment: bool = True,
+    do_table_structure: bool = True,
+) -> DocumentConverter:
     """Get or create the Docling DocumentConverter singleton.
 
-    Configures the PDF pipeline with all enrichments, and
+    Configures the PDF pipeline with the specified enrichments, and
     optionally the ASR pipeline for audio transcription when
     Whisper is installed.
 
     Args:
         asr_model: Whisper model size name (tiny/small/medium/base/large/turbo).
+        do_picture_description: Whether VLM picture descriptions are enabled.
+        do_code_enrichment: Whether code block extraction is enabled.
+        do_formula_enrichment: Whether formula LaTeX extraction is enabled.
+        do_table_structure: Whether table structure extraction is enabled.
     """
     pdf_options = PdfPipelineOptions(
-        do_table_structure=True,
+        do_table_structure=do_table_structure,
         table_structure_options=TableStructureOptions(
             mode=TableFormerMode.ACCURATE,
             do_cell_matching=True,
         ),
-        do_picture_description=True,
+        do_picture_description=do_picture_description,
         picture_description_options=PictureDescriptionVlmEngineOptions.from_preset("smolvlm"),
-        do_code_enrichment=True,
-        do_formula_enrichment=True,
+        do_code_enrichment=do_code_enrichment,
+        do_formula_enrichment=do_formula_enrichment,
         code_formula_options=CodeFormulaVlmOptions.from_preset("codeformulav2"),
     )
 
@@ -393,6 +408,8 @@ def convert_and_chunk(
     embedding_model_id: str = "BAAI/bge-m3",
     source_type: str | None = None,
     asr_model: str = "small",
+    *,
+    config: Config | None = None,
 ) -> list[Chunk]:
     """Convert a document via Docling (cached in doc_store), chunk with HybridChunker.
 
@@ -408,18 +425,36 @@ def convert_and_chunk(
             to ``"image"`` and Docling produces no chunks, the VLM fallback
             is triggered.
         asr_model: Whisper model size for audio transcription.
+        config: Optional application configuration. When provided, enrichment
+            flags are read from ``config.enrichments``. Falls back to all
+            enrichments enabled when ``None``.
 
     Returns:
         List of Chunk dataclass instances ready for embedding.
     """
+    from ragling.config import EnrichmentConfig
+
+    enrichments = config.enrichments if config is not None else EnrichmentConfig()
+
     config_hash = converter_config_hash(
-        do_picture_description=True,
-        do_code_enrichment=True,
-        do_formula_enrichment=True,
+        do_picture_description=enrichments.image_description,
+        do_code_enrichment=enrichments.code_enrichment,
+        do_formula_enrichment=enrichments.formula_enrichment,
         table_mode="accurate",
         asr_model=asr_model,
     )
-    doc_data = doc_store.get_or_convert(path, _convert_with_docling, config_hash=config_hash)
+
+    def _do_convert(p: Path) -> dict[str, Any]:
+        result = get_converter(
+            asr_model=asr_model,
+            do_picture_description=enrichments.image_description,
+            do_code_enrichment=enrichments.code_enrichment,
+            do_formula_enrichment=enrichments.formula_enrichment,
+            do_table_structure=enrichments.table_structure,
+        ).convert(p)
+        return result.document.model_dump()
+
+    doc_data = doc_store.get_or_convert(path, _do_convert, config_hash=config_hash)
     doc = DoclingDocument.model_validate(doc_data)
 
     chunks = chunk_with_hybrid(
