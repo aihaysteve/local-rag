@@ -27,6 +27,7 @@ from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTok
 from docling_core.types.doc import CodeItem, DoclingDocument, PictureItem, TableItem
 from transformers import AutoTokenizer
 
+from ragling.audio_metadata import extract_audio_metadata
 from ragling.chunker import Chunk
 from ragling.doc_store import DocStore
 
@@ -428,6 +429,13 @@ def convert_and_chunk(
         chunk_max_tokens=chunk_max_tokens,
         embedding_model_id=embedding_model_id,
     )
+
+    # Audio metadata: extract container tags and attach to chunks
+    if source_type == "audio" and chunks:
+        audio_meta = extract_audio_metadata(path)
+        if audio_meta:
+            for chunk in chunks:
+                chunk.metadata.update(audio_meta)
 
     # Standalone image fallback: Docling's image pipeline doesn't run VLM
     # enrichment, so photos/diagrams produce zero chunks. Use SmolVLM directly.

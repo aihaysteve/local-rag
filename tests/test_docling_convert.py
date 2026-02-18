@@ -637,3 +637,71 @@ class TestConfigHashPassthrough:
         assert "config_hash" in call_kwargs.kwargs
         assert isinstance(call_kwargs.kwargs["config_hash"], str)
         assert len(call_kwargs.kwargs["config_hash"]) == 16
+
+
+class TestAudioMetadataIntegration:
+    def test_audio_chunks_include_container_metadata(
+        self, store: DocStore, tmp_path: Path
+    ) -> None:
+        """When source_type is 'audio', chunks should include container metadata."""
+        from ragling.docling_convert import convert_and_chunk
+
+        audio_file = tmp_path / "recording.mp3"
+        audio_file.write_bytes(b"fake audio content")
+
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = []
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "Hello world transcription"
+
+        mock_metadata = {
+            "duration_seconds": 120.5,
+            "title": "My Recording",
+            "artist": "Steve",
+        }
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert.extract_audio_metadata",
+                return_value=mock_metadata,
+            ),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(audio_file, store, source_type="audio")
+
+        assert chunks[0].metadata["duration_seconds"] == 120.5
+        assert chunks[0].metadata["title"] == "My Recording"
+        assert chunks[0].metadata["artist"] == "Steve"
+
+    def test_non_audio_chunks_skip_metadata_extraction(
+        self, store: DocStore, sample_file: Path
+    ) -> None:
+        """PDF source_type should not trigger audio metadata extraction."""
+        from ragling.docling_convert import convert_and_chunk
+
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = []
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "text"
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert.extract_audio_metadata",
+            ) as mock_extract,
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            convert_and_chunk(sample_file, store, source_type="pdf")
+
+        mock_extract.assert_not_called()
