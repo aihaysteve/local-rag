@@ -86,6 +86,38 @@ def converter_config_hash(
     return _hashlib.sha256(config_repr.encode()).hexdigest()[:16]
 
 
+_EXTRA_AUDIO_EXTENSIONS = ["opus", "mkv", "mka"]
+_EXTRA_AUDIO_MIMETYPES = [
+    "audio/opus",
+    "video/x-matroska",
+    "audio/x-matroska",
+]
+
+
+def ensure_audio_formats_registered() -> None:
+    """Register additional audio extensions with Docling's format registry.
+
+    Docling's built-in ``FormatToExtensions`` doesn't include opus, mkv, or mka.
+    This adds them so ``DocumentConverter.convert()`` auto-detects them as audio.
+    Safe to call multiple times — skips already-registered extensions.
+    """
+    from docling.datamodel.base_models import (
+        FormatToExtensions,
+        FormatToMimeType,
+        InputFormat,
+    )
+
+    existing_exts = FormatToExtensions[InputFormat.AUDIO]
+    for ext in _EXTRA_AUDIO_EXTENSIONS:
+        if ext not in existing_exts:
+            existing_exts.append(ext)
+
+    existing_mimes = FormatToMimeType.get(InputFormat.AUDIO, [])
+    for mime in _EXTRA_AUDIO_MIMETYPES:
+        if mime not in existing_mimes:
+            existing_mimes.append(mime)
+
+
 @lru_cache
 def get_converter() -> DocumentConverter:
     """Get or create the Docling DocumentConverter singleton.

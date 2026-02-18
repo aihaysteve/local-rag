@@ -509,6 +509,46 @@ class TestConverterConfigHash:
         assert hash1 == hash2
 
 
+class TestAudioFormatRegistration:
+    def test_opus_registered_as_audio(self) -> None:
+        from ragling.docling_convert import ensure_audio_formats_registered
+
+        ensure_audio_formats_registered()
+
+        from docling.datamodel.base_models import FormatToExtensions, InputFormat
+
+        assert "opus" in FormatToExtensions[InputFormat.AUDIO]
+
+    def test_mkv_registered_as_audio(self) -> None:
+        from ragling.docling_convert import ensure_audio_formats_registered
+
+        ensure_audio_formats_registered()
+
+        from docling.datamodel.base_models import FormatToExtensions, InputFormat
+
+        assert "mkv" in FormatToExtensions[InputFormat.AUDIO]
+
+    def test_mka_registered_as_audio(self) -> None:
+        from ragling.docling_convert import ensure_audio_formats_registered
+
+        ensure_audio_formats_registered()
+
+        from docling.datamodel.base_models import FormatToExtensions, InputFormat
+
+        assert "mka" in FormatToExtensions[InputFormat.AUDIO]
+
+    def test_idempotent(self) -> None:
+        from ragling.docling_convert import ensure_audio_formats_registered
+
+        ensure_audio_formats_registered()
+        ensure_audio_formats_registered()  # should not raise or duplicate
+
+        from docling.datamodel.base_models import FormatToExtensions, InputFormat
+
+        count = FormatToExtensions[InputFormat.AUDIO].count("opus")
+        assert count == 1
+
+
 class TestConfigHashPassthrough:
     """Tests that convert_and_chunk passes config_hash to doc_store."""
 
