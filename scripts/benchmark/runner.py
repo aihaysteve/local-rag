@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -145,6 +146,7 @@ def run_benchmarks(
     fixtures: list[Fixture],
     tag: str,
     ollama_host: str | None = None,
+    on_result: Callable[[BenchmarkResult], None] | None = None,
 ) -> list[BenchmarkResult]:
     """Run the full benchmark suite.
 
@@ -204,6 +206,8 @@ def run_benchmarks(
                             chunks_produced=len(chunks),
                         )
                     )
+                    if on_result is not None:
+                        on_result(results[-1])
                     logger.info(
                         "    %dms total (%d chunks)",
                         total_ms,
@@ -226,5 +230,7 @@ def run_benchmarks(
                             chunks_produced=0,
                         )
                     )
+                    if on_result is not None:
+                        on_result(results[-1])
 
     return results
