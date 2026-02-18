@@ -35,6 +35,14 @@ dev = [
     "mypy>=1.0",
     "types-PyYAML",
 ]
+asr = [
+    "openai-whisper>=20231117",
+    "mutagen>=1.47",
+]
+asr-mlx = [
+    "mlx-whisper>=0.4.0",
+    "mutagen>=1.47",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
