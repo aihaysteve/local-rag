@@ -241,20 +241,6 @@ def _get_tokenizer(model_id: str, max_tokens: int) -> HuggingFaceTokenizer:
     return HuggingFaceTokenizer(tokenizer=hf_tok, max_tokens=max_tokens)
 
 
-def _convert_with_docling(path: Path) -> dict[str, Any]:
-    """Convert a file using Docling and return serializable dict.
-
-    Args:
-        path: Path to the document file.
-
-    Returns:
-        A JSON-serializable dict representation of the DoclingDocument.
-    """
-    result = get_converter().convert(path)
-    doc = result.document
-    return doc.model_dump()
-
-
 def _is_picture_item(item: object) -> bool:
     """Check if a doc_item is a PictureItem."""
     return isinstance(item, PictureItem)

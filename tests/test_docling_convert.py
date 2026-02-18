@@ -217,7 +217,6 @@ class TestEnrichmentMetadata:
         mock_chunker = self._make_chunker_with_items([picture_item])
 
         with (
-            patch("ragling.docling_convert._convert_with_docling"),
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
@@ -243,7 +242,6 @@ class TestEnrichmentMetadata:
         mock_chunker = self._make_chunker_with_items([table_item])
 
         with (
-            patch("ragling.docling_convert._convert_with_docling"),
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
@@ -267,7 +265,6 @@ class TestEnrichmentMetadata:
         mock_chunker = self._make_chunker_with_items([code_item])
 
         with (
-            patch("ragling.docling_convert._convert_with_docling"),
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
