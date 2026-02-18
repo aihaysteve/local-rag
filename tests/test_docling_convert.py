@@ -469,6 +469,46 @@ class TestConvertAndChunkImageFallback:
         assert len(chunks) == 1
 
 
+class TestConverterConfigHash:
+    def test_includes_asr_model_in_hash(self) -> None:
+        from ragling.docling_convert import converter_config_hash
+
+        hash1 = converter_config_hash(
+            do_picture_description=True,
+            do_code_enrichment=True,
+            do_formula_enrichment=True,
+            table_mode="accurate",
+            asr_model="small",
+        )
+        hash2 = converter_config_hash(
+            do_picture_description=True,
+            do_code_enrichment=True,
+            do_formula_enrichment=True,
+            table_mode="accurate",
+            asr_model="turbo",
+        )
+        assert hash1 != hash2
+
+    def test_hash_stable_for_same_config(self) -> None:
+        from ragling.docling_convert import converter_config_hash
+
+        hash1 = converter_config_hash(
+            do_picture_description=True,
+            do_code_enrichment=True,
+            do_formula_enrichment=True,
+            table_mode="accurate",
+            asr_model="small",
+        )
+        hash2 = converter_config_hash(
+            do_picture_description=True,
+            do_code_enrichment=True,
+            do_formula_enrichment=True,
+            table_mode="accurate",
+            asr_model="small",
+        )
+        assert hash1 == hash2
+
+
 class TestConfigHashPassthrough:
     """Tests that convert_and_chunk passes config_hash to doc_store."""
 

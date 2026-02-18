@@ -56,6 +56,7 @@ def converter_config_hash(
     do_code_enrichment: bool,
     do_formula_enrichment: bool,
     table_mode: str,
+    asr_model: str = "small",
 ) -> str:
     """Deterministic hash of converter pipeline configuration.
 
@@ -67,12 +68,14 @@ def converter_config_hash(
         do_code_enrichment: Whether code block extraction is enabled.
         do_formula_enrichment: Whether formula LaTeX extraction is enabled.
         table_mode: Table extraction mode (e.g. ``"accurate"`` or ``"fast"``).
+        asr_model: Whisper model name for audio transcription.
 
     Returns:
         A 16-character hex string derived from SHA-256.
     """
     config_repr = _json.dumps(
         {
+            "asr_model": asr_model,
             "do_picture_description": do_picture_description,
             "do_code_enrichment": do_code_enrichment,
             "do_formula_enrichment": do_formula_enrichment,
