@@ -127,19 +127,3 @@ def _extract_chapters(audio: Any, metadata: dict[str, Any]) -> None:
 
     if chapters:
         metadata["chapters"] = chapters
-
-
-def find_chapter_for_timestamp(chapters: list[dict[str, Any]], timestamp: float) -> str | None:
-    """Find the chapter title for a given timestamp.
-
-    Args:
-        chapters: List of chapter dicts with 'title', 'start', 'end' keys.
-        timestamp: Time in seconds to look up.
-
-    Returns:
-        The chapter title, or None if no chapter covers the timestamp.
-    """
-    for ch in chapters:
-        if ch["start"] <= timestamp < ch["end"]:
-            return ch["title"]
-    return None
