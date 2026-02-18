@@ -735,3 +735,78 @@ class TestTwoPassNoDuplicates:
         assert overlap == set(), f"Files indexed in both vault and leftover passes: {overlap}"
 
         conn.close()
+
+
+class TestProjectIndexerStatusReporting:
+    """Tests for two-pass status reporting in ProjectIndexer."""
+
+    def _setup_db(self, tmp_path: Path) -> tuple:
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+        return conn, config
+
+    def test_flat_indexing_reports_file_level_status(self, tmp_path: Path) -> None:
+        """Flat indexing calls set_file_total and file_processed on status."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.indexers.project import ProjectIndexer
+
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "docs"
+        project_dir.mkdir()
+        (project_dir / "a.txt").write_text("File A content here")
+        (project_dir / "b.txt").write_text("File B content here")
+
+        status = IndexingStatus()
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        with (
+            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.get_embeddings") as mock_embed,
+        ):
+            mock_parse.return_value = [Chunk(text="text", title="test", chunk_index=0)]
+            mock_embed.return_value = [[0.1, 0.2, 0.3, 0.4]]
+            result = indexer.index(conn, config, status=status)
+
+        # Both files should be indexed
+        assert result.indexed == 2
+
+        # Status should show all files processed
+        d = status.to_dict()
+        assert d is not None
+        assert d["collections"]["test-project"]["processed"] == 2
+        assert d["collections"]["test-project"]["remaining"] == 0
+
+        conn.close()
+
+    def test_status_not_set_when_none(self, tmp_path: Path) -> None:
+        """ProjectIndexer works fine when status=None."""
+        from ragling.indexers.project import ProjectIndexer
+
+        conn, config = self._setup_db(tmp_path)
+
+        project_dir = tmp_path / "docs"
+        project_dir.mkdir()
+        (project_dir / "a.txt").write_text("content")
+
+        indexer = ProjectIndexer("test-project", [project_dir])
+
+        with (
+            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.get_embeddings") as mock_embed,
+        ):
+            mock_parse.return_value = [Chunk(text="text", title="test", chunk_index=0)]
+            mock_embed.return_value = [[0.1, 0.2, 0.3, 0.4]]
+            # Should not raise
+            result = indexer.index(conn, config, status=None)
+
+        assert result.indexed == 1
+        conn.close()

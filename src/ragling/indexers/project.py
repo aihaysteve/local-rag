@@ -11,9 +11,13 @@ import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ragling.chunker import Chunk
 from ragling.config import Config
+
+if TYPE_CHECKING:
+    from ragling.indexing_status import IndexingStatus
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
 from ragling.docling_bridge import (
@@ -240,7 +244,14 @@ class ProjectIndexer(BaseIndexer):
         self.paths = paths
         self.doc_store = doc_store
 
-    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
+    def index(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
+    ) -> IndexResult:
         """Index all supported files into the project collection.
 
         Runs auto-discovery on each directory path to detect Obsidian vaults
@@ -251,6 +262,7 @@ class ProjectIndexer(BaseIndexer):
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all files regardless of change detection.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult summarizing the indexing run.
@@ -279,7 +291,7 @@ class ProjectIndexer(BaseIndexer):
 
         # If no markers found anywhere, fall back to flat indexing
         if not all_vaults and not all_repos:
-            return self._index_flat(conn, config, force)
+            return self._index_flat(conn, config, force, status=status)
 
         # Discovery-aware indexing: delegate to specialised indexers
         aggregate = IndexResult()
@@ -314,7 +326,9 @@ class ProjectIndexer(BaseIndexer):
         ]
         if leftover_files:
             collection_id = get_or_create_collection(conn, self.collection_name, "project")
-            leftover_result = self._index_files(conn, config, leftover_files, collection_id, force)
+            leftover_result = self._index_files(
+                conn, config, leftover_files, collection_id, force, status=status
+            )
             leftover_result.pruned = prune_stale_sources(conn, collection_id)
             aggregate = _merge_results(aggregate, leftover_result)
 
@@ -328,7 +342,12 @@ class ProjectIndexer(BaseIndexer):
         return aggregate
 
     def _index_flat(
-        self, conn: sqlite3.Connection, config: Config, force: bool = False
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
     ) -> IndexResult:
         """Original flat indexing behavior — no discovery delegation.
 
@@ -339,6 +358,7 @@ class ProjectIndexer(BaseIndexer):
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all files regardless of change detection.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult summarizing the indexing run.
@@ -346,7 +366,7 @@ class ProjectIndexer(BaseIndexer):
         collection_id = get_or_create_collection(conn, self.collection_name, "project")
 
         files = _collect_files(self.paths)
-        result = self._index_files(conn, config, files, collection_id, force)
+        result = self._index_files(conn, config, files, collection_id, force, status=status)
         result.pruned = prune_stale_sources(conn, collection_id)
 
         logger.info(
@@ -366,8 +386,13 @@ class ProjectIndexer(BaseIndexer):
         files: list[Path],
         collection_id: int,
         force: bool,
+        *,
+        status: IndexingStatus | None = None,
     ) -> IndexResult:
         """Index a list of files into a given collection.
+
+        Uses a two-pass approach: first scans for changed files (fast hash
+        check), then indexes only the changed files with per-file progress.
 
         Args:
             conn: SQLite database connection.
@@ -375,6 +400,7 @@ class ProjectIndexer(BaseIndexer):
             files: List of file paths to index.
             collection_id: Collection ID to index into.
             force: If True, re-index regardless of change detection.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult summarizing the indexing run.
@@ -390,9 +416,33 @@ class ProjectIndexer(BaseIndexer):
             self.collection_name,
         )
 
+        # Scan pass: identify changed files
+        changed_files: list[tuple[Path, str, int]] = []  # (path, hash, size)
         for file_path in files:
+            file_h = file_hash(file_path)
+            if not force:
+                source_path = str(file_path.resolve())
+                row = conn.execute(
+                    "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
+                    (collection_id, source_path),
+                ).fetchone()
+                if row and row["file_hash"] == file_h:
+                    skipped += 1
+                    continue
+            file_size = file_path.stat().st_size
+            changed_files.append((file_path, file_h, file_size))
+
+        # Report file-level totals
+        if status and changed_files:
+            total_bytes = sum(size for _, _, size in changed_files)
+            status.set_file_total(self.collection_name, len(changed_files), total_bytes)
+
+        # Index pass: process changed files with per-file status ticks
+        for file_path, file_h, file_size in changed_files:
             try:
-                was_indexed = self._index_file(conn, config, file_path, collection_id, force)
+                was_indexed = self._index_file(
+                    conn, config, file_path, collection_id, force, precomputed_hash=file_h
+                )
                 if was_indexed:
                     indexed += 1
                 else:
@@ -400,6 +450,9 @@ class ProjectIndexer(BaseIndexer):
             except Exception as e:
                 logger.error("Error indexing %s: %s", file_path, e)
                 errors += 1
+            finally:
+                if status:
+                    status.file_processed(self.collection_name, 1, file_size)
 
         return IndexResult(indexed=indexed, skipped=skipped, errors=errors, total_found=total_found)
 
@@ -521,6 +574,7 @@ class ProjectIndexer(BaseIndexer):
         file_path: Path,
         collection_id: int,
         force: bool,
+        precomputed_hash: str | None = None,
     ) -> bool:
         """Index a single file into the collection.
 
@@ -530,17 +584,19 @@ class ProjectIndexer(BaseIndexer):
             file_path: Path to the file.
             collection_id: Collection ID to index into.
             force: If True, re-index regardless of change detection.
+            precomputed_hash: Pre-computed SHA256 hash (avoids recomputation
+                when the scan pass already computed it).
 
         Returns:
             True if the file was indexed, False if skipped (unchanged).
         """
         source_path = str(file_path.resolve())
-        file_h = file_hash(file_path)
+        file_h = precomputed_hash or file_hash(file_path)
         ext = file_path.suffix.lower()
         source_type = _EXTENSION_MAP.get(ext, "plaintext")
 
-        # Check if already indexed with same hash
-        if not force:
+        # Check if already indexed with same hash (skip when hash was pre-checked)
+        if not force and precomputed_hash is None:
             row = conn.execute(
                 "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
                 (collection_id, source_path),

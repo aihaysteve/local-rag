@@ -99,6 +99,7 @@ class TestBuildListResponse:
         assert response["indexing"] == {
             "active": True,
             "total_remaining": 5,
+            "total_remaining_bytes": 0,
             "collections": {"obsidian": 5},
         }
 
@@ -136,12 +137,16 @@ class TestBuildListResponse:
             "total": 80,
             "processed": 30,
             "remaining": 50,
+            "total_bytes": 0,
+            "remaining_bytes": 0,
         }
         # email: file-level dict shape (fully processed)
         assert indexing["collections"]["email"] == {
             "total": 50,
             "processed": 50,
             "remaining": 0,
+            "total_bytes": 0,
+            "remaining_bytes": 0,
         }
         # total_remaining = 50 + 0 = 50
         assert indexing["total_remaining"] == 50
@@ -183,6 +188,7 @@ class TestBuildSearchResponse:
         assert response["indexing"] == {
             "active": True,
             "total_remaining": 5,
+            "total_remaining_bytes": 0,
             "collections": {"obsidian": 5},
         }
 
@@ -220,12 +226,16 @@ class TestBuildSearchResponse:
             "total": 100,
             "processed": 55,
             "remaining": 45,
+            "total_bytes": 0,
+            "remaining_bytes": 0,
         }
         # calibre: file-level dict shape
         assert indexing["collections"]["calibre"] == {
             "total": 30,
             "processed": 10,
             "remaining": 20,
+            "total_bytes": 0,
+            "remaining_bytes": 0,
         }
         # total_remaining = 45 + 20 = 65
         assert indexing["total_remaining"] == 65

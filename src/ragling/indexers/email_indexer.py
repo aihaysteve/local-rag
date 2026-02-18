@@ -5,10 +5,16 @@ collection. Discovers account directories automatically and opens all
 databases in read-only mode with retry logic for handling lock contention.
 """
 
+from __future__ import annotations
+
 import logging
 import sqlite3
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ragling.indexing_status import IndexingStatus
 
 from ragling.config import Config
 from ragling.docling_bridge import email_to_docling_doc
@@ -56,7 +62,14 @@ class EmailIndexer(BaseIndexer):
         """
         self._explicit_db_path = db_path
 
-    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
+    def index(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
+    ) -> IndexResult:
         """Index emails from eM Client into the "email" collection.
 
         Discovers all account directories and indexes emails from each.
@@ -65,6 +78,7 @@ class EmailIndexer(BaseIndexer):
             conn: SQLite connection to the RAG database.
             config: Application configuration.
             force: If True, re-index all emails regardless of prior indexing.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult summarizing what was done.
@@ -116,7 +130,7 @@ class EmailIndexer(BaseIndexer):
         for account_dir in account_dirs:
             logger.info("Indexing account: %s", account_dir.name)
             account_result = self._index_account(
-                conn, config, collection_id, account_dir, since_date, force
+                conn, config, collection_id, account_dir, since_date, force, status=status
             )
 
             result.total_found += account_result.total_found
@@ -143,6 +157,8 @@ class EmailIndexer(BaseIndexer):
         account_dir: Path,
         since_date: str | None,
         force: bool,
+        *,
+        status: IndexingStatus | None = None,
     ) -> "AccountIndexResult":
         """Index emails from a single account directory."""
         result = AccountIndexResult()
@@ -156,24 +172,31 @@ class EmailIndexer(BaseIndexer):
             return result
 
         total_emails = len(emails)
+        result.total_found = total_emails
         logger.info("Found %d emails to process in %s", total_emails, account_dir.name)
 
+        # Scan pass: identify new emails
+        new_emails: list[EmailMessage] = []
         for email_msg in emails:
-            result.total_found += 1
-
-            # Skip if already indexed (unless force)
             if not force and self._is_indexed(conn, collection_id, email_msg.message_id):
                 result.skipped += 1
-                continue
+            else:
+                new_emails.append(email_msg)
 
+        # Report file-level totals (bytes=0 for emails)
+        if status and new_emails:
+            status.set_file_total("email", len(new_emails), 0)
+
+        # Index pass: process new emails with per-item status ticks
+        for i, email_msg in enumerate(new_emails, 1):
             try:
                 chunks_count = self._index_email(conn, config, collection_id, email_msg)
                 result.indexed += 1
 
                 logger.info(
                     "Indexed email [%d/%d]: %s (%d chunks)",
-                    result.total_found,
-                    total_emails,
+                    i,
+                    len(new_emails),
                     (email_msg.subject or "(no subject)")[:60],
                     chunks_count,
                 )
@@ -190,13 +213,16 @@ class EmailIndexer(BaseIndexer):
                     result.error_messages.append(msg)
                 elif result.errors == 11:
                     logger.warning("Suppressing further indexing errors...")
+            finally:
+                if status:
+                    status.file_processed("email", 1, 0)
 
             # Periodic progress summary
-            if result.total_found % 500 == 0:
+            if i % 500 == 0:
                 logger.info(
                     "Progress: %d/%d processed (%d indexed, %d skipped, %d errors)",
-                    result.total_found,
-                    total_emails,
+                    i,
+                    len(new_emails),
                     result.indexed,
                     result.skipped,
                     result.errors,

@@ -4,6 +4,8 @@ Uses git ls-files for file discovery and commit SHAs for incremental indexing.
 Parses code files with tree-sitter for structural chunking.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import sqlite3
@@ -11,6 +13,10 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ragling.indexing_status import IndexingStatus
 
 from ragling.chunker import Chunk, _split_into_windows, _word_count
 from ragling.config import Config
@@ -462,6 +468,8 @@ class GitRepoIndexer(BaseIndexer):
         conn: sqlite3.Connection,
         config: Config,
         force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
         index_history: bool = False,
     ) -> IndexResult:
         """Index all supported code files in the git repository.
@@ -470,6 +478,7 @@ class GitRepoIndexer(BaseIndexer):
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all files regardless of change detection.
+            status: Optional indexing status tracker for file-level progress.
             index_history: If True, also index commit history.
 
         Returns:
@@ -501,7 +510,12 @@ class GitRepoIndexer(BaseIndexer):
                 logger.info("No new commits since last index (SHA: %s)", head_sha[:12])
                 if index_history:
                     return self._index_history(
-                        conn, config, collection_id, force, config.git_history_in_months
+                        conn,
+                        config,
+                        collection_id,
+                        force,
+                        config.git_history_in_months,
+                        status=status,
                     )
                 return IndexResult(total_found=0, skipped=0)
 
@@ -550,9 +564,36 @@ class GitRepoIndexer(BaseIndexer):
             self.collection_name,
         )
 
+        # Scan pass: identify changed files with pre-computed hashes
+        changed_files: list[tuple[str, str, int]] = []  # (rel_path, hash, size)
         for rel_path in indexable:
+            file_path = self.repo_path / rel_path
+            if not file_path.exists():
+                continue
+            file_h = file_hash(file_path)
+            if not force:
+                source_path = str(file_path.resolve())
+                row = conn.execute(
+                    "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
+                    (collection_id, source_path),
+                ).fetchone()
+                if row and row["file_hash"] == file_h:
+                    skipped += 1
+                    continue
+            file_size = file_path.stat().st_size
+            changed_files.append((rel_path, file_h, file_size))
+
+        # Report file-level totals
+        if status and changed_files:
+            total_bytes = sum(size for _, _, size in changed_files)
+            status.set_file_total(self.collection_name, len(changed_files), total_bytes)
+
+        # Index pass: process changed files with per-file status ticks
+        for rel_path, file_h, file_size in changed_files:
             try:
-                was_indexed = self._index_file(conn, config, rel_path, collection_id, force)
+                was_indexed = self._index_file(
+                    conn, config, rel_path, collection_id, force, precomputed_hash=file_h
+                )
                 if was_indexed:
                     indexed += 1
                 else:
@@ -560,6 +601,9 @@ class GitRepoIndexer(BaseIndexer):
             except Exception as e:
                 logger.error("Error indexing %s: %s", rel_path, e)
                 errors += 1
+            finally:
+                if status:
+                    status.file_processed(self.collection_name, 1, file_size)
 
         # Update watermark for this repo in the shared dict
         watermarks[repo_key] = head_sha
@@ -583,7 +627,12 @@ class GitRepoIndexer(BaseIndexer):
 
         if index_history:
             history_result = self._index_history(
-                conn, config, collection_id, force, config.git_history_in_months
+                conn,
+                config,
+                collection_id,
+                force,
+                config.git_history_in_months,
+                status=status,
             )
             return IndexResult(
                 indexed=code_result.indexed + history_result.indexed,
@@ -608,6 +657,7 @@ class GitRepoIndexer(BaseIndexer):
         relative_path: str,
         collection_id: int,
         force: bool,
+        precomputed_hash: str | None = None,
     ) -> bool:
         """Index a single file from the repository.
 
@@ -617,6 +667,8 @@ class GitRepoIndexer(BaseIndexer):
             relative_path: Path relative to the repository root.
             collection_id: Collection ID to index into.
             force: If True, re-index regardless of change detection.
+            precomputed_hash: Pre-computed SHA256 hash (avoids recomputation
+                when the scan pass already computed it).
 
         Returns:
             True if the file was indexed, False if skipped (unchanged).
@@ -627,10 +679,10 @@ class GitRepoIndexer(BaseIndexer):
             return False
 
         source_path = str(file_path.resolve())
-        file_h = file_hash(file_path)
+        file_h = precomputed_hash or file_hash(file_path)
 
-        # Check if already indexed with same hash
-        if not force:
+        # Check if already indexed with same hash (skip when hash was pre-checked)
+        if not force and precomputed_hash is None:
             row = conn.execute(
                 "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
                 (collection_id, source_path),
@@ -682,6 +734,8 @@ class GitRepoIndexer(BaseIndexer):
         collection_id: int,
         force: bool,
         months: int,
+        *,
+        status: IndexingStatus | None = None,
     ) -> IndexResult:
         """Index commit history for the repository.
 
@@ -767,18 +821,25 @@ class GitRepoIndexer(BaseIndexer):
         total_found = len(commits)
         newest_sha = commits[-1].sha
 
-        for i, commit in enumerate(commits, 1):
-            try:
-                # Check if this commit is already indexed
-                source_path = f"git://{repo_key}#{commit.sha}"
-                existing = conn.execute(
-                    "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-                    (collection_id, source_path),
-                ).fetchone()
-                if existing and not force:
-                    skipped += 1
-                    continue
+        # Scan pass: identify unindexed commits
+        commits_to_index: list[CommitInfo] = []
+        for commit in commits:
+            source_path = f"git://{repo_key}#{commit.sha}"
+            existing = conn.execute(
+                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
+                (collection_id, source_path),
+            ).fetchone()
+            if existing and not force:
+                skipped += 1
+            else:
+                commits_to_index.append(commit)
 
+        # Report file-level totals for commits (bytes=0)
+        if status and commits_to_index:
+            status.set_file_total(self.collection_name, len(commits_to_index), 0)
+
+        for i, commit in enumerate(commits_to_index, 1):
+            try:
                 file_changes = _get_commit_file_changes(self.repo_path, commit.sha)
                 if not file_changes:
                     skipped += 1
@@ -792,6 +853,7 @@ class GitRepoIndexer(BaseIndexer):
                 # Generate embeddings
                 texts = [c.text for c in chunks]
                 embeddings = get_embeddings(texts, config)
+                source_path = f"git://{repo_key}#{commit.sha}"
 
                 upsert_source_with_chunks(
                     conn,
@@ -808,7 +870,7 @@ class GitRepoIndexer(BaseIndexer):
                 logger.info(
                     "Commit %d/%d: %s %s (%d chunks, %d files)",
                     i,
-                    total_found,
+                    len(commits_to_index),
                     commit.sha[:7],
                     commit.subject[:60],
                     len(chunks),
@@ -818,6 +880,9 @@ class GitRepoIndexer(BaseIndexer):
             except Exception as e:
                 logger.error("Error indexing commit %s: %s", commit.sha[:12], e)
                 errors += 1
+            finally:
+                if status:
+                    status.file_processed(self.collection_name, 1, 0)
 
         # Update history watermark
         watermarks[history_key] = newest_sha

@@ -1,6 +1,7 @@
 """Tests for ragling.indexers.obsidian module -- _walk_vault filtering."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from ragling.indexers.obsidian import _walk_vault
 from ragling.indexers.project import _EXTENSION_MAP
@@ -146,3 +147,138 @@ class TestObsidianWalkVaultFiltering:
 
         for ext in _EXTENSION_MAP:
             assert ext in result_suffixes, f"Extension {ext} should be included but was not"
+
+
+class TestObsidianIndexerStatusReporting:
+    """Tests for two-pass status reporting in ObsidianIndexer."""
+
+    def test_status_set_file_total_called_with_changed_count_and_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        """ObsidianIndexer calls set_file_total with count and bytes of changed files."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        (vault / "note1.md").write_text("# Note 1 content")
+        (vault / "note2.md").write_text("# Note 2 content")
+
+        status = IndexingStatus()
+        indexer = ObsidianIndexer([vault])
+
+        with (
+            patch("ragling.indexers.obsidian._index_file", return_value="indexed"),
+            patch("ragling.indexers.obsidian.get_or_create_collection", return_value=1),
+            patch("ragling.indexers.obsidian.prune_stale_sources", return_value=0),
+        ):
+            conn = MagicMock()
+            conn.execute.return_value.fetchone.return_value = None  # not yet indexed
+            config = MagicMock()
+            config.chunk_size_tokens = 512
+            result = indexer.index(conn, config, force=False, status=status)
+
+        assert result.indexed == 2
+
+    def test_status_not_called_when_none(self, tmp_path: Path) -> None:
+        """ObsidianIndexer works fine when status=None."""
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        (vault / "note.md").write_text("# Note")
+
+        indexer = ObsidianIndexer([vault])
+
+        with (
+            patch("ragling.indexers.obsidian._index_file", return_value="indexed"),
+            patch("ragling.indexers.obsidian.get_or_create_collection", return_value=1),
+            patch("ragling.indexers.obsidian.prune_stale_sources", return_value=0),
+        ):
+            conn = MagicMock()
+            conn.execute.return_value.fetchone.return_value = None
+            config = MagicMock()
+            config.chunk_size_tokens = 512
+            result = indexer.index(conn, config, force=False, status=None)
+
+        assert result.indexed == 1
+
+    def test_status_file_processed_called_per_file(self, tmp_path: Path) -> None:
+        """ObsidianIndexer calls file_processed after each file is indexed."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        (vault / "a.md").write_text("# A content here")
+        (vault / "b.md").write_text("# B content here")
+        (vault / "c.md").write_text("# C content here")
+
+        status = IndexingStatus()
+        indexer = ObsidianIndexer([vault])
+
+        with (
+            patch("ragling.indexers.obsidian._index_file", return_value="indexed"),
+            patch("ragling.indexers.obsidian.get_or_create_collection", return_value=1),
+            patch("ragling.indexers.obsidian.prune_stale_sources", return_value=0),
+        ):
+            conn = MagicMock()
+            conn.execute.return_value.fetchone.return_value = None
+            config = MagicMock()
+            config.chunk_size_tokens = 512
+            indexer.index(conn, config, force=False, status=status)
+
+        d = status.to_dict()
+        assert d is not None
+        assert d["collections"]["obsidian"]["processed"] == 3
+        assert d["collections"]["obsidian"]["remaining"] == 0
+
+    def test_scan_pass_skips_unchanged_files(self, tmp_path: Path) -> None:
+        """Unchanged files are skipped in the scan pass and not sent to _index_file."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.indexers.obsidian import ObsidianIndexer
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        (vault / "changed.md").write_text("# Changed content")
+        (vault / "unchanged.md").write_text("# Same content")
+
+        status = IndexingStatus()
+        indexer = ObsidianIndexer([vault])
+
+        from ragling.indexers.base import file_hash as compute_hash
+
+        unchanged_hash = compute_hash(vault / "unchanged.md")
+
+        def mock_execute(sql, params=None):
+            result = MagicMock()
+            if params and str(vault / "unchanged.md") in str(params):
+                row = {"id": 1, "file_hash": unchanged_hash}
+                result.fetchone.return_value = row
+            else:
+                result.fetchone.return_value = None
+            result.fetchall.return_value = []
+            return result
+
+        conn = MagicMock()
+        conn.execute = mock_execute
+        config = MagicMock()
+        config.chunk_size_tokens = 512
+
+        with (
+            patch(
+                "ragling.indexers.obsidian._index_file", return_value="indexed"
+            ) as mock_index_file,
+            patch("ragling.indexers.obsidian.get_or_create_collection", return_value=1),
+            patch("ragling.indexers.obsidian.prune_stale_sources", return_value=0),
+        ):
+            result = indexer.index(conn, config, force=False, status=status)
+
+        # Only the changed file should have been sent to _index_file
+        assert mock_index_file.call_count == 1
+        assert result.indexed == 1
+        assert result.skipped == 1

@@ -5,11 +5,17 @@ system collection. Discovers account directories automatically and opens
 all databases in read-only mode with retry logic for handling lock contention.
 """
 
+from __future__ import annotations
+
 import logging
 import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ragling.indexing_status import IndexingStatus
 
 from ragling.config import Config
 from ragling.docling_bridge import rss_to_docling_doc
@@ -38,7 +44,14 @@ class RSSIndexer(BaseIndexer):
         """
         self._explicit_db_path = db_path
 
-    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
+    def index(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
+    ) -> IndexResult:
         """Index RSS articles from NetNewsWire into the "rss" collection.
 
         Discovers all account directories and indexes articles from each.
@@ -47,6 +60,7 @@ class RSSIndexer(BaseIndexer):
             conn: SQLite connection to the RAG database.
             config: Application configuration.
             force: If True, re-index all articles regardless of prior indexing.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult summarizing what was done.
@@ -100,7 +114,7 @@ class RSSIndexer(BaseIndexer):
         for account_dir in account_dirs:
             logger.info("Indexing account: %s", account_dir.name)
             account_result, account_latest = self._index_account(
-                conn, config, collection_id, account_dir, since_ts, force
+                conn, config, collection_id, account_dir, since_ts, force, status=status
             )
 
             result.total_found += account_result.total_found
@@ -127,6 +141,8 @@ class RSSIndexer(BaseIndexer):
         account_dir: Path,
         since_ts: float | None,
         force: bool,
+        *,
+        status: IndexingStatus | None = None,
     ) -> tuple[IndexResult, float]:
         """Index articles from a single account directory.
 
@@ -145,24 +161,31 @@ class RSSIndexer(BaseIndexer):
             return result, latest_ts
 
         total_articles = len(articles)
+        result.total_found = total_articles
         logger.info("Found %d articles to process in %s", total_articles, account_dir.name)
 
+        # Scan pass: identify new articles
+        new_articles: list[Article] = []
         for article in articles:
-            result.total_found += 1
-
-            # Skip if already indexed (unless force)
             if not force and self._is_indexed(conn, collection_id, article.article_id):
                 result.skipped += 1
-                continue
+            else:
+                new_articles.append(article)
 
+        # Report file-level totals (bytes=0 for RSS)
+        if status and new_articles:
+            status.set_file_total("rss", len(new_articles), 0)
+
+        # Index pass: process new articles with per-item status ticks
+        for i, article in enumerate(new_articles, 1):
             try:
                 chunks_count = self._index_article(conn, config, collection_id, article)
                 result.indexed += 1
 
                 logger.info(
                     "Indexed article [%d/%d]: %s (%d chunks)",
-                    result.total_found,
-                    total_articles,
+                    i,
+                    len(new_articles),
                     (article.title or "(no title)")[:60],
                     chunks_count,
                 )
@@ -179,13 +202,16 @@ class RSSIndexer(BaseIndexer):
                     result.error_messages.append(msg)
                 elif result.errors == 11:
                     logger.warning("Suppressing further indexing errors...")
+            finally:
+                if status:
+                    status.file_processed("rss", 1, 0)
 
             # Periodic progress summary
-            if result.total_found % 500 == 0:
+            if i % 500 == 0:
                 logger.info(
                     "Progress: %d/%d processed (%d indexed, %d skipped, %d errors)",
-                    result.total_found,
-                    total_articles,
+                    i,
+                    len(new_articles),
                     result.indexed,
                     result.skipped,
                     result.errors,

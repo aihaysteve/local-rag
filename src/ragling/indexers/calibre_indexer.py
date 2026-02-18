@@ -4,12 +4,18 @@ Indexes ebooks from Calibre libraries into the "calibre" system collection,
 enriching every chunk with book-level metadata (authors, tags, series, etc.).
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ragling.indexing_status import IndexingStatus
 
 from ragling.chunker import Chunk
 from ragling.config import Config
@@ -39,13 +45,21 @@ class CalibreIndexer(BaseIndexer):
         self.library_paths = library_paths
         self.doc_store = doc_store
 
-    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
+    def index(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
+    ) -> IndexResult:
         """Index all configured Calibre libraries.
 
         Args:
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all books regardless of hash match.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult with counts of indexed/skipped/errored books.
@@ -56,6 +70,10 @@ class CalibreIndexer(BaseIndexer):
         indexed = 0
         skipped = 0
         errors = 0
+
+        # Collect all books to index across libraries (scan pass)
+        books_to_index: list[tuple[Path, CalibreBook, str, int]] = []
+        # (library_path, book, content_hash, file_size)
 
         for library_path in self.library_paths:
             library_path = library_path.expanduser().resolve()
@@ -69,24 +87,75 @@ class CalibreIndexer(BaseIndexer):
             total_found += len(books)
             logger.info("Found %d books in %s", len(books), library_path)
 
+            # Scan pass: identify changed books
             for book in books:
-                try:
-                    result = _index_book(
-                        conn,
-                        config,
-                        collection_id,
-                        library_path,
-                        book,
-                        force,
-                        doc_store=self.doc_store,
-                    )
-                    if result == "indexed":
-                        indexed += 1
-                    elif result == "skipped":
+                file_info = get_book_file_path(library_path, book, PREFERRED_FORMATS)
+                if file_info:
+                    file_path, _fmt = file_info
+                    content_hash = file_hash(file_path)
+                    source_path = str(file_path)
+                    file_size = file_path.stat().st_size
+                else:
+                    if not book.description:
                         skipped += 1
-                except Exception:
-                    logger.exception("Error indexing book: %s", book.title)
-                    errors += 1
+                        continue
+                    source_path = f"calibre://{library_path}/{book.relative_path}"
+                    content_hash = hashlib.sha256(book.description.encode()).hexdigest()
+                    file_size = 0
+
+                if not force:
+                    row = conn.execute(
+                        "SELECT id, file_hash FROM sources "
+                        "WHERE collection_id = ? AND source_path = ?",
+                        (collection_id, source_path),
+                    ).fetchone()
+                    if row and row["file_hash"] == content_hash:
+                        # Check metadata changes
+                        if _metadata_changed(conn, row["id"], book):
+                            _refresh_metadata(
+                                conn,
+                                row["id"],
+                                book,
+                                library_path,
+                                file_info[1] if file_info else None,
+                            )
+                            conn.commit()
+                            logger.info("Metadata refreshed for: %s", book.title)
+                            indexed += 1
+                        else:
+                            skipped += 1
+                        continue
+
+                books_to_index.append((library_path, book, content_hash, file_size))
+
+        # Report file-level totals
+        if status and books_to_index:
+            total_bytes = sum(size for _, _, _, size in books_to_index)
+            status.set_file_total("calibre", len(books_to_index), total_bytes)
+
+        # Index pass: process changed books with per-file status ticks
+        for library_path, book, content_hash, file_size in books_to_index:
+            try:
+                result = _index_book(
+                    conn,
+                    config,
+                    collection_id,
+                    library_path,
+                    book,
+                    force,
+                    doc_store=self.doc_store,
+                    precomputed_hash=content_hash,
+                )
+                if result == "indexed":
+                    indexed += 1
+                elif result == "skipped":
+                    skipped += 1
+            except Exception:
+                logger.exception("Error indexing book: %s", book.title)
+                errors += 1
+            finally:
+                if status:
+                    status.file_processed("calibre", 1, file_size)
 
         pruned = prune_stale_sources(conn, collection_id)
 
@@ -138,8 +207,20 @@ def _index_book(
     book: CalibreBook,
     force: bool,
     doc_store: DocStore | None = None,
+    precomputed_hash: str | None = None,
 ) -> str:
     """Index a single Calibre book.
+
+    Args:
+        conn: SQLite database connection.
+        config: Application configuration.
+        collection_id: Collection ID to index into.
+        library_path: Path to the Calibre library.
+        book: CalibreBook metadata.
+        force: If True, re-index regardless of change detection.
+        doc_store: Optional shared document store.
+        precomputed_hash: Pre-computed content hash (avoids recomputation
+            when the scan pass already computed it).
 
     Returns:
         'indexed' if the book was processed, 'skipped' if unchanged.
@@ -149,7 +230,7 @@ def _index_book(
     if file_info:
         file_path, fmt = file_info
         source_path = str(file_path)
-        content_hash = file_hash(file_path)
+        content_hash = precomputed_hash or file_hash(file_path)
         source_type = fmt  # "epub" or "pdf"
     else:
         # No EPUB or PDF available — index description only if available
@@ -157,12 +238,12 @@ def _index_book(
             logger.warning("Book '%s' has no EPUB/PDF and no description, skipping", book.title)
             return "skipped"
         source_path = f"calibre://{library_path}/{book.relative_path}"
-        content_hash = hashlib.sha256(book.description.encode()).hexdigest()
+        content_hash = precomputed_hash or hashlib.sha256(book.description.encode()).hexdigest()
         source_type = "calibre-description"
         fmt = None
 
-    # Check if source already exists with same hash
-    if not force:
+    # Check if source already exists with same hash (skip when hash was pre-checked)
+    if not force and precomputed_hash is None:
         row = conn.execute(
             "SELECT id, file_hash FROM sources WHERE collection_id = ? AND source_path = ?",
             (collection_id, source_path),
