@@ -528,6 +528,10 @@ def create_server(
     def rag_index(collection: str, path: str | None = None) -> dict[str, Any]:
         """Trigger indexing for a collection.
 
+        Submits an indexing job and returns immediately. Use rag_indexing_status
+        to check progress. Returns 'already_indexing' if the collection already
+        has queued work.
+
         For system collections ('obsidian', 'email', 'calibre', 'rss'), uses configured paths.
         For code groups (matching a key in config code_groups), indexes all repos in that group.
         For project collections, a path argument is required.
