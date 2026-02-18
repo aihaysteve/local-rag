@@ -148,7 +148,11 @@ def _parse_and_chunk(
             )
             return []
         return convert_and_chunk(
-            path, doc_store, chunk_max_tokens=config.chunk_size_tokens, source_type=source_type
+            path,
+            doc_store,
+            chunk_max_tokens=config.chunk_size_tokens,
+            source_type=source_type,
+            asr_model=config.asr.model,
         )
 
     # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker

@@ -135,13 +135,42 @@ def _whisper_available() -> bool:
     return False
 
 
+def _get_asr_model_spec(model_name: str) -> Any:
+    """Map a model name string to a Docling ASR model spec.
+
+    Args:
+        model_name: One of 'tiny', 'small', 'medium', 'base', 'large', 'turbo'.
+
+    Returns:
+        The corresponding ``asr_model_specs`` constant.
+    """
+    from docling.datamodel import asr_model_specs
+
+    specs = {
+        "tiny": asr_model_specs.WHISPER_TINY,
+        "small": asr_model_specs.WHISPER_SMALL,
+        "medium": asr_model_specs.WHISPER_MEDIUM,
+        "base": asr_model_specs.WHISPER_BASE,
+        "large": asr_model_specs.WHISPER_LARGE,
+        "turbo": asr_model_specs.WHISPER_TURBO,
+    }
+    spec = specs.get(model_name)
+    if spec is None:
+        logger.warning("Unknown ASR model '%s', falling back to 'small'", model_name)
+        spec = asr_model_specs.WHISPER_SMALL
+    return spec
+
+
 @lru_cache
-def get_converter() -> DocumentConverter:
+def get_converter(asr_model: str = "small") -> DocumentConverter:
     """Get or create the Docling DocumentConverter singleton.
 
     Configures the PDF pipeline with all enrichments, and
     optionally the ASR pipeline for audio transcription when
     Whisper is installed.
+
+    Args:
+        asr_model: Whisper model size name (tiny/small/medium/base/large/turbo).
     """
     pdf_options = PdfPipelineOptions(
         do_table_structure=True,
@@ -165,10 +194,16 @@ def get_converter() -> DocumentConverter:
 
     if _whisper_available():
         ensure_audio_formats_registered()
+        from docling.datamodel.pipeline_options import AsrPipelineOptions
         from docling.document_converter import AudioFormatOption
 
-        format_options[InputFormat.AUDIO] = AudioFormatOption()
-        logger.info("ASR pipeline enabled (Whisper available)")
+        asr_options = AsrPipelineOptions()
+        asr_options.asr_options = _get_asr_model_spec(asr_model)
+
+        format_options[InputFormat.AUDIO] = AudioFormatOption(
+            pipeline_options=asr_options,
+        )
+        logger.info("ASR pipeline enabled with model '%s'", asr_model)
     else:
         logger.info("ASR pipeline disabled (no Whisper backend installed)")
 
@@ -356,6 +391,7 @@ def convert_and_chunk(
     chunk_max_tokens: int = 256,
     embedding_model_id: str = "BAAI/bge-m3",
     source_type: str | None = None,
+    asr_model: str = "small",
 ) -> list[Chunk]:
     """Convert a document via Docling (cached in doc_store), chunk with HybridChunker.
 
@@ -370,6 +406,7 @@ def convert_and_chunk(
         source_type: Optional source type hint (e.g. ``"image"``). When set
             to ``"image"`` and Docling produces no chunks, the VLM fallback
             is triggered.
+        asr_model: Whisper model size for audio transcription.
 
     Returns:
         List of Chunk dataclass instances ready for embedding.
@@ -379,6 +416,7 @@ def convert_and_chunk(
         do_code_enrichment=True,
         do_formula_enrichment=True,
         table_mode="accurate",
+        asr_model=asr_model,
     )
     doc_data = doc_store.get_or_convert(path, _convert_with_docling, config_hash=config_hash)
     doc = DoclingDocument.model_validate(doc_data)

@@ -209,7 +209,7 @@ class TestParseAndChunkDoclingRouting:
             result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=mock_store)
 
         mock_convert.assert_called_once_with(
-            pdf_file, mock_store, chunk_max_tokens=256, source_type="pdf"
+            pdf_file, mock_store, chunk_max_tokens=256, source_type="pdf", asr_model="small"
         )
         assert len(result) == 1
 

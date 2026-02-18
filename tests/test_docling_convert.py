@@ -509,6 +509,37 @@ class TestConverterConfigHash:
         assert hash1 == hash2
 
 
+class TestAsrModelConfiguration:
+    def test_get_converter_uses_configured_model(self) -> None:
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with (
+            patch("ragling.docling_convert.DocumentConverter") as mock_cls,
+            patch("ragling.docling_convert._whisper_available", return_value=True),
+            patch("ragling.docling_convert._get_asr_model_spec") as mock_spec,
+        ):
+            mock_cls.return_value = MagicMock()
+            mock_spec.return_value = MagicMock()
+            get_converter(asr_model="turbo")
+            mock_spec.assert_called_once_with("turbo")
+
+    def test_get_asr_model_spec_returns_valid_spec(self) -> None:
+        from ragling.docling_convert import _get_asr_model_spec
+
+        spec = _get_asr_model_spec("small")
+        # Should be some kind of ASR options object, not None
+        assert spec is not None
+
+    def test_get_asr_model_spec_falls_back_for_unknown(self) -> None:
+        from ragling.docling_convert import _get_asr_model_spec
+
+        spec = _get_asr_model_spec("nonexistent_model")
+        # Should fall back to "small" rather than crashing
+        small_spec = _get_asr_model_spec("small")
+        assert spec == small_spec
+
+
 class TestGetConverterAsr:
     def test_get_converter_includes_audio_format_option(self) -> None:
         from ragling.docling_convert import get_converter
