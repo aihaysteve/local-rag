@@ -69,6 +69,34 @@ def _format_bytes(b: int | None) -> str:
     return f"{mb:.0f} MB"
 
 
+def _format_time_ms(ms: int) -> str:
+    """Format milliseconds as human-readable time (from int, not string)."""
+    if ms < 1000:
+        return f"{ms}ms"
+    return f"{ms / 1000:.1f}s"
+
+
+def format_result_line(result: BenchmarkResult) -> str:
+    """Format a single benchmark result as a one-line stage breakdown.
+
+    Output format: [config] fixture  conv:Xs  embed:Xs  total:Xs  (N chunks)
+
+    Args:
+        result: A single benchmark result.
+
+    Returns:
+        Formatted string for printing to stdout.
+    """
+    conv = _format_time_ms(result.conversion_ms)
+    embed = _format_time_ms(result.embedding_ms)
+    total = _format_time_ms(result.total_ms)
+    return (
+        f"[{result.configuration}] {result.fixture:<30s} "
+        f"conv:{conv}  embed:{embed}  total:{total}  "
+        f"({result.chunks_produced} chunks)"
+    )
+
+
 def render_markdown(
     csv_path: Path,
     md_path: Path,

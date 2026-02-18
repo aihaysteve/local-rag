@@ -94,3 +94,35 @@ def test_render_markdown(tmp_path: Path) -> None:
     assert "fast" in content
     assert "balanced" in content
     assert "m1-local" in content
+
+
+def test_format_result_line_shows_stages() -> None:
+    """format_result_line returns a stage-breakdown string for one result."""
+    from benchmark.output import format_result_line
+
+    result = _make_result(
+        configuration="fast",
+        fixture="pdf-1pg-text.pdf",
+        conversion_ms=800,
+        embedding_ms=1300,
+        total_ms=2100,
+        chunks_produced=13,
+    )
+    line = format_result_line(result)
+    assert "[fast]" in line
+    assert "pdf-1pg-text.pdf" in line
+    assert "conv:800ms" in line
+    assert "embed:1.3s" in line
+    assert "total:2.1s" in line
+    assert "(13 chunks)" in line
+
+
+def test_format_result_line_sub_second() -> None:
+    """format_result_line uses ms for values under 1000ms."""
+    from benchmark.output import format_result_line
+
+    result = _make_result(conversion_ms=50, embedding_ms=200, total_ms=300)
+    line = format_result_line(result)
+    assert "conv:50ms" in line
+    assert "embed:200ms" in line
+    assert "total:300ms" in line
