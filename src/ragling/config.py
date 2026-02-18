@@ -26,6 +26,20 @@ class AsrConfig:
     language: str | None = None
 
 
+@dataclass(frozen=True)
+class EnrichmentConfig:
+    """Document enrichment pipeline configuration.
+
+    Controls which Docling enrichments are enabled during document conversion.
+    All enrichments are enabled by default to match previous hardcoded behavior.
+    """
+
+    image_description: bool = True
+    code_enrichment: bool = True
+    formula_enrichment: bool = True
+    table_structure: bool = True
+
+
 @dataclass
 class SearchDefaults:
     """Default search parameters."""
@@ -84,6 +98,7 @@ class Config:
     git_commit_subject_blacklist: tuple[str, ...] = ()
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
     asr: AsrConfig = field(default_factory=AsrConfig)
+    enrichments: EnrichmentConfig = field(default_factory=EnrichmentConfig)
     shared_db_path: Path = field(default_factory=lambda: DEFAULT_SHARED_DB_PATH)
     group_name: str = "default"
     group_db_dir: Path = field(default_factory=lambda: DEFAULT_GROUP_DB_DIR)
@@ -250,6 +265,14 @@ def load_config(path: Path | None = None) -> Config:
         language=asr_data.get("language"),
     )
 
+    enrichments_data = data.get("enrichments", {})
+    enrichments_config = EnrichmentConfig(
+        image_description=enrichments_data.get("image_description", True),
+        code_enrichment=enrichments_data.get("code_enrichment", True),
+        formula_enrichment=enrichments_data.get("formula_enrichment", True),
+        table_structure=enrichments_data.get("table_structure", True),
+    )
+
     config = Config(
         db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
         embedding_model=data.get("embedding_model", "bge-m3"),
@@ -267,6 +290,7 @@ def load_config(path: Path | None = None) -> Config:
         git_commit_subject_blacklist=tuple(data.get("git_commit_subject_blacklist", [])),
         search_defaults=search_defaults,
         asr=asr_config,
+        enrichments=enrichments_config,
         shared_db_path=_expand_path(data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH))),
         group_name=data.get("group_name", "default"),
         group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR))),

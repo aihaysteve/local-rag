@@ -326,3 +326,61 @@ class TestOllamaHostConfig:
         config_file.write_text(json.dumps({"embedding_model": "bge-m3"}))
         config = load_config(config_file)
         assert config.ollama_host is None
+
+
+class TestEnrichmentConfig:
+    """Tests for EnrichmentConfig dataclass and load_config integration."""
+
+    def test_enrichment_config_defaults(self) -> None:
+        """EnrichmentConfig has sensible defaults matching current hardcoded behavior."""
+        from ragling.config import EnrichmentConfig
+
+        ec = EnrichmentConfig()
+        assert ec.image_description is True
+        assert ec.code_enrichment is True
+        assert ec.formula_enrichment is True
+        assert ec.table_structure is True
+
+    def test_config_has_enrichments_field(self) -> None:
+        """Config includes an enrichments field with default EnrichmentConfig."""
+        from ragling.config import EnrichmentConfig
+
+        config = Config()
+        assert isinstance(config.enrichments, EnrichmentConfig)
+        assert config.enrichments.image_description is True
+
+    def test_load_config_enrichments(self, tmp_path: Path) -> None:
+        """load_config reads enrichment settings from JSON."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "enrichments": {
+                        "image_description": False,
+                        "code_enrichment": False,
+                        "formula_enrichment": False,
+                        "table_structure": False,
+                    }
+                }
+            )
+        )
+        config = load_config(config_file)
+        assert config.enrichments.image_description is False
+        assert config.enrichments.code_enrichment is False
+        assert config.enrichments.formula_enrichment is False
+        assert config.enrichments.table_structure is False
+
+    def test_load_config_enrichments_defaults(self, tmp_path: Path) -> None:
+        """load_config uses enrichment defaults when not specified."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({}))
+        config = load_config(config_file)
+        assert config.enrichments.image_description is True
+
+    def test_enrichment_config_is_frozen(self) -> None:
+        """EnrichmentConfig should be immutable."""
+        from ragling.config import EnrichmentConfig
+
+        ec = EnrichmentConfig()
+        with pytest.raises(AttributeError):
+            ec.image_description = False  # type: ignore[misc]
