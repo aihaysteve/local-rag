@@ -1,5 +1,7 @@
 """Abstract base class and shared utilities for indexers."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
@@ -8,10 +10,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ragling.chunker import Chunk
 from ragling.config import Config
 from ragling.embeddings import serialize_float32
+
+if TYPE_CHECKING:
+    from ragling.indexing_status import IndexingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -249,13 +255,21 @@ class BaseIndexer(ABC):
     """Abstract base indexer that all source-specific indexers extend."""
 
     @abstractmethod
-    def index(self, conn: sqlite3.Connection, config: Config, force: bool = False) -> IndexResult:
+    def index(
+        self,
+        conn: sqlite3.Connection,
+        config: Config,
+        force: bool = False,
+        *,
+        status: IndexingStatus | None = None,
+    ) -> IndexResult:
         """Run the indexing process.
 
         Args:
             conn: SQLite database connection.
             config: Application configuration.
             force: If True, re-index all sources regardless of change detection.
+            status: Optional indexing status tracker for file-level progress.
 
         Returns:
             IndexResult summarizing what happened.

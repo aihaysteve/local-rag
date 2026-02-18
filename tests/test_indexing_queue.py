@@ -74,6 +74,7 @@ class TestIndexingQueue:
         assert status.to_dict() == {
             "active": True,
             "total_remaining": 1,
+            "total_remaining_bytes": 0,
             "collections": {"docs": 1},
         }
 
@@ -701,3 +702,205 @@ class TestWorkerUsesFreshConfig:
         assert len(observed_dims) == 2
         assert observed_dims[0] == 4  # first job saw original config
         assert observed_dims[1] == 8  # second job saw updated config
+
+
+class TestStatusPassthrough:
+    """Tests that IndexingQueue passes status to indexers."""
+
+    @patch("ragling.doc_store.DocStore")
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.obsidian.ObsidianIndexer")
+    def test_obsidian_receives_status(
+        self,
+        mock_obs: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+        mock_ds: MagicMock,
+    ) -> None:
+        mock_conn.return_value = MagicMock()
+        mock_ds.return_value = MagicMock()
+        mock_obs.return_value.index.return_value = MagicMock()
+
+        status = IndexingStatus()
+        config = Config(
+            embedding_dimensions=4,
+            shared_db_path=Path("/tmp/test_shared.db"),
+        )
+        q = IndexingQueue(config, status)
+
+        job = IndexJob(
+            job_type="directory",
+            path=Path("/vault"),
+            collection_name="obsidian",
+            indexer_type="obsidian",
+        )
+        q._process(job)
+
+        mock_obs.return_value.index.assert_called_once()
+        call_kwargs = mock_obs.return_value.index.call_args
+        assert call_kwargs.kwargs.get("status") is status
+
+    @patch("ragling.doc_store.DocStore")
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.project.ProjectIndexer")
+    def test_project_receives_status(
+        self,
+        mock_proj: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+        mock_ds: MagicMock,
+    ) -> None:
+        mock_conn.return_value = MagicMock()
+        mock_ds.return_value = MagicMock()
+        mock_proj.return_value.index.return_value = MagicMock()
+
+        status = IndexingStatus()
+        config = Config(
+            embedding_dimensions=4,
+            shared_db_path=Path("/tmp/test_shared.db"),
+        )
+        q = IndexingQueue(config, status)
+
+        job = IndexJob(
+            job_type="directory",
+            path=Path("/docs"),
+            collection_name="my-project",
+            indexer_type="project",
+        )
+        q._process(job)
+
+        mock_proj.return_value.index.assert_called_once()
+        call_kwargs = mock_proj.return_value.index.call_args
+        assert call_kwargs.kwargs.get("status") is status
+
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.email_indexer.EmailIndexer")
+    def test_email_receives_status(
+        self,
+        mock_email: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+    ) -> None:
+        mock_conn.return_value = MagicMock()
+        mock_email.return_value.index.return_value = MagicMock()
+
+        status = IndexingStatus()
+        config = Config(
+            embedding_dimensions=4,
+            shared_db_path=Path("/tmp/test_shared.db"),
+        )
+        q = IndexingQueue(config, status)
+
+        job = IndexJob(
+            job_type="system_collection",
+            path=Path("/emclient"),
+            collection_name="email",
+            indexer_type="email",
+        )
+        q._process(job)
+
+        mock_email.return_value.index.assert_called_once()
+        call_kwargs = mock_email.return_value.index.call_args
+        assert call_kwargs.kwargs.get("status") is status
+
+    @patch("ragling.doc_store.DocStore")
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.calibre_indexer.CalibreIndexer")
+    def test_calibre_receives_status(
+        self,
+        mock_cal: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+        mock_ds: MagicMock,
+    ) -> None:
+        mock_conn.return_value = MagicMock()
+        mock_ds.return_value = MagicMock()
+        mock_cal.return_value.index.return_value = MagicMock()
+
+        status = IndexingStatus()
+        config = Config(
+            embedding_dimensions=4,
+            shared_db_path=Path("/tmp/test_shared.db"),
+        )
+        q = IndexingQueue(config, status)
+
+        job = IndexJob(
+            job_type="system_collection",
+            path=None,
+            collection_name="calibre",
+            indexer_type="calibre",
+        )
+        q._process(job)
+
+        mock_cal.return_value.index.assert_called_once()
+        call_kwargs = mock_cal.return_value.index.call_args
+        assert call_kwargs.kwargs.get("status") is status
+
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.rss_indexer.RSSIndexer")
+    def test_rss_receives_status(
+        self,
+        mock_rss: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+    ) -> None:
+        mock_conn.return_value = MagicMock()
+        mock_rss.return_value.index.return_value = MagicMock()
+
+        status = IndexingStatus()
+        config = Config(
+            embedding_dimensions=4,
+            shared_db_path=Path("/tmp/test_shared.db"),
+        )
+        q = IndexingQueue(config, status)
+
+        job = IndexJob(
+            job_type="system_collection",
+            path=Path("/nnw"),
+            collection_name="rss",
+            indexer_type="rss",
+        )
+        q._process(job)
+
+        mock_rss.return_value.index.assert_called_once()
+        call_kwargs = mock_rss.return_value.index.call_args
+        assert call_kwargs.kwargs.get("status") is status
+
+    @patch("ragling.doc_store.DocStore")
+    @patch("ragling.indexing_queue.init_db")
+    @patch("ragling.indexing_queue.get_connection")
+    @patch("ragling.indexers.git_indexer.GitRepoIndexer")
+    def test_code_receives_status(
+        self,
+        mock_git: MagicMock,
+        mock_conn: MagicMock,
+        mock_init: MagicMock,
+        mock_ds: MagicMock,
+    ) -> None:
+        mock_conn.return_value = MagicMock()
+        mock_ds.return_value = MagicMock()
+        mock_git.return_value.index.return_value = MagicMock()
+
+        status = IndexingStatus()
+        config = Config(
+            embedding_dimensions=4,
+            shared_db_path=Path("/tmp/test_shared.db"),
+        )
+        q = IndexingQueue(config, status)
+
+        job = IndexJob(
+            job_type="directory",
+            path=Path("/repo"),
+            collection_name="my-org",
+            indexer_type="code",
+        )
+        q._process(job)
+
+        mock_git.return_value.index.assert_called_once()
+        call_kwargs = mock_git.return_value.index.call_args
+        assert call_kwargs.kwargs.get("status") is status

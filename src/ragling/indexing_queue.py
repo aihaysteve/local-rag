@@ -230,7 +230,7 @@ class IndexingQueue:
         with self._open_conn_and_docstore() as (conn, doc_store):
             paths = [job.path] if job.path else []
             indexer = ProjectIndexer(job.collection_name, paths, doc_store=doc_store)
-            result = indexer.index(conn, self._config, force=job.force)
+            result = indexer.index(conn, self._config, force=job.force, status=self._status)
             logger.info("Indexed project %s: %s", job.collection_name, result)
             return result
 
@@ -241,7 +241,9 @@ class IndexingQueue:
         path = self._require_path(job)
         with self._open_conn_and_docstore() as (conn, doc_store):
             indexer = GitRepoIndexer(path, collection_name=job.collection_name)
-            result = indexer.index(conn, self._config, force=job.force, index_history=True)
+            result = indexer.index(
+                conn, self._config, force=job.force, status=self._status, index_history=True
+            )
             logger.info("Indexed code %s: %s", job.collection_name, result)
 
             # Document pass: index non-code files (docx, pdf, etc.) via ProjectIndexer
@@ -267,7 +269,7 @@ class IndexingQueue:
             indexer = ObsidianIndexer(
                 vault_paths, self._config.obsidian_exclude_folders, doc_store=doc_store
             )
-            result = indexer.index(conn, self._config, force=job.force)
+            result = indexer.index(conn, self._config, force=job.force, status=self._status)
             logger.info("Indexed obsidian: %s", result)
             return result
 
@@ -277,7 +279,7 @@ class IndexingQueue:
         with self._open_conn() as conn:
             db_path = str(job.path) if job.path else str(self._config.emclient_db_path)
             indexer = EmailIndexer(db_path)
-            result = indexer.index(conn, self._config, force=job.force)
+            result = indexer.index(conn, self._config, force=job.force, status=self._status)
             logger.info("Indexed email: %s", result)
             return result
 
@@ -287,7 +289,7 @@ class IndexingQueue:
         with self._open_conn_and_docstore() as (conn, doc_store):
             libraries = [job.path] if job.path else self._config.calibre_libraries
             indexer = CalibreIndexer(libraries, doc_store=doc_store)
-            result = indexer.index(conn, self._config, force=job.force)
+            result = indexer.index(conn, self._config, force=job.force, status=self._status)
             logger.info("Indexed calibre: %s", result)
             return result
 
@@ -297,7 +299,7 @@ class IndexingQueue:
         with self._open_conn() as conn:
             db_path = str(job.path) if job.path else str(self._config.netnewswire_db_path)
             indexer = RSSIndexer(db_path)
-            result = indexer.index(conn, self._config, force=job.force)
+            result = indexer.index(conn, self._config, force=job.force, status=self._status)
             logger.info("Indexed rss: %s", result)
             return result
 
