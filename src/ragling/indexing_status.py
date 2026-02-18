@@ -88,6 +88,22 @@ class IndexingStatus:
             self._counts.clear()
             self._file_counts.clear()
 
+    def is_collection_active(self, collection: str) -> bool:
+        """Check if a collection has pending or in-progress work.
+
+        Args:
+            collection: Collection name to check.
+
+        Returns:
+            True if the collection has remaining jobs or file-level work.
+        """
+        with self._lock:
+            if collection in self._counts:
+                return True
+            if collection in self._file_counts:
+                return True
+            return False
+
     def is_active(self) -> bool:
         """Check if any indexing is in progress."""
         with self._lock:

@@ -198,3 +198,36 @@ class TestFileLevelStatus:
         assert "collections" in result
         assert result["collections"]["obsidian"]["remaining"] == 45
         assert result["collections"]["email"]["remaining"] == 0
+
+
+class TestIsCollectionActive:
+    """Tests for is_collection_active method."""
+
+    def test_inactive_when_empty(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        assert status.is_collection_active("obsidian") is False
+
+    def test_active_with_job_count(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        assert status.is_collection_active("obsidian") is True
+        assert status.is_collection_active("email") is False
+
+    def test_active_with_file_counts(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 100)
+        assert status.is_collection_active("obsidian") is True
+
+    def test_inactive_after_decrement_to_zero(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        status.decrement("obsidian")
+        assert status.is_collection_active("obsidian") is False
