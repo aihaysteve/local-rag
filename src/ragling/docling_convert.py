@@ -235,7 +235,7 @@ def _convert_with_docling(path: Path) -> dict[str, Any]:
     Returns:
         A JSON-serializable dict representation of the DoclingDocument.
     """
-    result = get_converter().convert(str(path))
+    result = get_converter().convert(path)
     doc = result.document
     return doc.model_dump()
 
