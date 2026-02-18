@@ -4,9 +4,11 @@ import inspect
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from ragling.chunker import Chunk
 from ragling.config import Config
-from ragling.indexers.project import _EXTENSION_MAP
+from ragling.indexers.project import _EXTENSION_MAP, is_supported_extension
 
 
 class TestSupportedExtensions:
@@ -97,6 +99,24 @@ class TestExtensionMap:
 
     def test_yml_maps_to_plaintext(self) -> None:
         assert _EXTENSION_MAP[".yml"] == "plaintext"
+
+
+class TestAudioExtensionMap:
+    """All audio/video extensions should map to 'audio' source type."""
+
+    @pytest.mark.parametrize(
+        "ext",
+        [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".mp4", ".avi", ".mov", ".opus", ".mkv", ".mka"],
+    )
+    def test_audio_extension_maps_to_audio(self, ext: str) -> None:
+        assert _EXTENSION_MAP[ext] == "audio"
+
+    @pytest.mark.parametrize(
+        "ext",
+        [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".mp4", ".avi", ".mov", ".opus", ".mkv", ".mka"],
+    )
+    def test_audio_extension_is_supported(self, ext: str) -> None:
+        assert is_supported_extension(ext)
 
 
 class TestDoclingRouting:
