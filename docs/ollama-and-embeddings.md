@@ -120,6 +120,45 @@ Embeddings are stored in SQLite as packed binary blobs — each float is seriali
 
 For 10,000 indexed chunks, the vector data alone takes ~40 MB of database space.
 
+## Using a Remote Ollama Server
+
+If you have a machine with a better GPU (e.g., a desktop with an RTX card), you can run Ollama there and point ragling at it from your laptop.
+
+### Setup
+
+On the remote machine, install Ollama and pull the embedding model:
+
+```bash
+brew install ollama    # or see https://ollama.com for Linux
+ollama pull bge-m3
+```
+
+Ollama binds to localhost by default. To accept remote connections, set the host before starting:
+
+```bash
+OLLAMA_HOST=0.0.0.0 ollama serve
+```
+
+### Configuration
+
+In `~/.ragling/config.json` on the machine running ragling:
+
+```json
+{
+  "ollama_host": "http://gpu-box:11434",
+  "embedding_model": "bge-m3",
+  "embedding_dimensions": 1024
+}
+```
+
+When `ollama_host` is set, ragling connects to that URL for all embedding operations. When omitted (or `null`), ragling falls back to the `OLLAMA_HOST` environment variable, then `http://127.0.0.1:11434`.
+
+### Network considerations
+
+Embedding requests are batched (32 texts per request). On a local network this adds negligible latency. Over higher-latency connections, indexing will be slower but search (a single embedding call per query) is barely affected.
+
+Make sure the embedding model name and dimensions in your config match what's available on the remote Ollama instance.
+
 ## Using a Different Model
 
 The embedding model is configurable in `~/.local-rag/config.json`:

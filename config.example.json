@@ -1,4 +1,5 @@
 {
+    "ollama_host": null,
     "db_path": "~/.ragling/rag.db",
     "shared_db_path": "~/.ragling/doc_store.sqlite",
     "embedding_model": "bge-m3",
