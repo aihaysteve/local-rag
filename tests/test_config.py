@@ -308,3 +308,21 @@ class TestConfigImmutability:
         config = Config()
         new_config = config.with_overrides(code_groups={"org": (Path("/repo"),)})
         assert isinstance(new_config.code_groups, MappingProxyType)
+
+
+class TestOllamaHostConfig:
+    def test_default_ollama_host_is_none(self) -> None:
+        config = Config()
+        assert config.ollama_host is None
+
+    def test_loads_ollama_host_from_json(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"ollama_host": "http://gpu-box:11434"}))
+        config = load_config(config_file)
+        assert config.ollama_host == "http://gpu-box:11434"
+
+    def test_missing_ollama_host_defaults_to_none(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"embedding_model": "bge-m3"}))
+        config = load_config(config_file)
+        assert config.ollama_host is None

@@ -92,6 +92,7 @@ class Config:
     # TODO: users could be MappingProxyType[str, UserConfig] for full immutability,
     # but the churn is not worth it since users is not mutated after construction.
     users: dict[str, UserConfig] = field(default_factory=dict)
+    ollama_host: str | None = None
 
     @property
     def group_index_db_path(self) -> Path:
@@ -272,6 +273,7 @@ def load_config(path: Path | None = None) -> Config:
         home=home,
         global_paths=global_paths,
         users=users,
+        ollama_host=data.get("ollama_host"),
     )
 
     return config
