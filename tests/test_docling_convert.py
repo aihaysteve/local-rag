@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ragling.chunker import Chunk
+from ragling.config import Config
 from ragling.doc_store import DocStore
 
 
@@ -705,3 +706,48 @@ class TestAudioMetadataIntegration:
             convert_and_chunk(sample_file, store, source_type="pdf")
 
         mock_extract.assert_not_called()
+
+
+class TestAudioGracefulDegradation:
+    def test_audio_conversion_error_propagates(self, store: DocStore, tmp_path: Path) -> None:
+        """Conversion errors for audio files propagate so callers can handle them."""
+        from ragling.docling_convert import convert_and_chunk
+
+        audio_file = tmp_path / "voice.mp3"
+        audio_file.write_bytes(b"fake audio")
+
+        with (
+            patch.object(
+                store,
+                "get_or_convert",
+                side_effect=ImportError("No module named 'whisper'"),
+            ),
+            pytest.raises(ImportError, match="whisper"),
+        ):
+            convert_and_chunk(audio_file, store, source_type="audio")
+
+    def test_index_files_catches_audio_errors(self, tmp_path: Path) -> None:
+        """The project indexer's _index_files loop catches audio conversion errors."""
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.project import ProjectIndexer
+
+        audio_file = tmp_path / "voice.mp3"
+        audio_file.write_bytes(b"fake audio")
+
+        config = Config(db_path=tmp_path / "test.db", chunk_size_tokens=256)
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        store = DocStore(tmp_path / "doc_store.sqlite")
+        indexer = ProjectIndexer(
+            collection_name="test", paths=[tmp_path], doc_store=store
+        )
+
+        with patch(
+            "ragling.indexers.project.convert_and_chunk",
+            side_effect=ImportError("No module named 'whisper'"),
+        ):
+            result = indexer._index_files(conn, config, [audio_file], 1, force=True)
+
+        assert result.errors == 1
+        assert result.indexed == 0
