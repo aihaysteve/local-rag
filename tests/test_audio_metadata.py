@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ragling.audio_metadata import extract_audio_metadata
+from ragling.audio_metadata import extract_audio_metadata, find_chapter_for_timestamp
 
 
 @pytest.fixture()
@@ -47,3 +47,30 @@ class TestExtractAudioMetadata:
         text_file.write_text("not audio")
         result = extract_audio_metadata(text_file)
         assert result == {}
+
+
+class TestExtractChapters:
+    def test_returns_no_chapters_key_for_wav(self, wav_file: Path) -> None:
+        """WAV files have no chapters — key should be absent."""
+        result = extract_audio_metadata(wav_file)
+        assert "chapters" not in result
+
+
+class TestFindChapterForTimestamp:
+    def test_finds_matching_chapter(self) -> None:
+        chapters = [
+            {"title": "Intro", "start": 0.0, "end": 60.0},
+            {"title": "Main Topic", "start": 60.0, "end": 300.0},
+            {"title": "Outro", "start": 300.0, "end": 360.0},
+        ]
+        assert find_chapter_for_timestamp(chapters, 30.0) == "Intro"
+        assert find_chapter_for_timestamp(chapters, 120.0) == "Main Topic"
+        assert find_chapter_for_timestamp(chapters, 350.0) == "Outro"
+
+    def test_returns_none_when_no_chapters(self) -> None:
+        assert find_chapter_for_timestamp([], 10.0) is None
+
+    def test_returns_none_when_timestamp_outside_range(self) -> None:
+        chapters = [{"title": "Only", "start": 10.0, "end": 20.0}]
+        assert find_chapter_for_timestamp(chapters, 5.0) is None
+        assert find_chapter_for_timestamp(chapters, 25.0) is None

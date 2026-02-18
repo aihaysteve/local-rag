@@ -59,6 +59,9 @@ def extract_audio_metadata(path: Path) -> dict[str, Any]:
     # Tags — normalize across formats
     _extract_tags(audio, metadata)
 
+    # Chapter markers
+    _extract_chapters(audio, metadata)
+
     return metadata
 
 
@@ -97,3 +100,46 @@ def _extract_tags(audio: Any, metadata: dict[str, Any]) -> None:
                 if text:
                     metadata[meta_key] = text
                 break
+
+
+def _extract_chapters(audio: Any, metadata: dict[str, Any]) -> None:
+    """Extract chapter markers if present.
+
+    Supports MP4 chapters (via ``chapters`` attribute) and
+    Matroska chapters (via ``chapters`` tags).
+
+    Args:
+        audio: A mutagen File object.
+        metadata: Dict to populate with 'chapters' list.
+    """
+    chapters: list[dict[str, Any]] = []
+
+    # Mutagen exposes chapters on some formats via a chapters attribute.
+    if hasattr(audio, "chapters") and audio.chapters:
+        for ch in audio.chapters:
+            chapters.append({
+                "title": getattr(ch, "title", ""),
+                "start": getattr(ch, "start", 0.0) / 1000.0,  # ms to seconds
+                "end": getattr(ch, "end", 0.0) / 1000.0,
+            })
+
+    if chapters:
+        metadata["chapters"] = chapters
+
+
+def find_chapter_for_timestamp(
+    chapters: list[dict[str, Any]], timestamp: float
+) -> str | None:
+    """Find the chapter title for a given timestamp.
+
+    Args:
+        chapters: List of chapter dicts with 'title', 'start', 'end' keys.
+        timestamp: Time in seconds to look up.
+
+    Returns:
+        The chapter title, or None if no chapter covers the timestamp.
+    """
+    for ch in chapters:
+        if ch["start"] <= timestamp < ch["end"]:
+            return ch["title"]
+    return None
