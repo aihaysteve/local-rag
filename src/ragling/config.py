@@ -19,6 +19,14 @@ DEFAULT_GROUP_DB_DIR = DEFAULT_CONFIG_DIR / "groups"
 
 
 @dataclass
+class AsrConfig:
+    """ASR (speech-to-text) configuration."""
+
+    model: str = "small"
+    language: str | None = None
+
+
+@dataclass
 class SearchDefaults:
     """Default search parameters."""
 
@@ -75,6 +83,7 @@ class Config:
     git_history_in_months: int = 6
     git_commit_subject_blacklist: tuple[str, ...] = ()
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
+    asr: AsrConfig = field(default_factory=AsrConfig)
     shared_db_path: Path = field(default_factory=lambda: DEFAULT_SHARED_DB_PATH)
     group_name: str = "default"
     group_db_dir: Path = field(default_factory=lambda: DEFAULT_GROUP_DB_DIR)
@@ -234,6 +243,12 @@ def load_config(path: Path | None = None) -> Config:
     )
     netnewswire_db_path = _expand_path(nnw_raw if nnw_raw is not None else nnw_default)
 
+    asr_data = data.get("asr", {})
+    asr_config = AsrConfig(
+        model=asr_data.get("model", "small"),
+        language=asr_data.get("language"),
+    )
+
     config = Config(
         db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
         embedding_model=data.get("embedding_model", "bge-m3"),
@@ -250,6 +265,7 @@ def load_config(path: Path | None = None) -> Config:
         git_history_in_months=data.get("git_history_in_months", 6),
         git_commit_subject_blacklist=tuple(data.get("git_commit_subject_blacklist", [])),
         search_defaults=search_defaults,
+        asr=asr_config,
         shared_db_path=_expand_path(data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH))),
         group_name=data.get("group_name", "default"),
         group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR))),

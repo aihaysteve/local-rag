@@ -9,6 +9,41 @@ import pytest
 from ragling.config import Config, load_config
 
 
+class TestAsrConfigDefaults:
+    def test_default_asr_model(self) -> None:
+        config = Config()
+        assert config.asr.model == "small"
+
+    def test_default_asr_language(self) -> None:
+        config = Config()
+        assert config.asr.language is None
+
+
+class TestAsrConfigFromJson:
+    def test_loads_asr_from_json(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps({"asr": {"model": "turbo", "language": "en"}})
+        )
+        config = load_config(config_file)
+        assert config.asr.model == "turbo"
+        assert config.asr.language == "en"
+
+    def test_missing_asr_uses_defaults(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"embedding_model": "bge-m3"}))
+        config = load_config(config_file)
+        assert config.asr.model == "small"
+        assert config.asr.language is None
+
+    def test_partial_asr_merges_with_defaults(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"asr": {"model": "turbo"}}))
+        config = load_config(config_file)
+        assert config.asr.model == "turbo"
+        assert config.asr.language is None  # default preserved
+
+
 class TestConfigDefaults:
     def test_default_shared_db_path(self) -> None:
         config = Config()
