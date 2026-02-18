@@ -1,0 +1,44 @@
+# Benchmark matrix configuration
+# See docs/plans/2026-02-18-benchmark-tool-design.md for details.
+#
+# Usage:
+#   uv run python scripts/benchmark.py --matrix scripts/benchmark_matrix.toml --tag m1-local
+#   uv run python scripts/benchmark.py --matrix scripts/benchmark_matrix.toml --tag m1-4070ti \
+#       --ollama-host http://gpu-server:11434
+
+[fixtures]
+dir = "fixtures"
+
+[defaults]
+chunk_size_tokens = 256
+chunk_overlap_tokens = 50
+
+# --- Configurations ---
+# "balanced" appears in both local and remote runs for direct comparison.
+
+[[configurations]]
+name = "fast"
+embedding_model = "nomic-embed-text"
+asr_model = "tiny"
+image_description = false
+code_enrichment = false
+formula_enrichment = false
+table_structure = false
+
+[[configurations]]
+name = "balanced"
+embedding_model = "bge-m3"
+asr_model = "small"
+image_description = true
+code_enrichment = false
+formula_enrichment = false
+table_structure = true
+
+[[configurations]]
+name = "quality"
+embedding_model = "bge-m3"
+asr_model = "medium"
+image_description = true
+code_enrichment = true
+formula_enrichment = true
+table_structure = true
