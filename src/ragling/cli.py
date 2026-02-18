@@ -672,6 +672,10 @@ def status(ctx: click.Context) -> None:
             "ts"
         ]
 
+        from ragling.leader import is_leader_running, lock_path_for_config
+
+        leader_active = is_leader_running(lock_path_for_config(config))
+
         table = Table(title="ragling status", show_header=False, box=None, padding=(0, 2))
         table.add_column("Key", style="bold")
         table.add_column("Value")
@@ -684,6 +688,7 @@ def status(ctx: click.Context) -> None:
         table.add_row(
             "Embedding model", f"{config.embedding_model} ({config.embedding_dimensions}d)"
         )
+        table.add_row("Leader", "active" if leader_active else "none")
         console.print(table)
     finally:
         conn.close()
@@ -821,6 +826,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         indexing_status=indexing_status,
         config_getter=config_watcher.get_config,
         queue_getter=_queue_getter,
+        role_getter=lambda: "leader" if lock.is_leader else "follower",
     )
 
     if sse:

@@ -208,3 +208,40 @@ class TestLeaderLockRetry:
         assert not retry_thread.is_alive()
 
         leader.close()
+
+
+class TestIsLeaderRunning:
+    """Tests for the is_leader_running() probe function."""
+
+    def test_returns_false_when_no_lock_held(self, tmp_path: Path) -> None:
+        from ragling.leader import is_leader_running
+
+        lock_path = tmp_path / "test.lock"
+        assert is_leader_running(lock_path) is False
+
+    def test_returns_true_when_lock_held(self, tmp_path: Path) -> None:
+        from ragling.leader import LeaderLock, is_leader_running
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        assert leader.try_acquire() is True
+
+        assert is_leader_running(lock_path) is True
+
+        leader.close()
+
+    def test_returns_false_after_leader_releases(self, tmp_path: Path) -> None:
+        from ragling.leader import LeaderLock, is_leader_running
+
+        lock_path = tmp_path / "test.lock"
+        leader = LeaderLock(lock_path)
+        leader.try_acquire()
+        leader.close()
+
+        assert is_leader_running(lock_path) is False
+
+    def test_returns_false_when_lock_file_missing(self, tmp_path: Path) -> None:
+        from ragling.leader import is_leader_running
+
+        lock_path = tmp_path / "nonexistent" / "test.lock"
+        assert is_leader_running(lock_path) is False

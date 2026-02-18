@@ -40,6 +40,39 @@ def lock_path_for_config(config: Config) -> Path:
     return db_path.parent / (db_path.name + ".lock")
 
 
+def is_leader_running(lock_path: Path) -> bool:
+    """Probe whether a leader process holds the lock file.
+
+    Attempts a non-blocking flock. If it succeeds, no leader is running
+    (releases immediately). If BlockingIOError, a leader holds the lock.
+
+    Args:
+        lock_path: Path to the lock file.
+
+    Returns:
+        True if a leader process currently holds the lock.
+    """
+    if not lock_path.exists():
+        return False
+    fd = None
+    try:
+        fd = os.open(str(lock_path), os.O_RDONLY)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Lock acquired — no leader running. Release immediately.
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
 class LeaderLock:
     """Exclusive per-group lock using fcntl.flock().
 

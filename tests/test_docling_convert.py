@@ -319,6 +319,156 @@ class TestChunkWithHybrid:
         assert chunks[0].metadata["links"] == ["Other Note"]
 
 
+class TestDescribeImage:
+    """Tests for the describe_image() standalone image description helper."""
+
+    def test_returns_description_string(self, tmp_path: Path) -> None:
+        from ragling.docling_convert import describe_image
+
+        # Create a minimal image file
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100), color="red")
+        img_path = tmp_path / "test.png"
+        img.save(img_path)
+
+        mock_engine = MagicMock()
+        mock_output = MagicMock()
+        mock_output.text = "A red square image"
+        mock_engine.predict.return_value = mock_output
+
+        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine):
+            result = describe_image(img_path)
+
+        assert result == "A red square image"
+
+    def test_returns_empty_string_on_error(self, tmp_path: Path) -> None:
+        from ragling.docling_convert import describe_image
+
+        from PIL import Image
+
+        img = Image.new("RGB", (10, 10))
+        img_path = tmp_path / "bad.png"
+        img.save(img_path)
+
+        mock_engine = MagicMock()
+        mock_engine.predict.side_effect = RuntimeError("model failed")
+
+        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine):
+            result = describe_image(img_path)
+
+        assert result == ""
+
+    def test_returns_empty_string_for_missing_file(self, tmp_path: Path) -> None:
+        from ragling.docling_convert import describe_image
+
+        result = describe_image(tmp_path / "nonexistent.png")
+        assert result == ""
+
+
+class TestConvertAndChunkImageFallback:
+    """Tests for image fallback in convert_and_chunk."""
+
+    def test_image_fallback_produces_chunks(self, store: DocStore, tmp_path: Path) -> None:
+        """When Docling returns empty for an image, describe_image() fallback kicks in."""
+        from ragling.docling_convert import convert_and_chunk
+
+        # Create a real image file
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100), color="blue")
+        img_path = tmp_path / "photo.jpg"
+        img.save(img_path)
+
+        # Mock Docling returning an empty document
+        empty_doc = MagicMock()
+        empty_doc.export_to_text.return_value = ""
+
+        # Mock HybridChunker returning no chunks for empty doc, then chunks for described doc
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = []
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.side_effect = [[], [mock_chunk]]  # empty first, then with content
+        mock_chunker.contextualize.return_value = "Five kittens walking on grass"
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert.describe_image",
+                return_value="Five kittens walking on grass",
+            ),
+        ):
+            mock_doc_cls.model_validate.return_value = empty_doc
+            chunks = convert_and_chunk(img_path, store, source_type="image")
+
+        assert len(chunks) == 1
+        assert "kittens" in chunks[0].text
+
+    def test_image_fallback_not_triggered_for_non_images(
+        self, store: DocStore, tmp_path: Path
+    ) -> None:
+        """Non-image source types should not trigger the fallback."""
+        from ragling.docling_convert import convert_and_chunk
+
+        pdf_path = tmp_path / "doc.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 fake")
+
+        # Docling returns empty, but since it's a PDF, no fallback
+        empty_doc = MagicMock()
+        empty_doc.export_to_text.return_value = ""
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = []
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.docling_convert.describe_image") as mock_describe,
+        ):
+            mock_doc_cls.model_validate.return_value = empty_doc
+            chunks = convert_and_chunk(pdf_path, store)
+
+        mock_describe.assert_not_called()
+        assert len(chunks) == 0
+
+    def test_image_fallback_not_triggered_when_docling_has_content(
+        self, store: DocStore, tmp_path: Path
+    ) -> None:
+        """When Docling successfully extracts text from an image, no fallback needed."""
+        from ragling.docling_convert import convert_and_chunk
+
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100))
+        img_path = tmp_path / "scanned.png"
+        img.save(img_path)
+
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = ["OCR Text"]
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "OCR extracted text"
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.docling_convert.describe_image") as mock_describe,
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(img_path, store, source_type="image")
+
+        mock_describe.assert_not_called()
+        assert len(chunks) == 1
+
+
 class TestConfigHashPassthrough:
     """Tests that convert_and_chunk passes config_hash to doc_store."""
 

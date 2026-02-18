@@ -153,6 +153,24 @@ class TestBuildListResponse:
         response = _build_list_response(collections)
         assert response["result"] == collections
 
+    def test_includes_role_when_getter_provided(self) -> None:
+        from ragling.mcp_server import _build_list_response
+
+        response = _build_list_response([], role_getter=lambda: "leader")
+        assert response["role"] == "leader"
+
+    def test_includes_follower_role(self) -> None:
+        from ragling.mcp_server import _build_list_response
+
+        response = _build_list_response([], role_getter=lambda: "follower")
+        assert response["role"] == "follower"
+
+    def test_omits_role_when_no_getter(self) -> None:
+        from ragling.mcp_server import _build_list_response
+
+        response = _build_list_response([])
+        assert "role" not in response
+
 
 class TestBuildSearchResponse:
     def test_includes_indexing_when_active(self) -> None:
@@ -279,6 +297,15 @@ class TestCreateServerSignature:
         config = Config()
         status = IndexingStatus()
         server = create_server(group_name="test", config=config, indexing_status=status)
+        assert server is not None
+
+    def test_create_server_accepts_role_getter(self) -> None:
+        from ragling.mcp_server import create_server
+
+        server = create_server(
+            group_name="test",
+            role_getter=lambda: "leader",
+        )
         assert server is not None
 
     def test_create_server_backwards_compatible(self) -> None:

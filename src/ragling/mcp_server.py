@@ -152,17 +152,22 @@ def _build_search_response(
 def _build_list_response(
     collections: list[dict[str, Any]],
     indexing_status: IndexingStatus | None = None,
+    role_getter: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
-    """Build list-collections response with optional indexing status.
+    """Build list-collections response with optional indexing status and role.
 
     Args:
         collections: List of collection dicts.
         indexing_status: Optional indexing status tracker.
+        role_getter: Optional callable returning ``"leader"`` or ``"follower"``.
 
     Returns:
-        Response dict with 'result' key, plus 'indexing' when active.
+        Response dict with 'result' key, plus 'indexing' when active
+        and 'role' when getter is provided.
     """
     response: dict[str, Any] = {"result": collections}
+    if role_getter is not None:
+        response["role"] = role_getter()
     if indexing_status:
         status = indexing_status.to_dict()
         if status:
@@ -250,6 +255,7 @@ def create_server(
     indexing_queue: IndexingQueue | None = None,
     config_getter: Callable[[], Config] | None = None,
     queue_getter: Callable[[], IndexingQueue | None] | None = None,
+    role_getter: Callable[[], str] | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all tools registered.
 
@@ -267,6 +273,8 @@ def create_server(
             Called on each rag_index invocation for dynamic resolution
             (e.g. follower->leader promotion). Takes precedence over
             the static indexing_queue parameter when provided.
+        role_getter: Optional callable returning ``"leader"`` or ``"follower"``.
+            Included in ``rag_list_collections`` response when provided.
     """
     # Capture config for use inside tool closures. When provided, tools
     # use this instead of calling load_config() each time.
@@ -512,7 +520,7 @@ def create_server(
                 }
                 for row in rows
             ]
-            return _build_list_response(collections, indexing_status)
+            return _build_list_response(collections, indexing_status, role_getter)
         finally:
             conn.close()
 

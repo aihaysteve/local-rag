@@ -188,7 +188,9 @@ class TestParseAndChunkDoclingRouting:
             mock_convert.return_value = [Chunk(text="text", title="test.pdf", chunk_index=0)]
             result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=mock_store)
 
-        mock_convert.assert_called_once_with(pdf_file, mock_store, chunk_max_tokens=256)
+        mock_convert.assert_called_once_with(
+            pdf_file, mock_store, chunk_max_tokens=256, source_type="pdf"
+        )
         assert len(result) == 1
 
     def test_docling_format_without_doc_store_returns_empty(self, tmp_path: Path) -> None:

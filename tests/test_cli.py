@@ -340,6 +340,72 @@ class TestMcpConfigOutputCaCert:
         assert data["mcpServers"]["ragling"]["ca_cert"] == str(known_ca)
 
 
+class TestStatusCommand:
+    """Tests for the status command."""
+
+    def test_status_shows_leader_row_none(self, tmp_path: Path) -> None:
+        """Status output should include a Leader row showing 'none' when no leader."""
+        from unittest.mock import patch
+
+        from ragling.config import Config
+
+        config = Config(
+            db_path=tmp_path / "rag.db",
+            group_name="default",
+            embedding_dimensions=4,
+        )
+
+        # Create a minimal database so status doesn't bail early
+        from ragling.db import get_connection, init_db
+
+        conn = get_connection(config)
+        init_db(conn, config)
+        conn.close()
+
+        runner = CliRunner()
+        with patch("ragling.cli.load_config", return_value=config):
+            result = runner.invoke(main, ["status"])
+
+        assert result.exit_code == 0
+        assert "Leader" in result.output
+        assert "none" in result.output
+
+    def test_status_shows_leader_row_active(self, tmp_path: Path) -> None:
+        """Status output should include a Leader row showing 'active' when leader holds lock."""
+        from unittest.mock import patch
+
+        from ragling.config import Config
+        from ragling.leader import LeaderLock, lock_path_for_config
+
+        config = Config(
+            db_path=tmp_path / "rag.db",
+            group_name="default",
+            embedding_dimensions=4,
+        )
+
+        # Create a minimal database
+        from ragling.db import get_connection, init_db
+
+        conn = get_connection(config)
+        init_db(conn, config)
+        conn.close()
+
+        # Hold the lock
+        lock = LeaderLock(lock_path_for_config(config))
+        lock.try_acquire()
+
+        runner = CliRunner()
+        try:
+            with patch("ragling.cli.load_config", return_value=config):
+                result = runner.invoke(main, ["status"])
+        finally:
+            lock.close()
+
+        assert result.exit_code == 0
+        assert "Leader" in result.output
+        assert "active" in result.output
+
+
 class TestWatcherStartupCondition:
     """Tests for watcher starting with obsidian-only configs."""
 

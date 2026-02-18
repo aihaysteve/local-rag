@@ -160,6 +160,65 @@ def _is_code_item(item: object) -> bool:
     return isinstance(item, CodeItem)
 
 
+@lru_cache
+def _get_vlm_engine() -> Any:
+    """Get or create a cached VLM engine for standalone image description.
+
+    Uses SmolVLM (same model as PDF picture descriptions) via Docling's
+    engine factory. Lazy-loaded on first call, cached for process lifetime.
+
+    Returns:
+        A VLM engine instance with ``predict()`` method.
+    """
+    from docling.datamodel.accelerator_options import AcceleratorOptions
+    from docling.models.inference_engines.vlm import create_vlm_engine
+
+    options = PictureDescriptionVlmEngineOptions.from_preset("smolvlm")
+    return create_vlm_engine(
+        options=options.engine_options,
+        model_spec=options.model_spec,
+        artifacts_path=None,
+        accelerator_options=AcceleratorOptions(),
+        enable_remote_services=False,
+    )
+
+
+def describe_image(path: Path) -> str:
+    """Generate a text description of a standalone image using SmolVLM.
+
+    Workaround for Docling's limitation where standalone images don't
+    receive VLM enrichment (only images embedded in PDFs do).
+
+    Args:
+        path: Path to an image file (PNG, JPG, TIFF, BMP, WEBP).
+
+    Returns:
+        A text description of the image, or empty string on failure.
+    """
+    if not path.exists():
+        logger.warning("Image file not found: %s", path)
+        return ""
+
+    try:
+        from PIL import Image
+
+        from docling.models.inference_engines.vlm import VlmEngineInput
+
+        engine = _get_vlm_engine()
+        image = Image.open(path)
+        result = engine.predict(
+            VlmEngineInput(
+                image=image,
+                prompt="Describe this image in a few sentences.",
+                max_new_tokens=200,
+            )
+        )
+        return result.text
+    except Exception:
+        logger.exception("Failed to describe image: %s", path)
+        return ""
+
+
 def chunk_with_hybrid(
     doc: DoclingDocument,
     *,
@@ -237,14 +296,21 @@ def convert_and_chunk(
     doc_store: DocStore,
     chunk_max_tokens: int = 256,
     embedding_model_id: str = "BAAI/bge-m3",
+    source_type: str | None = None,
 ) -> list[Chunk]:
     """Convert a document via Docling (cached in doc_store), chunk with HybridChunker.
+
+    For standalone image files, if Docling returns empty content (a known
+    limitation), falls back to generating a VLM description with SmolVLM.
 
     Args:
         path: Path to the source document.
         doc_store: Shared document store for caching conversions.
         chunk_max_tokens: Maximum tokens per chunk.
         embedding_model_id: HuggingFace model ID for tokenizer alignment.
+        source_type: Optional source type hint (e.g. ``"image"``). When set
+            to ``"image"`` and Docling produces no chunks, the VLM fallback
+            is triggered.
 
     Returns:
         List of Chunk dataclass instances ready for embedding.
@@ -258,10 +324,30 @@ def convert_and_chunk(
     doc_data = doc_store.get_or_convert(path, _convert_with_docling, config_hash=config_hash)
     doc = DoclingDocument.model_validate(doc_data)
 
-    return chunk_with_hybrid(
+    chunks = chunk_with_hybrid(
         doc,
         title=path.name,
         source_path=str(path),
         chunk_max_tokens=chunk_max_tokens,
         embedding_model_id=embedding_model_id,
     )
+
+    # Standalone image fallback: Docling's image pipeline doesn't run VLM
+    # enrichment, so photos/diagrams produce zero chunks. Use SmolVLM directly.
+    if not chunks and source_type == "image":
+        description = describe_image(path)
+        if description:
+            logger.info("Image fallback: generated VLM description for %s", path)
+            from ragling.docling_bridge import plaintext_to_docling_doc
+
+            desc_doc = plaintext_to_docling_doc(description, path.name)
+            chunks = chunk_with_hybrid(
+                desc_doc,
+                title=path.name,
+                source_path=str(path),
+                extra_metadata={"image_description": True},
+                chunk_max_tokens=chunk_max_tokens,
+                embedding_model_id=embedding_model_id,
+            )
+
+    return chunks
