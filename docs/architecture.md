@@ -236,7 +236,7 @@ All formats are chunked through docling-core's `HybridChunker`, providing a unif
 
 | Source | Collection | Data Source | What's Indexed |
 |--------|-----------|-------------|----------------|
-| **Git Repos** | group name | Git-tracked files | Code files parsed with tree-sitter (11 languages) + commit history (messages and per-file diffs). Respects .gitignore. Code parsing is independent of the Docling pipeline. |
+| **Git Repos** | group name | Git-tracked files | Code files parsed with tree-sitter (17 languages) + commit history (messages and per-file diffs). Respects .gitignore. Code parsing is independent of the Docling pipeline. |
 | **Project Docs** | user-specified name | Any folder | Files routed to Docling converter or bridge function by extension, then chunked by HybridChunker. |
 
 ## Technology Stack
@@ -247,7 +247,7 @@ All formats are chunked through docling-core's `HybridChunker`, providing a unif
 | Database | SQLite + sqlite-vec + FTS5 | Per-group indexes + shared doc store |
 | Embeddings | Ollama + bge-m3 (1024d) | Fully local |
 | Document conversion | Docling | PDF, DOCX, PPTX, XLSX, HTML, images, LaTeX, CSV |
-| Code parsing | tree-sitter | 11 languages |
+| Code parsing | tree-sitter | 17 languages |
 | Chunking | HybridChunker (docling-core) | Token-aware, structure-preserving |
 | CLI | click | |
 | MCP server | FastMCP (mcp Python SDK) | stdio + SSE transport |

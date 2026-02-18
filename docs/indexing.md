@@ -38,7 +38,7 @@ uv run ragling index rss
 
 ## Code Groups
 
-Indexes git repositories grouped by org or topic. Uses tree-sitter for structural parsing of 11 languages. Optionally includes commit history.
+Indexes git repositories grouped by org or topic. Uses tree-sitter for structural parsing of 17 languages. Optionally includes commit history.
 
 ```bash
 uv run ragling index group my-org              # one group
