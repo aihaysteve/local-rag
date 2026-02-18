@@ -231,3 +231,98 @@ class TestIsCollectionActive:
         status.increment("obsidian")
         status.decrement("obsidian")
         assert status.is_collection_active("obsidian") is False
+
+
+class TestByteTracking:
+    """Tests for byte-level tracking in IndexingStatus."""
+
+    def test_set_file_total_stores_total_bytes(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 50, total_bytes=1_000_000)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["collections"]["obsidian"]["total_bytes"] == 1_000_000
+        assert result["collections"]["obsidian"]["remaining_bytes"] == 1_000_000
+
+    def test_set_file_total_defaults_bytes_to_zero(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("email", 30)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["collections"]["email"]["total_bytes"] == 0
+        assert result["collections"]["email"]["remaining_bytes"] == 0
+
+    def test_file_processed_decrements_remaining_bytes(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 10, total_bytes=500_000)
+        status.file_processed("obsidian", 3, file_bytes=150_000)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["collections"]["obsidian"]["remaining_bytes"] == 350_000
+
+    def test_to_dict_includes_total_remaining_bytes(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 50, total_bytes=1_000_000)
+        status.file_processed("obsidian", 10, file_bytes=200_000)
+        status.set_file_total("calibre", 20, total_bytes=500_000)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["total_remaining_bytes"] == 1_300_000  # 800k + 500k
+
+    def test_to_dict_total_remaining_bytes_excludes_job_level(self) -> None:
+        """Job-level collections don't contribute to total_remaining_bytes."""
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("email", 2)  # job-level, no bytes
+        status.set_file_total("obsidian", 50, total_bytes=1_000_000)
+
+        result = status.to_dict()
+        assert result is not None
+        assert result["total_remaining_bytes"] == 1_000_000
+
+    def test_decrement_clears_file_level_data(self) -> None:
+        """When decrement clears a collection, file-level data is also cleared."""
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        status.set_file_total("obsidian", 50, total_bytes=1_000_000)
+        status.file_processed("obsidian", 10, file_bytes=200_000)
+        status.decrement("obsidian")
+
+        # File-level data should be cleared
+        assert status.is_collection_active("obsidian") is False
+        result = status.to_dict()
+        assert result is None
+
+    def test_mixed_byte_and_no_byte_collections(self) -> None:
+        """Collections with and without bytes work together correctly."""
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.set_file_total("obsidian", 100, total_bytes=5_000_000)
+        status.file_processed("obsidian", 40, file_bytes=2_000_000)
+        status.set_file_total("email", 50)  # no bytes
+        status.file_processed("email", 20)
+        status.increment("rss", 3)  # job-level
+
+        result = status.to_dict()
+        assert result is not None
+        # obsidian: 60 remaining, email: 30 remaining, rss: 3 remaining
+        assert result["total_remaining"] == 93
+        assert result["total_remaining_bytes"] == 3_000_000
+        assert result["collections"]["obsidian"]["remaining_bytes"] == 3_000_000
+        assert result["collections"]["email"]["remaining_bytes"] == 0
