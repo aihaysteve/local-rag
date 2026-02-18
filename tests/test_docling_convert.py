@@ -641,9 +641,7 @@ class TestConfigHashPassthrough:
 
 
 class TestAudioMetadataIntegration:
-    def test_audio_chunks_include_container_metadata(
-        self, store: DocStore, tmp_path: Path
-    ) -> None:
+    def test_audio_chunks_include_container_metadata(self, store: DocStore, tmp_path: Path) -> None:
         """When source_type is 'audio', chunks should include container metadata."""
         from ragling.docling_convert import convert_and_chunk
 
@@ -739,9 +737,7 @@ class TestAudioGracefulDegradation:
         init_db(conn, config)
 
         store = DocStore(tmp_path / "doc_store.sqlite")
-        indexer = ProjectIndexer(
-            collection_name="test", paths=[tmp_path], doc_store=store
-        )
+        indexer = ProjectIndexer(collection_name="test", paths=[tmp_path], doc_store=store)
 
         with patch(
             "ragling.indexers.project.convert_and_chunk",

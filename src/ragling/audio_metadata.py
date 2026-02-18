@@ -117,19 +117,19 @@ def _extract_chapters(audio: Any, metadata: dict[str, Any]) -> None:
     # Mutagen exposes chapters on some formats via a chapters attribute.
     if hasattr(audio, "chapters") and audio.chapters:
         for ch in audio.chapters:
-            chapters.append({
-                "title": getattr(ch, "title", ""),
-                "start": getattr(ch, "start", 0.0) / 1000.0,  # ms to seconds
-                "end": getattr(ch, "end", 0.0) / 1000.0,
-            })
+            chapters.append(
+                {
+                    "title": getattr(ch, "title", ""),
+                    "start": getattr(ch, "start", 0.0) / 1000.0,  # ms to seconds
+                    "end": getattr(ch, "end", 0.0) / 1000.0,
+                }
+            )
 
     if chapters:
         metadata["chapters"] = chapters
 
 
-def find_chapter_for_timestamp(
-    chapters: list[dict[str, Any]], timestamp: float
-) -> str | None:
+def find_chapter_for_timestamp(chapters: list[dict[str, Any]], timestamp: float) -> str | None:
     """Find the chapter title for a given timestamp.
 
     Args:

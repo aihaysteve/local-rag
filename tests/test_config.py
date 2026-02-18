@@ -22,9 +22,7 @@ class TestAsrConfigDefaults:
 class TestAsrConfigFromJson:
     def test_loads_asr_from_json(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"asr": {"model": "turbo", "language": "en"}})
-        )
+        config_file.write_text(json.dumps({"asr": {"model": "turbo", "language": "en"}}))
         config = load_config(config_file)
         assert config.asr.model == "turbo"
         assert config.asr.language == "en"
