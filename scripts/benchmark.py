@@ -24,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from benchmark.fixtures import discover_fixtures, generate_git_fixtures
 from benchmark.matrix import parse_matrix
 from benchmark.models import measure_model_load_times
-from benchmark.output import render_markdown, write_csv
-from benchmark.runner import run_benchmarks
+from benchmark.output import format_result_line, render_markdown, render_terminal_summary, write_csv
+from benchmark.runner import BenchmarkResult, run_benchmarks
 
 
 def main() -> None:
@@ -112,15 +112,23 @@ def main() -> None:
 
     # Phase 2: Benchmarks
     logger.info("=== Phase 2: Benchmarks ===")
-    results = run_benchmarks(matrix, fixtures, args.tag, ollama_host=args.ollama_host)
 
-    # Write output
     csv_path = args.output / "benchmarks.csv"
     md_path = args.output / "benchmarks.md"
 
+    def on_result(result: BenchmarkResult) -> None:
+        write_csv([result], csv_path)
+        print(format_result_line(result))
+
+    results = run_benchmarks(
+        matrix, fixtures, args.tag, ollama_host=args.ollama_host, on_result=on_result
+    )
+
+    # Write final output
     logger.info("Writing results to %s", args.output)
     write_csv(results, csv_path)
     render_markdown(csv_path, md_path, model_results=model_results)
+    render_terminal_summary(results, model_results=model_results)
 
     logger.info("Done! Results written to:")
     logger.info("  CSV: %s", csv_path)
