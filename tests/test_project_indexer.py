@@ -453,6 +453,80 @@ class TestProjectIndexerDiscovery:
         assert result.indexed >= 1
         conn.close()
 
+    def test_repo_in_code_groups_skipped_by_discovery(self, tmp_path: Path) -> None:
+        """Repos already in code_groups should NOT be re-indexed by project discovery.
+
+        When a global_path contains a git repo that is also configured in
+        code_groups, the project indexer should skip it to avoid duplicate
+        indexing.
+        """
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        repo = project_dir / "my-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "main.py").write_text("print('hello')")
+
+        # Config where the repo is ALSO in code_groups
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+            code_groups={"my-group": [repo]},
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        indexer = ProjectIndexer("global", [project_dir])
+
+        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
+        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
+            MockGit.return_value.index.return_value = mock_result
+            indexer.index(conn, config)
+
+        # GitRepoIndexer should NOT have been called — repo is in code_groups
+        MockGit.assert_not_called()
+        conn.close()
+
+    def test_repo_not_in_code_groups_still_indexed(self, tmp_path: Path) -> None:
+        """Repos NOT in code_groups should still be indexed by project discovery."""
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.base import IndexResult
+        from ragling.indexers.project import ProjectIndexer
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        repo = project_dir / "my-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "main.py").write_text("print('hello')")
+
+        # Config with NO code_groups
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        indexer = ProjectIndexer("global", [project_dir])
+
+        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
+        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
+            MockGit.return_value.index.return_value = mock_result
+            indexer.index(conn, config)
+
+        # GitRepoIndexer SHOULD have been called
+        MockGit.assert_called_once()
+        conn.close()
+
     def test_no_markers_uses_flat_indexing(self, tmp_path: Path) -> None:
         """When no markers are found, falls back to existing flat behavior."""
         conn, config = self._setup_db(tmp_path)

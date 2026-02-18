@@ -289,6 +289,16 @@ class ProjectIndexer(BaseIndexer):
             # Reconcile stale sub-collections for this path
             reconcile_sub_collections(conn, self.collection_name, discovery)
 
+        # Filter out repos already covered by explicit code_groups to avoid
+        # duplicate indexing (the code group job will index them separately).
+        code_group_paths = {p.resolve() for paths in config.code_groups.values() for p in paths}
+        if code_group_paths:
+            before = len(all_repos)
+            all_repos = [r for r in all_repos if r.path.resolve() not in code_group_paths]
+            skipped_repos = before - len(all_repos)
+            if skipped_repos:
+                logger.info("Skipped %d repo(s) already in code_groups", skipped_repos)
+
         # If no markers found anywhere, fall back to flat indexing
         if not all_vaults and not all_repos:
             return self._index_flat(conn, config, force, status=status)
