@@ -36,13 +36,15 @@ def _client(config: Config) -> ollama.Client:
     return ollama.Client(**kwargs)
 
 
-def _raise_if_connection_error(e: Exception) -> None:
+def _raise_if_connection_error(e: Exception, *, config: Config) -> None:
     """Re-raise as OllamaConnectionError if the error looks like a connection issue."""
     msg = str(e).lower()
     if "connect" in msg or "refused" in msg:
-        raise OllamaConnectionError(
-            "Cannot connect to Ollama. Is it running? Start with: ollama serve"
-        ) from e
+        if config.ollama_host:
+            detail = f"Cannot reach Ollama at {config.ollama_host}"
+        else:
+            detail = "Cannot connect to Ollama. Is it running? Start with: ollama serve"
+        raise OllamaConnectionError(detail) from e
 
 
 def get_embedding(text: str, config: Config) -> list[float]:
@@ -62,7 +64,7 @@ def get_embedding(text: str, config: Config) -> list[float]:
         response = _client(config).embed(model=config.embedding_model, input=text)
         return response["embeddings"][0]
     except Exception as e:
-        _raise_if_connection_error(e)
+        _raise_if_connection_error(e, config=config)
         raise
 
 
@@ -101,7 +103,7 @@ def get_embeddings(texts: list[str], config: Config) -> list[list[float]]:
             response = client.embed(model=config.embedding_model, input=batch)
             all_embeddings.extend(response["embeddings"])
         except Exception as e:
-            _raise_if_connection_error(e)
+            _raise_if_connection_error(e, config=config)
             raise
 
     return all_embeddings

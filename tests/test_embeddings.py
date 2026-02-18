@@ -2,8 +2,10 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ragling.config import Config
-from ragling.embeddings import _client
+from ragling.embeddings import OllamaConnectionError, _client, _raise_if_connection_error
 
 
 class TestClientHostConfig:
@@ -29,3 +31,19 @@ class TestClientHostConfig:
         _client(config)
         call_kwargs = mock_client_cls.call_args[1]
         assert "timeout" in call_kwargs
+
+
+class TestHostAwareErrorMessages:
+    """Error messages should include the configured host."""
+
+    def test_default_message_suggests_ollama_serve(self) -> None:
+        with pytest.raises(OllamaConnectionError, match="ollama serve"):
+            _raise_if_connection_error(ConnectionError("connection refused"), config=Config())
+
+    def test_remote_host_message_shows_url(self) -> None:
+        config = Config(ollama_host="http://gpu-box:11434")
+        with pytest.raises(OllamaConnectionError, match="gpu-box:11434"):
+            _raise_if_connection_error(ConnectionError("connection refused"), config=config)
+
+    def test_non_connection_error_is_ignored(self) -> None:
+        _raise_if_connection_error(ValueError("something else"), config=Config())
