@@ -424,3 +424,294 @@ class TestWatcherStartupCondition:
 
         paths = get_watch_paths(config)
         assert len(paths) > 0
+
+
+class TestBackgroundFlag:
+    """Tests for the --background flag on index subcommands."""
+
+    def test_index_obsidian_background_flag(self, tmp_path: Path) -> None:
+        """--background flag is accepted by index obsidian command."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("obsidian_vaults: []\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "obsidian", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["obsidian"]
+        assert mock_bg.call_args[0][2] is False  # force=False
+
+    def test_index_obsidian_background_with_force(self, tmp_path: Path) -> None:
+        """--background with --force passes force=True to _run_in_background."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("obsidian_vaults: []\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "obsidian", "--background", "--force"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][2] is True  # force=True
+
+    def test_index_email_background_flag(self, tmp_path: Path) -> None:
+        """--background flag is accepted by index email command."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "email", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["email"]
+
+    def test_index_calibre_background_flag(self, tmp_path: Path) -> None:
+        """--background flag is accepted by index calibre command."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "calibre", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["calibre"]
+
+    def test_index_rss_background_flag(self, tmp_path: Path) -> None:
+        """--background flag is accepted by index rss command."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "rss", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["rss"]
+
+    def test_index_all_background_flag(self, tmp_path: Path) -> None:
+        """--background flag is accepted by index all command."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "all", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["all"]
+
+    def test_index_group_background_flag(self, tmp_path: Path) -> None:
+        """--background flag is accepted by index group command with a name."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "group", "mygroup", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["group", "mygroup"]
+
+    def test_index_group_background_no_name(self, tmp_path: Path) -> None:
+        """--background flag with no group name passes ['group'] as subcommand."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "index", "group", "--background"],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["group"]
+
+    def test_index_group_background_with_history(self, tmp_path: Path) -> None:
+        """--background with --history forwards the --history flag via extra_args."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "index",
+                    "group",
+                    "mygroup",
+                    "--background",
+                    "--history",
+                ],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["group", "mygroup"]
+        assert mock_bg.call_args[1].get("extra_args") == ["--history"] or mock_bg.call_args[0][
+            3
+        ] == ["--history"]
+
+    def test_index_project_background_forwards_paths(self, tmp_path: Path) -> None:
+        """--background on index project forwards paths as extra_args."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("{}\n")
+
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+
+        with patch("ragling.cli._run_in_background") as mock_bg:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "index",
+                    "project",
+                    "myproj",
+                    str(doc_dir),
+                    "--background",
+                ],
+            )
+
+        assert result.exit_code == 0
+        mock_bg.assert_called_once()
+        assert mock_bg.call_args[0][1] == ["project", "myproj"]
+        # extra_args should contain the path
+        extra = mock_bg.call_args[1].get("extra_args") or mock_bg.call_args[0][3]
+        assert str(doc_dir) in extra
+
+    def test_run_in_background_spawns_subprocess(self, tmp_path: Path) -> None:
+        """_run_in_background should spawn a detached subprocess."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _run_in_background
+
+        ctx = MagicMock()
+        ctx.obj = {"config_path": None}
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_in_background(ctx, ["obsidian"], force=False)
+
+        mock_popen.assert_called_once()
+        call_kwargs = mock_popen.call_args[1]
+        assert call_kwargs["start_new_session"] is True
+
+    def test_run_in_background_includes_force(self, tmp_path: Path) -> None:
+        """_run_in_background should include --force when force=True."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _run_in_background
+
+        ctx = MagicMock()
+        ctx.obj = {"config_path": None}
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_in_background(ctx, ["obsidian"], force=True)
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--force" in cmd
+
+    def test_run_in_background_with_config_path(self, tmp_path: Path) -> None:
+        """_run_in_background should include --config when config_path is set."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _run_in_background
+
+        ctx = MagicMock()
+        ctx.obj = {"config_path": "/path/to/config.yaml"}
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_in_background(ctx, ["obsidian"], force=False)
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--config" in cmd
+        assert "/path/to/config.yaml" in cmd
+
+    def test_run_in_background_includes_extra_args(self) -> None:
+        """_run_in_background should append extra_args to the command."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _run_in_background
+
+        ctx = MagicMock()
+        ctx.obj = {"config_path": None}
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_in_background(ctx, ["group", "mygroup"], force=False, extra_args=["--history"])
+
+        cmd = mock_popen.call_args[0][0]
+        assert "group" in cmd
+        assert "mygroup" in cmd
+        assert "--history" in cmd
+
+    def test_run_in_background_config_before_index(self) -> None:
+        """--config should appear before 'index' in the command."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _run_in_background
+
+        ctx = MagicMock()
+        ctx.obj = {"config_path": "/my/config.yaml"}
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_in_background(ctx, ["obsidian"], force=True)
+
+        cmd = mock_popen.call_args[0][0]
+        config_idx = cmd.index("--config")
+        index_idx = cmd.index("index")
+        assert config_idx < index_idx

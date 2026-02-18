@@ -115,6 +115,35 @@ def _check_collection_enabled(config, name: str) -> None:
         sys.exit(1)
 
 
+def _run_in_background(
+    ctx: click.Context,
+    subcommand: list[str],
+    force: bool,
+    extra_args: list[str] | None = None,
+) -> None:
+    """Spawn indexing as a detached background process."""
+    import subprocess
+
+    config_path = ctx.obj.get("config_path")
+    cmd = [sys.executable, "-m", "ragling"]
+    if config_path:
+        cmd += ["--config", str(config_path)]
+    cmd += ["index"] + subcommand
+    if force:
+        cmd.append("--force")
+    if extra_args:
+        cmd.extend(extra_args)
+
+    subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    collection_name = " ".join(subcommand)
+    console.print(f"[green]Indexing '{collection_name}' started in background.[/green]")
+
+
 @index.command("obsidian")
 @click.option(
     "--vault",
@@ -125,9 +154,15 @@ def _check_collection_enabled(config, name: str) -> None:
     help="Vault path(s). If omitted, uses config.",
 )
 @click.option("--force", is_flag=True, help="Force re-index all files.")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) -> None:
+def index_obsidian(
+    ctx: click.Context, vaults: tuple[Path, ...], force: bool, background: bool
+) -> None:
     """Index Obsidian vault(s)."""
+    if background:
+        _run_in_background(ctx, ["obsidian"], force)
+        return
     from ragling.doc_store import DocStore
     from ragling.indexers.obsidian import ObsidianIndexer
 
@@ -156,9 +191,13 @@ def index_obsidian(ctx: click.Context, vaults: tuple[Path, ...], force: bool) ->
 
 @index.command("email")
 @click.option("--force", is_flag=True, help="Force re-index all emails.")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_email(ctx: click.Context, force: bool) -> None:
+def index_email(ctx: click.Context, force: bool, background: bool) -> None:
     """Index eM Client emails."""
+    if background:
+        _run_in_background(ctx, ["email"], force)
+        return
     from ragling.indexers.email_indexer import EmailIndexer
 
     config = load_config(ctx.obj.get("config_path"))
@@ -183,9 +222,15 @@ def index_email(ctx: click.Context, force: bool) -> None:
     help="Library path(s). If omitted, uses config.",
 )
 @click.option("--force", is_flag=True, help="Force re-index all books.")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) -> None:
+def index_calibre(
+    ctx: click.Context, libraries: tuple[Path, ...], force: bool, background: bool
+) -> None:
     """Index Calibre ebook library/libraries."""
+    if background:
+        _run_in_background(ctx, ["calibre"], force)
+        return
     from ragling.doc_store import DocStore
     from ragling.indexers.calibre_indexer import CalibreIndexer
 
@@ -214,9 +259,13 @@ def index_calibre(ctx: click.Context, libraries: tuple[Path, ...], force: bool) 
 
 @index.command("rss")
 @click.option("--force", is_flag=True, help="Force re-index all articles.")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_rss(ctx: click.Context, force: bool) -> None:
+def index_rss(ctx: click.Context, force: bool, background: bool) -> None:
     """Index NetNewsWire RSS articles."""
+    if background:
+        _run_in_background(ctx, ["rss"], force)
+        return
     from ragling.indexers.rss_indexer import RSSIndexer
 
     config = load_config(ctx.obj.get("config_path"))
@@ -235,9 +284,15 @@ def index_rss(ctx: click.Context, force: bool) -> None:
 @click.argument("name")
 @click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
 @click.option("--force", is_flag=True, help="Force re-index all files.")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_project(ctx: click.Context, name: str, paths: tuple[Path, ...], force: bool) -> None:
+def index_project(
+    ctx: click.Context, name: str, paths: tuple[Path, ...], force: bool, background: bool
+) -> None:
     """Index documents into a named project collection."""
+    if background:
+        _run_in_background(ctx, ["project", name], force, extra_args=[str(p) for p in paths])
+        return
     from ragling.doc_store import DocStore
     from ragling.indexers.project import ProjectIndexer
 
@@ -259,13 +314,23 @@ def index_project(ctx: click.Context, name: str, paths: tuple[Path, ...], force:
 @click.argument("name", required=False)
 @click.option("--force", is_flag=True, help="Force re-index all files.")
 @click.option("--history", is_flag=True, help="Also index commit history (last N months).")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_group(ctx: click.Context, name: str | None, force: bool, history: bool) -> None:
+def index_group(
+    ctx: click.Context, name: str | None, force: bool, history: bool, background: bool
+) -> None:
     """Index code group(s) from config.
 
     If NAME is given, indexes only that group's repos. If omitted, indexes
     all groups defined in code_groups config.
     """
+    if background:
+        subcmd = ["group", name] if name else ["group"]
+        extra: list[str] = []
+        if history:
+            extra.append("--history")
+        _run_in_background(ctx, subcmd, force, extra_args=extra or None)
+        return
     from ragling.indexers.git_indexer import GitRepoIndexer
 
     config = load_config(ctx.obj.get("config_path"))
@@ -297,14 +362,18 @@ def index_group(ctx: click.Context, name: str | None, force: bool, history: bool
 
 @index.command("all")
 @click.option("--force", is_flag=True, help="Force re-index all sources.")
+@click.option("--background", is_flag=True, help="Run indexing in a background process.")
 @click.pass_context
-def index_all(ctx: click.Context, force: bool) -> None:
+def index_all(ctx: click.Context, force: bool, background: bool) -> None:
     """Index all configured sources at once.
 
     Indexes obsidian, email, calibre, rss, and code groups based on what
     is configured in ~/.ragling/config.json. Skips any source that
     has no paths configured.
     """
+    if background:
+        _run_in_background(ctx, ["all"], force)
+        return
     from ragling.doc_store import DocStore
     from ragling.indexers.base import BaseIndexer
     from ragling.indexers.calibre_indexer import CalibreIndexer
