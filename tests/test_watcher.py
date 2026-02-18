@@ -281,6 +281,42 @@ class TestHandlerExtensionFiltering:
         queue.enqueue.assert_not_called()
 
 
+class TestHandlerHiddenDirectoryFiltering:
+    """Tests for _Handler filtering out files in hidden directories."""
+
+    def test_file_in_hidden_directory_not_enqueued(self) -> None:
+        """A .json file inside .claude/ should not be enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".json", ".py"})
+
+        event = FileModifiedEvent(
+            src_path="/home/user/.claude/var/models/e5-base-v2/tokenizer.json"
+        )
+        handler.on_modified(event)
+
+        queue.enqueue.assert_not_called()
+
+    def test_file_in_visible_directory_still_enqueued(self) -> None:
+        """Normal files in visible directories are still enqueued."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".json", ".py"})
+
+        event = FileModifiedEvent(src_path="/home/user/docs/config.json")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/home/user/docs/config.json"))
+
+    def test_git_state_files_still_enqueued(self) -> None:
+        """.git/refs/heads/main still passes through (git state branch untouched)."""
+        queue = MagicMock(spec=DebouncedIndexQueue)
+        handler = _Handler(queue, {".md", ".json", ".py"})
+
+        event = FileModifiedEvent(src_path="/repo/.git/refs/heads/main")
+        handler.on_modified(event)
+
+        queue.enqueue.assert_called_once_with(Path("/repo/.git/refs/heads/main"))
+
+
 class TestHandlerGitStateFiles:
     """Tests for _Handler passing through .git/HEAD and .git/refs/ changes."""
 

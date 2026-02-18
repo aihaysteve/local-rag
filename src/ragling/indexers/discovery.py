@@ -90,6 +90,9 @@ def _collect_leftovers(root: Path, claimed: set[Path]) -> list[Path]:
             continue
         if item.name.startswith("."):
             continue
+        rel = item.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts[:-1]):
+            continue
         if not _is_under_claimed(item, claimed):
             leftovers.append(item)
     return leftovers

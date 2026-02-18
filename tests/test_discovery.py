@@ -111,6 +111,34 @@ class TestLeftoverFiles:
         result = discover_sources(tmp_path)
         assert len(result.leftover_paths) == 2
 
+    def test_files_in_hidden_directories_are_not_leftovers(self, tmp_path: Path) -> None:
+        """Files inside hidden directories (e.g. .claude/) are excluded from leftovers."""
+        hidden = tmp_path / ".claude" / "var" / "models"
+        hidden.mkdir(parents=True)
+        (hidden / "tokenizer.json").write_text("{}")
+
+        visible = tmp_path / "docs"
+        visible.mkdir()
+        (visible / "readme.txt").write_text("hello")
+
+        result = discover_sources(tmp_path)
+        leftover_names = {p.name for p in result.leftover_paths}
+        assert "tokenizer.json" not in leftover_names
+        assert "readme.txt" in leftover_names
+
+    def test_files_in_nested_hidden_directories_excluded(self, tmp_path: Path) -> None:
+        """Hidden dir as child of visible dir (e.g. visible/.hidden/deep/secret.txt)."""
+        nested = tmp_path / "visible" / ".hidden" / "deep"
+        nested.mkdir(parents=True)
+        (nested / "secret.txt").write_text("secret")
+
+        (tmp_path / "visible" / "public.txt").write_text("public")
+
+        result = discover_sources(tmp_path)
+        leftover_names = {p.name for p in result.leftover_paths}
+        assert "secret.txt" not in leftover_names
+        assert "public.txt" in leftover_names
+
     def test_files_in_subdir_of_non_marker_are_leftovers(self, tmp_path: Path) -> None:
         """Files in plain subdirs (no marker) are leftovers."""
         repo = tmp_path / "code"

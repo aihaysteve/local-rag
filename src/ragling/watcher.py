@@ -140,9 +140,15 @@ class _Handler(FileSystemEventHandler):
             return
         path = Path(str(event.src_path))
         if path.suffix.lower() in self._extensions:
-            self._queue.enqueue(path)
+            if not _in_hidden_directory(path):
+                self._queue.enqueue(path)
         elif _is_git_state_file(path):
             self._queue.enqueue(path)
+
+
+def _in_hidden_directory(path: Path) -> bool:
+    """Check if any parent directory component starts with a dot."""
+    return any(part.startswith(".") for part in path.parts[:-1])
 
 
 def _is_git_state_file(path: Path) -> bool:

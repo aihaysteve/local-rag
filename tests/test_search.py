@@ -698,6 +698,37 @@ class TestCheckFilters:
         assert _check_filters(row, SearchFilters(author="alice")) is True
         assert _check_filters(row, SearchFilters(author="charlie")) is False
 
+    def test_collection_prefix_matches_subcollections(self):
+        from ragling.search import _check_filters
+
+        row = self._make_row(collection_name="global/obsidian-vault")
+        assert _check_filters(row, SearchFilters(collection="global")) is True
+
+    def test_collection_prefix_requires_delimiter(self):
+        from ragling.search import _check_filters
+
+        # "g" should NOT match "global" (not a prefix with delimiter)
+        row = self._make_row(collection_name="global")
+        assert _check_filters(row, SearchFilters(collection="g")) is False
+
+        # "global/obsidian-vault" should NOT match "global/obsidian" (partial segment)
+        row = self._make_row(collection_name="global/obsidian-vault")
+        assert _check_filters(row, SearchFilters(collection="global/obsidian")) is False
+
+        # Exact subcollection name should NOT match parent
+        row = self._make_row(collection_name="global")
+        assert _check_filters(row, SearchFilters(collection="global/obsidian-vault")) is False
+
+    def test_collection_type_filter_unaffected(self):
+        from ragling.search import _check_filters
+
+        # "code" is a collection type — should use type-based matching, not prefix
+        row = self._make_row(collection_type="code", collection_name="my-code-group")
+        assert _check_filters(row, SearchFilters(collection="code")) is True
+
+        row = self._make_row(collection_type="project", collection_name="my-project")
+        assert _check_filters(row, SearchFilters(collection="code")) is False
+
     def test_date_range_filter(self):
         from ragling.search import _check_filters
 

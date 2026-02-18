@@ -227,7 +227,10 @@ def _check_filters(row: sqlite3.Row | dict, filters: SearchFilters) -> bool:
         if filters.collection in _COLLECTION_TYPES:
             if row["collection_type"] != filters.collection:
                 return False
-        elif row["collection_name"] != filters.collection:
+        elif not (
+            row["collection_name"] == filters.collection
+            or row["collection_name"].startswith(filters.collection + "/")
+        ):
             return False
 
     if filters.source_type and row["source_type"] != filters.source_type:
