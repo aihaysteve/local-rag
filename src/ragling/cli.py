@@ -1,10 +1,13 @@
 """Click CLI entry point for ragling."""
 
+from __future__ import annotations
+
 import logging
 import signal
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
@@ -12,6 +15,9 @@ from rich.table import Table
 from rich.text import Text
 
 from ragling.config import DEFAULT_CONFIG_PATH, Config, load_config
+
+if TYPE_CHECKING:
+    from ragling.indexing_queue import IndexingQueue
 
 console = Console()
 
@@ -700,6 +706,7 @@ def status(ctx: click.Context) -> None:
 def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     """Start the MCP server."""
     from ragling.indexing_status import IndexingStatus
+    from ragling.leader import LeaderLock, lock_path_for_config
     from ragling.mcp_server import create_server
 
     if no_stdio and not sse:
@@ -710,53 +717,15 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     group = ctx.obj["group"]
     config = load_config(ctx.obj.get("config_path"))
 
-    # Create shared indexing status and queue
     indexing_status = IndexingStatus()
 
-    import threading
+    # Mutable container for dynamic queue resolution
+    _current_queue: list[IndexingQueue | None] = [None]
 
-    from ragling.indexing_queue import IndexingQueue
-    from ragling.sync import run_startup_sync, submit_file_change
-    from ragling.watcher import get_watch_paths, start_watcher
+    def _queue_getter() -> IndexingQueue | None:
+        return _current_queue[0]
 
-    indexing_queue = IndexingQueue(config, indexing_status)
-    indexing_queue.start()
-
-    sync_done = threading.Event()
-    run_startup_sync(config, indexing_queue, done_event=sync_done)
-
-    # Wire watcher to submit file changes through the queue
-    if get_watch_paths(config):
-
-        def _on_files_changed(files: list[Path]) -> None:
-            logger.info("File changes detected: %d files", len(files))
-            for file_path in files:
-                submit_file_change(file_path, config, indexing_queue)
-
-        def _start_watcher_after_sync() -> None:
-            sync_done.wait()
-            start_watcher(config, _on_files_changed)
-
-        threading.Thread(target=_start_watcher_after_sync, name="watcher-wait", daemon=True).start()
-
-    # Start system collection watcher after startup sync completes
-    def _start_system_watcher_after_sync() -> None:
-        sync_done.wait()
-        try:
-            from ragling.system_watcher import start_system_watcher
-
-            start_system_watcher(config, indexing_queue)
-            logger.info("System collection watcher started")
-        except Exception:
-            logger.exception("Failed to start system collection watcher")
-
-    threading.Thread(
-        target=_start_system_watcher_after_sync,
-        name="sys-watcher-wait",
-        daemon=True,
-    ).start()
-
-    # Set up config watching
+    # Config watching (both leader and follower need fresh config)
     import atexit
 
     from ragling.config_watcher import ConfigWatcher
@@ -764,8 +733,10 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     config_path = ctx.obj.get("config_path")
 
     def _handle_config_reload(new_config: Config) -> None:
-        indexing_queue.set_config(new_config)
-        logger.info("Config reloaded, queue updated")
+        q = _current_queue[0]
+        if q is not None:
+            q.set_config(new_config)
+        logger.info("Config reloaded")
 
     config_watcher = ConfigWatcher(
         config,
@@ -773,9 +744,73 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         on_reload=_handle_config_reload,
     )
 
+    def _start_leader_infrastructure() -> None:
+        """Start IndexingQueue, sync, and watchers (leader startup sequence)."""
+        import threading
+
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.sync import run_startup_sync, submit_file_change
+        from ragling.watcher import get_watch_paths, start_watcher
+
+        current_config = config_watcher.get_config()
+        queue = IndexingQueue(current_config, indexing_status)
+        queue.start()
+        _current_queue[0] = queue
+
+        sync_done = threading.Event()
+        run_startup_sync(current_config, queue, done_event=sync_done)
+
+        if get_watch_paths(current_config):
+
+            def _on_files_changed(files: list[Path]) -> None:
+                logger.info("File changes detected: %d files", len(files))
+                for file_path in files:
+                    submit_file_change(file_path, config_watcher.get_config(), queue)
+
+            def _start_watcher_after_sync() -> None:
+                sync_done.wait()
+                start_watcher(config_watcher.get_config(), _on_files_changed)
+
+            threading.Thread(
+                target=_start_watcher_after_sync, name="watcher-wait", daemon=True
+            ).start()
+
+        def _start_system_watcher_after_sync() -> None:
+            sync_done.wait()
+            try:
+                from ragling.system_watcher import start_system_watcher
+
+                start_system_watcher(config_watcher.get_config(), queue)
+                logger.info("System collection watcher started")
+            except Exception:
+                logger.exception("Failed to start system collection watcher")
+
+        threading.Thread(
+            target=_start_system_watcher_after_sync,
+            name="sys-watcher-wait",
+            daemon=True,
+        ).start()
+
+    # Leader election
+    leader_config = config.with_overrides(group_name=group)
+    lock = LeaderLock(lock_path_for_config(leader_config))
+
+    if lock.try_acquire():
+        logger.info("Starting as leader for group '%s'", group)
+        _start_leader_infrastructure()
+    else:
+        logger.info("Starting as follower for group '%s' (search-only)", group)
+        lock.start_retry(
+            interval=30.0,
+            on_promote=_start_leader_infrastructure,
+        )
+
     def _shutdown() -> None:
         logger.info("Shutting down...")
-        indexing_queue.shutdown()
+        lock.close()
+        q = _current_queue[0]
+        if q is not None:
+            q.shutdown()
         config_watcher.stop()
 
     atexit.register(_shutdown)
@@ -784,8 +819,8 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         group_name=group,
         config=config,
         indexing_status=indexing_status,
-        indexing_queue=indexing_queue,
         config_getter=config_watcher.get_config,
+        queue_getter=_queue_getter,
     )
 
     if sse:
