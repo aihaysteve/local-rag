@@ -4,6 +4,15 @@ Search your notes, emails, ebooks, RSS feeds, and code repos with one query. Sha
 
 Forked from [sebastianhutter/local-rag](https://github.com/sebastianhutter/local-rag). Built with [Claude](https://claude.ai). Powered by [Docling](https://github.com/DS4SD/docling) (IBM). Inspired by [devrag](https://github.com/strickvl/devrag).
 
+## Capabilities
+
+- **11 document formats** — PDF, DOCX, PPTX, XLSX, HTML, LaTeX, CSV, AsciiDoc, EPUB, images, plaintext
+- **Audio transcription** — MP3, M4A, WAV, OGG, OPUS, and more via Whisper (local, optional)
+- **PDF intelligence** — ML-powered table extraction, image descriptions (SmolVLM), code block and formula recognition
+- **17 programming languages** — tree-sitter structural parsing extracts functions, classes, and symbols
+- **Git commit history** — indexes commit messages and per-file diffs for code archaeology
+- **Image descriptions** — standalone images described by a local vision model (PNG, JPG, TIFF, BMP, WebP)
+
 ## Supported Sources
 
 | Source | What's Indexed |
@@ -12,7 +21,7 @@ Forked from [sebastianhutter/local-rag](https://github.com/sebastianhutter/local
 | **eM Client** | Emails (subject, body, sender, recipients, date, folder) |
 | **Calibre** | Ebook content and metadata (EPUB, PDF) |
 | **NetNewsWire** | RSS/Atom articles |
-| **Code groups** | Git repos grouped by org/topic — tree-sitter structural parsing (11 languages) + commit history |
+| **Code groups** | Git repos grouped by org/topic — tree-sitter structural parsing (17 languages) + commit history |
 | **Project folders** | Any folder of documents, dispatched to the right parser by file type |
 
 ## Quick Start
