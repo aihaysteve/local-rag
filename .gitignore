@@ -24,3 +24,6 @@ config.json
 
 # MCP config with local paths
 .mcp.json
+
+# Git worktrees
+.worktrees/
