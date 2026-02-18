@@ -249,6 +249,7 @@ def create_server(
     indexing_status: IndexingStatus | None = None,
     indexing_queue: IndexingQueue | None = None,
     config_getter: Callable[[], Config] | None = None,
+    queue_getter: Callable[[], IndexingQueue | None] | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all tools registered.
 
@@ -262,6 +263,10 @@ def create_server(
         indexing_queue: Optional IndexingQueue for routing indexing jobs
             through the single-writer queue (serve mode). When None,
             rag_index falls back to direct indexing (CLI mode).
+        queue_getter: Optional callable returning the current IndexingQueue.
+            Called on each rag_index invocation for dynamic resolution
+            (e.g. follower->leader promotion). Takes precedence over
+            the static indexing_queue parameter when provided.
     """
     # Capture config for use inside tool closures. When provided, tools
     # use this instead of calling load_config() each time.
@@ -272,6 +277,15 @@ def create_server(
         if config_getter:
             return config_getter().with_overrides(group_name=group_name)
         return (server_config or load_config()).with_overrides(group_name=group_name)
+
+    def _get_queue() -> IndexingQueue | None:
+        """Resolve the current indexing queue.
+
+        Prefers queue_getter (dynamic) over static indexing_queue parameter.
+        """
+        if queue_getter is not None:
+            return queue_getter()
+        return indexing_queue
 
     mcp_kwargs: dict[str, Any] = {
         "instructions": "Local RAG system for searching personal knowledge.",
@@ -521,11 +535,18 @@ def create_server(
         if not config.is_collection_enabled(collection):
             return {"error": f"Collection '{collection}' is disabled in config."}
 
-        # Route through queue when available (serve mode)
-        if indexing_queue is not None:
-            return _rag_index_via_queue(collection, path, config)
+        q = _get_queue()
+        if q is not None:
+            return _rag_index_via_queue(collection, path, config, q)
 
-        # Direct indexing fallback (CLI / stdio without queue)
+        # queue_getter present but returned None -> follower mode
+        if queue_getter is not None:
+            return {
+                "error": "This instance is a read-only follower. "
+                "Indexing is handled by the leader process for this group."
+            }
+
+        # No queue_getter -> CLI/direct mode
         return _rag_index_direct(collection, path, config)
 
     @mcp.tool()
@@ -624,14 +645,13 @@ def create_server(
         mappings = user_ctx.path_mappings if user_ctx else {}
         return _convert_document(file_path, path_mappings=mappings)
 
-    def _rag_index_via_queue(collection: str, path: str | None, config: Config) -> dict[str, Any]:
+    def _rag_index_via_queue(
+        collection: str, path: str | None, config: Config, q: IndexingQueue
+    ) -> dict[str, Any]:
         """Route indexing through the IndexingQueue."""
         from pathlib import Path as P
 
         from ragling.indexing_queue import IndexJob
-
-        if indexing_queue is None:
-            raise RuntimeError("_rag_index_via_queue called without a queue")
 
         if collection == "obsidian":
             job = IndexJob("directory", P(path) if path else None, "obsidian", "obsidian")
@@ -646,7 +666,7 @@ def create_server(
             timed_out = 0
             for repo_path in config.code_groups[collection]:
                 job = IndexJob("directory", repo_path, collection, "code")
-                result = indexing_queue.submit_and_wait(job, timeout=300)
+                result = q.submit_and_wait(job, timeout=300)
                 if result:
                     results.append(result)
                 else:
@@ -668,7 +688,7 @@ def create_server(
                 "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
             }
 
-        result = indexing_queue.submit_and_wait(job, timeout=300)
+        result = q.submit_and_wait(job, timeout=300)
         if result is None:
             return {"error": f"Indexing timed out for collection '{collection}'."}
         return {

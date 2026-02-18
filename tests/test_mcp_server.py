@@ -713,3 +713,171 @@ class TestRagIndexQueueRouting:
         assert "error" in result
         assert "disabled" in result["error"].lower()
         queue.submit_and_wait.assert_not_called()
+
+
+class TestRagIndexFollowerMode:
+    """Tests for rag_index behavior when queue_getter returns None (follower)."""
+
+    def test_follower_returns_error_for_rag_index(self, tmp_path: Path) -> None:
+        """When queue_getter returns None, rag_index returns a follower error."""
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(
+            config=config,
+            queue_getter=lambda: None,
+        )
+
+        # Verify server was created with the queue_getter
+        tools = server._tool_manager._tools
+        assert "rag_index" in tools
+
+        # Call rag_index — should return follower error
+        rag_index_fn = tools["rag_index"].fn
+        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        assert "error" in result
+        assert "follower" in result["error"].lower() or "read-only" in result["error"].lower()
+
+    def test_queue_getter_dynamic_resolution(self) -> None:
+        """queue_getter is called on each rag_index invocation, not cached."""
+        from ragling.mcp_server import create_server
+
+        config = Config(embedding_dimensions=4)
+        call_count = 0
+
+        def counting_getter() -> None:
+            nonlocal call_count
+            call_count += 1
+            return None
+
+        _server = create_server(
+            config=config,
+            queue_getter=counting_getter,
+        )
+        # The getter should NOT be called at creation time
+        assert call_count == 0
+        assert _server is not None
+
+    def test_queue_getter_overrides_static_queue(self, tmp_path: Path) -> None:
+        """When both indexing_queue and queue_getter are provided, queue_getter wins."""
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=[tmp_path / "vault"],
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        static_queue = MagicMock(spec=IndexingQueue)
+        dynamic_queue = MagicMock(spec=IndexingQueue)
+        mock_result = MagicMock()
+        mock_result.indexed = 3
+        mock_result.skipped = 0
+        mock_result.errors = 0
+        mock_result.total_found = 3
+        dynamic_queue.submit_and_wait.return_value = mock_result
+
+        server = create_server(
+            config=config,
+            indexing_queue=static_queue,
+            queue_getter=lambda: dynamic_queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+
+        # dynamic_queue should be used, not static_queue
+        dynamic_queue.submit_and_wait.assert_called_once()
+        static_queue.submit_and_wait.assert_not_called()
+        assert result["indexed"] == 3
+
+    def test_queue_getter_promotion_scenario(self, tmp_path: Path) -> None:
+        """Simulates follower->leader promotion: getter initially returns None, then a queue."""
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=[tmp_path / "vault"],
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        promoted_queue = MagicMock(spec=IndexingQueue)
+        mock_result = MagicMock()
+        mock_result.indexed = 10
+        mock_result.skipped = 0
+        mock_result.errors = 0
+        mock_result.total_found = 10
+        promoted_queue.submit_and_wait.return_value = mock_result
+
+        # Start as follower (getter returns None), then "promote" to leader
+        current_queue: IndexingQueue | None = None
+
+        def getter() -> IndexingQueue | None:
+            return current_queue
+
+        server = create_server(
+            config=config,
+            queue_getter=getter,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        # As follower, should return error
+        result1: dict[str, Any] = rag_index_fn(collection="obsidian")
+        assert "error" in result1
+        assert "read-only" in result1["error"].lower()
+
+        # Promote to leader
+        current_queue = promoted_queue
+
+        # Now should route through the queue
+        result2: dict[str, Any] = rag_index_fn(collection="obsidian")
+        assert "error" not in result2
+        assert result2["indexed"] == 10
+        promoted_queue.submit_and_wait.assert_called_once()
+
+    def test_no_queue_getter_falls_back_to_static_queue(self, tmp_path: Path) -> None:
+        """Without queue_getter, the existing indexing_queue parameter still works."""
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=[tmp_path / "vault"],
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        queue = MagicMock(spec=IndexingQueue)
+        mock_result = MagicMock()
+        mock_result.indexed = 5
+        mock_result.skipped = 0
+        mock_result.errors = 0
+        mock_result.total_found = 5
+        queue.submit_and_wait.return_value = mock_result
+
+        # No queue_getter — only static indexing_queue
+        server = create_server(
+            config=config,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+
+        queue.submit_and_wait.assert_called_once()
+        assert result["indexed"] == 5
