@@ -817,3 +817,65 @@ class TestRagIndexFollowerMode:
 
         queue.submit.assert_called_once()
         assert result["status"] == "submitted"
+
+
+class TestRagIndexingStatus:
+    """Tests for the rag_indexing_status MCP tool."""
+
+    def test_returns_inactive_when_idle(self, tmp_path: Path) -> None:
+        from ragling.config import Config
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        server = create_server(config=config, indexing_status=status)
+
+        tools = server._tool_manager._tools
+        fn = tools["rag_indexing_status"].fn
+        result = fn()
+
+        assert result == {"active": False}
+
+    def test_returns_status_when_active(self, tmp_path: Path) -> None:
+        from ragling.config import Config
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        status.increment("obsidian", 3)
+        server = create_server(config=config, indexing_status=status)
+
+        tools = server._tool_manager._tools
+        fn = tools["rag_indexing_status"].fn
+        result = fn()
+
+        assert result["active"] is True
+        assert result["total_remaining"] == 3
+        assert "obsidian" in result["collections"]
+
+    def test_returns_inactive_when_no_status_tracker(self, tmp_path: Path) -> None:
+        from ragling.config import Config
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)  # no indexing_status
+
+        tools = server._tool_manager._tools
+        fn = tools["rag_indexing_status"].fn
+        result = fn()
+
+        assert result == {"active": False}

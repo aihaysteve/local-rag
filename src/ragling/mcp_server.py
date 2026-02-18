@@ -558,6 +558,24 @@ def create_server(
         return _rag_index_direct(collection, path, config)
 
     @mcp.tool()
+    def rag_indexing_status() -> dict[str, Any]:
+        """Check current indexing status across all collections.
+
+        Returns the current state of any in-progress indexing operations.
+        Use this after calling rag_index to monitor progress.
+
+        Returns:
+            Dict with 'active' bool and, when active, 'total_remaining'
+            count and per-collection breakdown in 'collections'.
+        """
+        if indexing_status is None:
+            return {"active": False}
+        status = indexing_status.to_dict()
+        if status is None:
+            return {"active": False}
+        return status
+
+    @mcp.tool()
     def rag_doc_store_info() -> list[dict[str, Any]]:
         """List all documents in the shared document cache.
 
