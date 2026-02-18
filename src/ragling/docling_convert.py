@@ -32,6 +32,7 @@ from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTok
 from docling_core.types.doc import CodeItem, DoclingDocument, PictureItem, TableItem
 from transformers import AutoTokenizer
 
+from docling.exceptions import ConversionError
 from ragling.audio_metadata import extract_audio_metadata
 from ragling.chunker import Chunk
 from ragling.doc_store import DocStore
@@ -279,6 +280,36 @@ def _get_vlm_engine() -> Any:
     )
 
 
+def _extract_pdf_text_fallback(path: Path) -> str:
+    """Extract text from a PDF using pypdfium2 when Docling fails.
+
+    Reads each page sequentially and concatenates text with page
+    separators. Used as a fallback when Docling's PDF pipeline
+    can't parse a file (e.g. inherited page dimensions).
+
+    Args:
+        path: Path to the PDF file.
+
+    Returns:
+        Extracted text, or empty string on failure.
+    """
+    try:
+        import pypdfium2 as pdfium  # type: ignore[import-untyped]
+
+        doc = pdfium.PdfDocument(str(path))
+        pages: list[str] = []
+        for i in range(len(doc)):
+            page = doc[i]
+            textpage = page.get_textpage()
+            text = textpage.get_text_range()
+            if text.strip():
+                pages.append(text)
+        return "\n\n".join(pages)
+    except Exception:
+        logger.exception("pypdfium2 fallback also failed for %s", path)
+        return ""
+
+
 def describe_image(path: Path) -> str:
     """Generate a text description of a standalone image using SmolVLM.
 
@@ -431,14 +462,28 @@ def convert_and_chunk(
     )
 
     def _do_convert(p: Path) -> dict[str, Any]:
-        result = get_converter(
-            asr_model=asr_model,
-            do_picture_description=enrichments.image_description,
-            do_code_enrichment=enrichments.code_enrichment,
-            do_formula_enrichment=enrichments.formula_enrichment,
-            do_table_structure=enrichments.table_structure,
-        ).convert(p)
-        return result.document.model_dump(mode="json")
+        try:
+            result = get_converter(
+                asr_model=asr_model,
+                do_picture_description=enrichments.image_description,
+                do_code_enrichment=enrichments.code_enrichment,
+                do_formula_enrichment=enrichments.formula_enrichment,
+                do_table_structure=enrichments.table_structure,
+            ).convert(p)
+            return result.document.model_dump(mode="json")
+        except ConversionError:
+            if source_type != "pdf":
+                raise
+            logger.warning(
+                "Docling PDF conversion failed for %s, falling back to pypdfium2 text extraction",
+                p,
+            )
+            text = _extract_pdf_text_fallback(p)
+            if not text.strip():
+                raise
+            from ragling.docling_bridge import plaintext_to_docling_doc
+
+            return plaintext_to_docling_doc(text, p.name).model_dump(mode="json")
 
     doc_data = doc_store.get_or_convert(path, _do_convert, config_hash=config_hash)
     doc = DoclingDocument.model_validate(doc_data)

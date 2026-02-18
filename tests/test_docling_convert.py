@@ -514,6 +514,148 @@ class TestAnyUrlSerialization:
         mock_result.document.model_dump.assert_called_once_with(mode="json")
 
 
+class TestPdfFallback:
+    """Bug #2: PDFs that Docling can't parse should fall back to pypdfium2 text extraction."""
+
+    def test_pdf_fallback_produces_chunks_on_conversion_error(
+        self, store: DocStore, tmp_path: Path
+    ) -> None:
+        """When Docling raises ConversionError for a PDF, pypdfium2 fallback kicks in."""
+        from docling.exceptions import ConversionError
+
+        from ragling.docling_convert import convert_and_chunk
+
+        pdf_path = tmp_path / "broken.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 fake")
+
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = ["Section"]
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "fallback text"
+
+        mock_converter = MagicMock()
+        mock_converter.convert.side_effect = ConversionError("page-dimensions not found")
+
+        with (
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert._extract_pdf_text_fallback",
+                return_value="The Constitution of the United States",
+            ),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            chunks = convert_and_chunk(pdf_path, store, source_type="pdf")
+
+        assert len(chunks) == 1
+
+    def test_pdf_fallback_logs_warning(self, store: DocStore, tmp_path: Path) -> None:
+        """Fallback should log a warning so operators know Docling failed."""
+        from docling.exceptions import ConversionError
+
+        from ragling.docling_convert import convert_and_chunk
+
+        pdf_path = tmp_path / "broken.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 fake")
+
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = []
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "text"
+
+        mock_converter = MagicMock()
+        mock_converter.convert.side_effect = ConversionError("page-dimensions")
+
+        with (
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert._extract_pdf_text_fallback",
+                return_value="Some text",
+            ),
+            patch("ragling.docling_convert.logger") as mock_logger,
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            convert_and_chunk(pdf_path, store, source_type="pdf")
+
+        mock_logger.warning.assert_called_once()
+        assert "falling back" in mock_logger.warning.call_args[0][0].lower()
+
+    def test_non_pdf_conversion_error_still_raises(self, store: DocStore, tmp_path: Path) -> None:
+        """ConversionError for non-PDF formats should propagate (no fallback)."""
+        from docling.exceptions import ConversionError
+
+        from ragling.docling_convert import convert_and_chunk
+
+        html_path = tmp_path / "broken.html"
+        html_path.write_text("<html>bad</html>")
+
+        mock_converter = MagicMock()
+        mock_converter.convert.side_effect = ConversionError("conversion failed")
+
+        with (
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            pytest.raises(ConversionError),
+        ):
+            convert_and_chunk(html_path, store, source_type="html")
+
+    def test_pdf_fallback_with_empty_text_raises(self, store: DocStore, tmp_path: Path) -> None:
+        """If pypdfium2 also returns empty text, the original error should propagate."""
+        from docling.exceptions import ConversionError
+
+        from ragling.docling_convert import convert_and_chunk
+
+        pdf_path = tmp_path / "empty.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 fake")
+
+        mock_converter = MagicMock()
+        mock_converter.convert.side_effect = ConversionError("page-dimensions")
+
+        with (
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            patch(
+                "ragling.docling_convert._extract_pdf_text_fallback",
+                return_value="",
+            ),
+            pytest.raises(ConversionError),
+        ):
+            convert_and_chunk(pdf_path, store, source_type="pdf")
+
+
+class TestExtractPdfTextFallback:
+    """Tests for the _extract_pdf_text_fallback helper."""
+
+    def test_extracts_text_from_pdf(self, tmp_path: Path) -> None:
+        """Should extract text page-by-page using pypdfium2."""
+        from ragling.docling_convert import _extract_pdf_text_fallback
+
+        # Use a real simple PDF created with pypdfium2
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument.new()
+        pdf.new_page(612, 792)
+        pdf_path = tmp_path / "test.pdf"
+        pdf.save(str(pdf_path))
+
+        result = _extract_pdf_text_fallback(pdf_path)
+        assert isinstance(result, str)
+
+    def test_returns_empty_for_nonexistent(self, tmp_path: Path) -> None:
+        """Should return empty string for files that can't be opened."""
+        from ragling.docling_convert import _extract_pdf_text_fallback
+
+        result = _extract_pdf_text_fallback(tmp_path / "nonexistent.pdf")
+        assert result == ""
+
+
 class TestConverterConfigHash:
     def test_includes_asr_model_in_hash(self) -> None:
         from ragling.docling_convert import converter_config_hash
