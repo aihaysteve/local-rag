@@ -4,6 +4,8 @@ import csv
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmark.runner import BenchmarkResult
@@ -126,3 +128,34 @@ def test_format_result_line_sub_second() -> None:
     assert "conv:50ms" in line
     assert "embed:200ms" in line
     assert "total:300ms" in line
+
+
+def test_render_terminal_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    """render_terminal_summary prints summary and per-format tables to stdout."""
+    from benchmark.output import render_terminal_summary
+
+    results = [
+        _make_result(tag="m1-local", configuration="fast", fixture="a.pdf", total_ms=1000),
+        _make_result(tag="m1-local", configuration="fast", fixture="b.pdf", total_ms=3000),
+        _make_result(tag="m1-local", configuration="balanced", fixture="a.pdf", total_ms=5000),
+    ]
+    render_terminal_summary(results)
+
+    captured = capsys.readouterr()
+    # Summary section
+    assert "Benchmark Results" in captured.out
+    assert "fast" in captured.out
+    assert "balanced" in captured.out
+    # Per-format section
+    assert "Pdf" in captured.out or "pdf" in captured.out.lower()
+    assert "a.pdf" in captured.out
+
+
+def test_render_terminal_summary_empty(capsys: pytest.CaptureFixture[str]) -> None:
+    """render_terminal_summary handles empty results."""
+    from benchmark.output import render_terminal_summary
+
+    render_terminal_summary([])
+
+    captured = capsys.readouterr()
+    assert "No results" in captured.out

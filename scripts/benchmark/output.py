@@ -205,3 +205,90 @@ def render_markdown(
 
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text("\n".join(lines))
+
+
+def render_terminal_summary(
+    results: list[BenchmarkResult],
+    model_results: list[ModelLoadResult] | None = None,
+) -> None:
+    """Print a summary of benchmark results to stdout.
+
+    Prints a summary table (avg total per config/tag) followed by
+    per-format tables with stage timings and chunk counts.
+
+    Args:
+        results: List of benchmark results.
+        model_results: Optional model load time measurements.
+    """
+    if not results:
+        print("\n=== Benchmark Results ===\n\nNo results.\n")
+        return
+
+    print("\n=== Benchmark Results ===\n")
+
+    # --- Summary table ---
+    all_tags = sorted({r.tag for r in results})
+    all_configs = sorted({r.configuration for r in results})
+
+    config_tag_totals: dict[str, dict[str, float]] = {}
+    config_tag_counts: dict[str, dict[str, int]] = {}
+    for r in results:
+        config_tag_totals.setdefault(r.configuration, {}).setdefault(r.tag, 0.0)
+        config_tag_totals[r.configuration][r.tag] += r.total_ms
+        config_tag_counts.setdefault(r.configuration, {}).setdefault(r.tag, 0)
+        config_tag_counts[r.configuration][r.tag] += 1
+
+    # Header
+    header = f"  {'Configuration':<20s}" + "".join(f"  {tag:<12s}" for tag in all_tags)
+    print("Summary (avg total per file):")
+    print(header)
+
+    for cfg in all_configs:
+        cells = []
+        for tag in all_tags:
+            total = config_tag_totals.get(cfg, {}).get(tag, 0)
+            count = config_tag_counts.get(cfg, {}).get(tag, 0)
+            if count > 0:
+                avg_s = (total / count) / 1000
+                cells.append(f"{avg_s:.1f}s")
+            else:
+                cells.append("-")
+        row = f"  {cfg:<20s}" + "".join(f"  {c:<12s}" for c in cells)
+        print(row)
+    print()
+
+    # --- Per-format tables ---
+    columns: list[tuple[str, str]] = []
+    for tag in all_tags:
+        configs_for_tag = sorted({r.configuration for r in results if r.tag == tag})
+        for config in configs_for_tag:
+            columns.append((tag, config))
+    col_labels = [f"{tag}/{config}" for tag, config in columns]
+
+    format_groups = sorted({r.format_group for r in results})
+    for group in format_groups:
+        group_results = [r for r in results if r.format_group == group]
+        fixtures_in_group = sorted({r.fixture for r in group_results})
+
+        print(f"{group.title()}:")
+        hdr = f"  {'Fixture':<30s} {'Size':<8s}" + "".join(
+            f"  {label:<25s}" for label in col_labels
+        )
+        print(hdr)
+
+        for fixture_name in fixtures_in_group:
+            fixture_results = [r for r in group_results if r.fixture == fixture_name]
+            size = _format_size(fixture_results[0].file_size_kb)
+            cells = []
+            for tag, config in columns:
+                match = [r for r in fixture_results if r.tag == tag and r.configuration == config]
+                if match:
+                    r = match[0]
+                    conv = _format_time_ms(r.conversion_ms)
+                    embed = _format_time_ms(r.embedding_ms)
+                    cells.append(f"conv:{conv} em:{embed} ({r.chunks_produced})")
+                else:
+                    cells.append("-")
+            row = f"  {fixture_name:<30s} {size:<8s}" + "".join(f"  {c:<25s}" for c in cells)
+            print(row)
+        print()
