@@ -438,7 +438,7 @@ def convert_and_chunk(
             do_formula_enrichment=enrichments.formula_enrichment,
             do_table_structure=enrichments.table_structure,
         ).convert(p)
-        return result.document.model_dump()
+        return result.document.model_dump(mode="json")
 
     doc_data = doc_store.get_or_convert(path, _do_convert, config_hash=config_hash)
     doc = DoclingDocument.model_validate(doc_data)

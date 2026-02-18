@@ -843,7 +843,14 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
 
             def _start_watcher_after_sync() -> None:
                 sync_done.wait()
-                start_watcher(config_watcher.get_config(), _on_files_changed)
+                try:
+                    observer = start_watcher(config_watcher.get_config(), _on_files_changed)
+                    if observer is not None:
+                        logger.info("File watcher started successfully")
+                    else:
+                        logger.warning("File watcher returned None (no directories to watch)")
+                except Exception:
+                    logger.exception("Failed to start file watcher")
 
             threading.Thread(
                 target=_start_watcher_after_sync, name="watcher-wait", daemon=True

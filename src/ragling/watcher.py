@@ -212,4 +212,5 @@ def start_watcher(
 
     observer.daemon = True
     observer.start()
+    logger.info("File watcher observer started (watching %d directories)", len(watch_paths))
     return observer

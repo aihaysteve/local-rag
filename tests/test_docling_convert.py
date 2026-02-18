@@ -482,6 +482,38 @@ class TestConvertAndChunkImageFallback:
         assert len(chunks) == 1
 
 
+class TestAnyUrlSerialization:
+    """Bug #1: Docling model_dump() returns AnyUrl objects that aren't JSON serializable."""
+
+    def test_model_dump_called_with_json_mode(self, store: DocStore, sample_file: Path) -> None:
+        """_do_convert must call model_dump(mode='json') to serialize AnyUrl to strings."""
+        from ragling.docling_convert import convert_and_chunk
+
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = ["Section"]
+        mock_chunk.meta.doc_items = []
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [mock_chunk]
+        mock_chunker.contextualize.return_value = "chunk text"
+
+        mock_converter = MagicMock()
+        mock_result = MagicMock()
+        mock_result.document.model_dump.return_value = {"name": "mock"}
+        mock_converter.convert.return_value = mock_result
+
+        with (
+            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+        ):
+            mock_doc_cls.model_validate.return_value = MagicMock()
+            convert_and_chunk(sample_file, store)
+
+        # Verify model_dump was called with mode="json" to avoid AnyUrl serialization issues
+        mock_result.document.model_dump.assert_called_once_with(mode="json")
+
+
 class TestConverterConfigHash:
     def test_includes_asr_model_in_hash(self) -> None:
         from ragling.docling_convert import converter_config_hash
