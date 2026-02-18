@@ -2,6 +2,7 @@
 
 import logging
 import struct
+from typing import Any
 
 import httpx
 import ollama
@@ -22,9 +23,17 @@ class OllamaConnectionError(Exception):
     """Raised when Ollama is not reachable."""
 
 
-def _client() -> ollama.Client:
-    """Create an Ollama client with a finite timeout."""
-    return ollama.Client(timeout=httpx.Timeout(_TIMEOUT))
+def _client(config: Config) -> ollama.Client:
+    """Create an Ollama client with a finite timeout.
+
+    Args:
+        config: Application configuration. If ``ollama_host`` is set,
+            the client connects to that URL instead of localhost.
+    """
+    kwargs: dict[str, Any] = {"timeout": httpx.Timeout(_TIMEOUT)}
+    if config.ollama_host:
+        kwargs["host"] = config.ollama_host
+    return ollama.Client(**kwargs)
 
 
 def _raise_if_connection_error(e: Exception) -> None:
@@ -50,7 +59,7 @@ def get_embedding(text: str, config: Config) -> list[float]:
         OllamaConnectionError: If Ollama is not running or unreachable.
     """
     try:
-        response = _client().embed(model=config.embedding_model, input=text)
+        response = _client(config).embed(model=config.embedding_model, input=text)
         return response["embeddings"][0]
     except Exception as e:
         _raise_if_connection_error(e)
@@ -76,7 +85,7 @@ def get_embeddings(texts: list[str], config: Config) -> list[list[float]]:
     if not texts:
         return []
 
-    client = _client()
+    client = _client(config)
     all_embeddings: list[list[float]] = []
 
     for start in range(0, len(texts), _BATCH_SIZE):
