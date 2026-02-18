@@ -509,6 +509,41 @@ class TestConverterConfigHash:
         assert hash1 == hash2
 
 
+class TestGetConverterAsr:
+    def test_get_converter_includes_audio_format_option(self) -> None:
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            with patch("ragling.docling_convert._whisper_available", return_value=True):
+                get_converter()
+            call_kwargs = mock_cls.call_args.kwargs
+            format_options = call_kwargs["format_options"]
+
+            from docling.datamodel.base_models import InputFormat
+
+            assert InputFormat.AUDIO in format_options
+
+    def test_get_converter_skips_audio_when_whisper_missing(self) -> None:
+        """When whisper is not installed, audio format should not be configured."""
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with (
+            patch("ragling.docling_convert.DocumentConverter") as mock_cls,
+            patch("ragling.docling_convert._whisper_available", return_value=False),
+        ):
+            mock_cls.return_value = MagicMock()
+            get_converter()
+            call_kwargs = mock_cls.call_args.kwargs
+            format_options = call_kwargs["format_options"]
+
+            from docling.datamodel.base_models import InputFormat
+
+            assert InputFormat.AUDIO not in format_options
+
+
 class TestAudioFormatRegistration:
     def test_opus_registered_as_audio(self) -> None:
         from ragling.docling_convert import ensure_audio_formats_registered

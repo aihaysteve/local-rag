@@ -118,15 +118,30 @@ def ensure_audio_formats_registered() -> None:
             existing_mimes.append(mime)
 
 
+def _whisper_available() -> bool:
+    """Check if any Whisper backend is installed."""
+    try:
+        import whisper  # noqa: F401
+
+        return True
+    except ImportError:
+        pass
+    try:
+        import mlx_whisper  # noqa: F401
+
+        return True
+    except ImportError:
+        pass
+    return False
+
+
 @lru_cache
 def get_converter() -> DocumentConverter:
     """Get or create the Docling DocumentConverter singleton.
 
-    Configures the PDF pipeline with all enrichments:
-    - Picture descriptions via SmolVLM
-    - Code block extraction via codeformulav2
-    - Formula (LaTeX) extraction via codeformulav2
-    - Accurate table structure extraction
+    Configures the PDF pipeline with all enrichments, and
+    optionally the ASR pipeline for audio transcription when
+    Whisper is installed.
     """
     pdf_options = PdfPipelineOptions(
         do_table_structure=True,
@@ -141,14 +156,23 @@ def get_converter() -> DocumentConverter:
         code_formula_options=CodeFormulaVlmOptions.from_preset("codeformulav2"),
     )
 
-    return DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(
-                pipeline_cls=StandardPdfPipeline,
-                pipeline_options=pdf_options,
-            )
-        }
-    )
+    format_options: dict[InputFormat, Any] = {
+        InputFormat.PDF: PdfFormatOption(
+            pipeline_cls=StandardPdfPipeline,
+            pipeline_options=pdf_options,
+        )
+    }
+
+    if _whisper_available():
+        ensure_audio_formats_registered()
+        from docling.document_converter import AudioFormatOption
+
+        format_options[InputFormat.AUDIO] = AudioFormatOption()
+        logger.info("ASR pipeline enabled (Whisper available)")
+    else:
+        logger.info("ASR pipeline disabled (no Whisper backend installed)")
+
+    return DocumentConverter(format_options=format_options)
 
 
 @lru_cache
