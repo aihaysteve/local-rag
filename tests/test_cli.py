@@ -715,3 +715,23 @@ class TestBackgroundFlag:
         config_idx = cmd.index("--config")
         index_idx = cmd.index("index")
         assert config_idx < index_idx
+
+    def test_run_in_background_stderr_to_log_file(self) -> None:
+        """_run_in_background should redirect stderr to a log file, not DEVNULL."""
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _run_in_background
+
+        ctx = MagicMock()
+        ctx.obj = {"config_path": None}
+
+        with patch("subprocess.Popen") as mock_popen, patch("builtins.open") as mock_open:
+            _run_in_background(ctx, ["obsidian"], force=False)
+
+        call_kwargs = mock_popen.call_args[1]
+        # stderr should NOT be DEVNULL
+        import subprocess
+
+        assert call_kwargs.get("stderr") is not subprocess.DEVNULL
+        # stdout should still be DEVNULL
+        assert call_kwargs["stdout"] is subprocess.DEVNULL

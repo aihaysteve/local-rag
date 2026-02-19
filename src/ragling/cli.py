@@ -134,10 +134,13 @@ def _run_in_background(
     if extra_args:
         cmd.extend(extra_args)
 
+    log_path = Path.home() / ".ragling" / "background.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_path, "a")  # noqa: SIM115 — kept open for subprocess lifetime
     subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=log_file,
         start_new_session=True,
     )
     collection_name = " ".join(subcommand)
