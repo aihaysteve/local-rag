@@ -65,6 +65,8 @@ def converter_config_hash(
     table_mode: str,
     asr_model: str = "small",
     vlm_backend: str = "local",
+    vlm_scale: float = 1.0,
+    vlm_max_size: int | None = 1024,
 ) -> str:
     """Deterministic hash of converter pipeline configuration.
 
@@ -78,6 +80,8 @@ def converter_config_hash(
         table_mode: Table extraction mode (e.g. ``"accurate"`` or ``"fast"``).
         asr_model: Whisper model name for audio transcription.
         vlm_backend: VLM inference backend (``"local"`` or ``"ollama"``).
+        vlm_scale: Image scaling factor applied before VLM inference.
+        vlm_max_size: Maximum image dimension (pixels) for VLM input.
 
     Returns:
         A 16-character hex string derived from SHA-256.
@@ -90,6 +94,8 @@ def converter_config_hash(
             "do_formula_enrichment": do_formula_enrichment,
             "table_mode": table_mode,
             "vlm_backend": vlm_backend,
+            "vlm_max_size": vlm_max_size,
+            "vlm_scale": vlm_scale,
         },
         sort_keys=True,
     )
@@ -219,6 +225,12 @@ def get_converter(
         pic_options = PictureDescriptionVlmEngineOptions.from_preset("smolvlm")
         code_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
         enable_remote = False
+
+    # Override preset scale (2.0) to 1.0 — avoids wasteful 2x upscaling
+    # before VLM inference.  Granite Vision maxes at ~1008px, SmolVLM at
+    # ~1536px, so native-resolution images are already sufficient.
+    pic_options = pic_options.model_copy(update={"scale": 1.0})
+    code_options = code_options.model_copy(update={"scale": 1.0, "max_size": 1024})
 
     pdf_options = PdfPipelineOptions(
         do_table_structure=do_table_structure,
@@ -393,6 +405,18 @@ def describe_image(path: Path, ollama_host: str | None = None) -> str:
 
         engine = _get_vlm_engine(ollama_host=ollama_host)
         image = Image.open(path)
+
+        # Downscale large images — VLMs cap out at ~1008-1536px internally
+        # so sending larger images wastes I/O and preprocessing time.
+        _MAX_VLM_DIM = 1024
+        max_dim = max(image.width, image.height)
+        if max_dim > _MAX_VLM_DIM:
+            ratio = _MAX_VLM_DIM / max_dim
+            image = image.resize(  # type: ignore[assignment]
+                (int(image.width * ratio), int(image.height * ratio)),
+                Image.Resampling.LANCZOS,
+            )
+
         result = engine.predict(
             VlmEngineInput(
                 image=image,

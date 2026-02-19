@@ -64,3 +64,16 @@ m1-4070-vlm-offload,quality,pdf-1pg-text.pdf,pdf,70,813,1,193,1007,13
 m1-4070-vlm-offload,quality,pdf-50pg-dense.pdf,pdf,964,36840,1,4638,41479,229
 m1-4070-vlm-offload,quality,plaintext-10kb.txt,lightweight,11,47,0,232,279,13
 m1-4070-vlm-offload,quality,pptx-10slides.pptx,office,1920,0,0,0,816,0
+m1-4070-scale-tuned,quality,README.md,lightweight,1,916,1,262,1179,7
+m1-4070-scale-tuned,quality,audio-30s.mp3,audio,374,0,0,0,10,0
+m1-4070-scale-tuned,quality,audio-5min.mp3,audio,2153,0,0,0,4,0
+m1-4070-scale-tuned,quality,docx-5pg.docx,office,1281,296,1,359,656,26
+m1-4070-scale-tuned,quality,epub-short.epub,lightweight,626,640,1,2307,2948,195
+m1-4070-scale-tuned,quality,image-diagram.png,image,332,4957,0,178,5135,6
+m1-4070-scale-tuned,quality,image-photo.jpg,image,1886,25542,1,1931,27474,1
+m1-4070-scale-tuned,quality,markdown-5pg.md,lightweight,17,92,1,781,874,36
+m1-4070-scale-tuned,quality,pdf-10pg-mixed.pdf,pdf,882,20595,0,2509,23104,42
+m1-4070-scale-tuned,quality,pdf-1pg-text.pdf,pdf,70,850,0,200,1050,13
+m1-4070-scale-tuned,quality,pdf-50pg-dense.pdf,pdf,964,38020,0,4513,42533,229
+m1-4070-scale-tuned,quality,plaintext-10kb.txt,lightweight,11,83,1,220,304,13
+m1-4070-scale-tuned,quality,pptx-10slides.pptx,office,1920,545,1,3397,3943,40
