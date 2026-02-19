@@ -7,6 +7,11 @@ from ragling.config import Config, UserConfig
 from ragling.token_verifier import RaglingTokenVerifier
 
 
+def _hk(token: str) -> str:
+    """Hash a token the same way the verifier does, for test assertions."""
+    return RaglingTokenVerifier._hash_token(token)
+
+
 class TestRaglingTokenVerifier:
     """Tests for API key verification."""
 
@@ -103,7 +108,7 @@ class TestRateLimiting:
 
             # Check the internal state: next_allowed should be
             # fake_time + min(2^7, 300) = 1000 + 128 = 1128
-            key = "bad_key"
+            key = _hk("bad_key")
             count, next_allowed = verifier._failures[key]
             assert count == 7
             assert next_allowed == fake_time + 2**7  # 128 seconds
@@ -124,7 +129,7 @@ class TestRateLimiting:
                 except Exception:
                     pass
 
-            count, next_allowed = verifier._failures["bad_key"]
+            count, next_allowed = verifier._failures[_hk("bad_key")]
             assert count == 20
             # Capped at 300s, not 2^20
             assert next_allowed == fake_time + 300
@@ -138,18 +143,17 @@ class TestRateLimiting:
             self._run(verifier.verify_token("rag_kitchen_key_wrong"))
 
         # Failures should be tracked
-        assert "rag_kitchen_key_wrong" in verifier._failures
+        assert _hk("rag_kitchen_key_wrong") in verifier._failures
 
         # Now try a token that previously had failures but not over threshold
-        # First, add failures for the valid key from a "wrong" attempt perspective
-        # Actually, let's set up failures for a key, then succeed
-        verifier._failures["rag_kitchen_key"] = (3, 0.0)
+        # Set up failures for the valid key, then succeed
+        verifier._failures[_hk("rag_kitchen_key")] = (3, 0.0)
 
         result = self._run(verifier.verify_token("rag_kitchen_key"))
         assert result is not None
         assert result.client_id == "kitchen"
         # Failure record should be cleared after success
-        assert "rag_kitchen_key" not in verifier._failures
+        assert _hk("rag_kitchen_key") not in verifier._failures
 
     def test_rate_limit_expires_after_backoff_period(self):
         """Once the backoff period passes, the token should be allowed again."""
@@ -212,23 +216,23 @@ class TestRateLimiting:
                 self._run(verifier.verify_token("old_key"))
                 self._run(verifier.verify_token("new_key"))
 
-            assert "old_key" in verifier._failures
-            assert "new_key" in verifier._failures
+            assert _hk("old_key") in verifier._failures
+            assert _hk("new_key") in verifier._failures
 
             # Advance time past cleanup threshold (10 minutes = 600s)
             # Manually set old_key's next_allowed to be in the past
-            verifier._failures["old_key"] = (3, fake_time - 1.0)
+            verifier._failures[_hk("old_key")] = (3, fake_time - 1.0)
             # new_key's next_allowed is still in the future
-            verifier._failures["new_key"] = (3, fake_time + 700.0)
+            verifier._failures[_hk("new_key")] = (3, fake_time + 700.0)
 
             mock_time.monotonic.return_value = fake_time + 601.0
 
             verifier._cleanup_stale_entries()
 
             # old_key should be cleaned up (next_allowed is 601s in the past)
-            assert "old_key" not in verifier._failures
+            assert _hk("old_key") not in verifier._failures
             # new_key should remain (next_allowed is still in the future)
-            assert "new_key" in verifier._failures
+            assert _hk("new_key") in verifier._failures
 
     def test_lazy_cleanup_triggered_periodically(self):
         """Cleanup should be triggered during verify_token calls
@@ -241,11 +245,11 @@ class TestRateLimiting:
             mock_time.monotonic.return_value = fake_time
 
             # Add a stale entry: next_allowed is 601+ seconds in the past
-            verifier._failures["stale_key"] = (3, fake_time - 601.0)
+            verifier._failures[_hk("stale_key")] = (3, fake_time - 601.0)
             verifier._last_cleanup = fake_time - 601.0  # Force cleanup to trigger
 
             # This verify_token call should trigger lazy cleanup
             self._run(verifier.verify_token("some_token"))
 
             # Stale entry should have been cleaned up
-            assert "stale_key" not in verifier._failures
+            assert _hk("stale_key") not in verifier._failures

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -46,9 +47,14 @@ class RaglingTokenVerifier(TokenVerifier):
 
     def __init__(self, config: Config) -> None:
         self._config = config
-        # {token: (failure_count, next_allowed_time)}
+        # {token_hash: (failure_count, next_allowed_time)}
         self._failures: dict[str, tuple[int, float]] = {}
         self._last_cleanup: float = time.monotonic()
+
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        """Hash a token for use as a rate-limit key (avoid storing raw tokens)."""
+        return hashlib.sha256(token.encode()).hexdigest()[:16]
 
     async def verify_token(self, token: str) -> AccessToken | None:
         """Verify a bearer token against configured API keys.
@@ -67,24 +73,25 @@ class RaglingTokenVerifier(TokenVerifier):
                 and the backoff period has not yet elapsed.
         """
         self._maybe_cleanup()
-        self._check_rate_limit(token)
+        key = self._hash_token(token)
+        self._check_rate_limit(key)
 
         from ragling.auth import resolve_api_key
 
         user_ctx = resolve_api_key(token, self._config)
         if user_ctx is None:
-            self._record_failure(token)
+            self._record_failure(key)
             return None
 
         # Successful auth: clear any failure record
-        self._failures.pop(token, None)
+        self._failures.pop(key, None)
         return AccessToken(
             token=token,
             client_id=user_ctx.username,
             scopes=[],
         )
 
-    def _check_rate_limit(self, token: str) -> None:
+    def _check_rate_limit(self, key: str) -> None:
         """Raise RateLimitedError if the token is currently rate-limited.
 
         A token is rate-limited when its failure count exceeds MAX_FAILURES
@@ -92,19 +99,19 @@ class RaglingTokenVerifier(TokenVerifier):
         rejection also increments the failure count so the backoff grows.
 
         Args:
-            token: The token to check.
+            key: Hashed token key to check.
 
         Raises:
             RateLimitedError: If the token is rate-limited.
         """
-        if token not in self._failures:
+        if key not in self._failures:
             return
-        count, next_allowed = self._failures[token]
+        count, next_allowed = self._failures[key]
         now = time.monotonic()
         if count > MAX_FAILURES and now < next_allowed:
             # Still increment so backoff keeps growing
-            self._record_failure(token)
-            _, new_next_allowed = self._failures[token]
+            self._record_failure(key)
+            _, new_next_allowed = self._failures[key]
             retry_after = new_next_allowed - now
             logger.warning(
                 "Rate-limited token attempt (count=%d, retry_after=%.0fs)",
@@ -113,23 +120,23 @@ class RaglingTokenVerifier(TokenVerifier):
             )
             raise RateLimitedError(retry_after=retry_after)
 
-    def _record_failure(self, token: str) -> None:
+    def _record_failure(self, key: str) -> None:
         """Record a failed authentication attempt.
 
         Increments the failure count and sets the next allowed time using
         exponential backoff: min(2^count, MAX_BACKOFF_SECONDS) seconds.
 
         Args:
-            token: The token that failed authentication.
+            key: Hashed token key that failed authentication.
         """
         now = time.monotonic()
-        if token in self._failures:
-            count, _ = self._failures[token]
+        if key in self._failures:
+            count, _ = self._failures[key]
             count += 1
         else:
             count = 1
         backoff = min(2**count, MAX_BACKOFF_SECONDS)
-        self._failures[token] = (count, now + backoff)
+        self._failures[key] = (count, now + backoff)
 
     def _maybe_cleanup(self) -> None:
         """Trigger cleanup if enough time has passed since the last one."""
