@@ -39,66 +39,34 @@ class TestSupportedExtensions:
         assert isinstance(_SUPPORTED_EXTENSIONS, frozenset)
 
 
+_EXTENSION_CASES = [
+    (".pdf", "pdf"),
+    (".docx", "docx"),
+    (".pptx", "pptx"),
+    (".xlsx", "xlsx"),
+    (".tex", "latex"),
+    (".latex", "latex"),
+    (".png", "image"),
+    (".jpg", "image"),
+    (".jpeg", "image"),
+    (".tiff", "image"),
+    (".md", "markdown"),
+    (".adoc", "asciidoc"),
+    (".epub", "epub"),
+    (".csv", "csv"),
+    (".html", "html"),
+    (".htm", "html"),
+    (".txt", "plaintext"),
+    (".json", "plaintext"),
+    (".yaml", "plaintext"),
+    (".yml", "plaintext"),
+]
+
+
 class TestExtensionMap:
-    def test_pdf_maps_to_pdf(self) -> None:
-        assert _EXTENSION_MAP[".pdf"] == "pdf"
-
-    def test_docx_maps_to_docx(self) -> None:
-        assert _EXTENSION_MAP[".docx"] == "docx"
-
-    def test_pptx_maps_to_pptx(self) -> None:
-        assert _EXTENSION_MAP[".pptx"] == "pptx"
-
-    def test_xlsx_maps_to_xlsx(self) -> None:
-        assert _EXTENSION_MAP[".xlsx"] == "xlsx"
-
-    def test_tex_maps_to_latex(self) -> None:
-        assert _EXTENSION_MAP[".tex"] == "latex"
-
-    def test_latex_maps_to_latex(self) -> None:
-        assert _EXTENSION_MAP[".latex"] == "latex"
-
-    def test_png_maps_to_image(self) -> None:
-        assert _EXTENSION_MAP[".png"] == "image"
-
-    def test_jpg_maps_to_image(self) -> None:
-        assert _EXTENSION_MAP[".jpg"] == "image"
-
-    def test_jpeg_maps_to_image(self) -> None:
-        assert _EXTENSION_MAP[".jpeg"] == "image"
-
-    def test_tiff_maps_to_image(self) -> None:
-        assert _EXTENSION_MAP[".tiff"] == "image"
-
-    def test_md_maps_to_markdown(self) -> None:
-        assert _EXTENSION_MAP[".md"] == "markdown"
-
-    def test_adoc_maps_to_asciidoc(self) -> None:
-        assert _EXTENSION_MAP[".adoc"] == "asciidoc"
-
-    def test_epub_maps_to_epub(self) -> None:
-        assert _EXTENSION_MAP[".epub"] == "epub"
-
-    def test_csv_maps_to_csv(self) -> None:
-        assert _EXTENSION_MAP[".csv"] == "csv"
-
-    def test_html_maps_to_html(self) -> None:
-        assert _EXTENSION_MAP[".html"] == "html"
-
-    def test_htm_maps_to_html(self) -> None:
-        assert _EXTENSION_MAP[".htm"] == "html"
-
-    def test_txt_maps_to_plaintext(self) -> None:
-        assert _EXTENSION_MAP[".txt"] == "plaintext"
-
-    def test_json_maps_to_plaintext(self) -> None:
-        assert _EXTENSION_MAP[".json"] == "plaintext"
-
-    def test_yaml_maps_to_plaintext(self) -> None:
-        assert _EXTENSION_MAP[".yaml"] == "plaintext"
-
-    def test_yml_maps_to_plaintext(self) -> None:
-        assert _EXTENSION_MAP[".yml"] == "plaintext"
+    @pytest.mark.parametrize("ext,expected", _EXTENSION_CASES)
+    def test_extension_maps_correctly(self, ext: str, expected: str) -> None:
+        assert _EXTENSION_MAP[ext] == expected
 
 
 _AUDIO_EXTENSIONS = [
