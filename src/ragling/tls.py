@@ -15,14 +15,13 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 logger = logging.getLogger(__name__)
 
 _CA_VALIDITY_DAYS = 3650  # ~10 years
 _SERVER_VALIDITY_DAYS = 365  # 1 year
-_KEY_SIZE = 2048
 
 
 @dataclass(frozen=True)
@@ -86,7 +85,7 @@ def _is_expired(cert_path: Path) -> bool:
 
 def _generate_ca(cfg: TLSConfig) -> None:
     """Generate a self-signed CA certificate and private key."""
-    key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
+    key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.now(timezone.utc)
 
     subject = issuer = x509.Name(
@@ -116,9 +115,9 @@ def _generate_server_cert(cfg: TLSConfig) -> None:
     """Generate a server certificate signed by the CA."""
     ca_cert = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
     ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
-    assert isinstance(ca_key, rsa.RSAPrivateKey)
+    assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
 
-    key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
+    key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.now(timezone.utc)
 
     subject = x509.Name(
@@ -154,7 +153,7 @@ def _generate_server_cert(cfg: TLSConfig) -> None:
     logger.info("Generated server certificate: %s", cfg.server_cert)
 
 
-def _write_key(path: Path, key: rsa.RSAPrivateKey) -> None:
+def _write_key(path: Path, key: ec.EllipticCurvePrivateKey) -> None:
     """Write a private key to disk with restricted permissions."""
     key_bytes = key.private_bytes(
         serialization.Encoding.PEM,

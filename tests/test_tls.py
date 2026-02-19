@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from ragling.tls import TLSConfig
 
@@ -127,6 +128,52 @@ class TestCAGeneration:
 
         bc = ca.extensions.get_extension_for_class(x509.BasicConstraints)
         assert bc.value.ca is True
+
+
+class TestECKeyType:
+    """Tests for ECDSA P-256 key generation."""
+
+    def test_ca_key_is_ec(self, tmp_path: Path) -> None:
+        """CA private key should be an EC key, not RSA."""
+        from cryptography.hazmat.primitives import serialization
+
+        from ragling.tls import ensure_tls_certs
+
+        cfg = ensure_tls_certs(tmp_path / "tls")
+        ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
+        assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
+
+    def test_server_key_is_ec(self, tmp_path: Path) -> None:
+        """Server private key should be an EC key, not RSA."""
+        from cryptography.hazmat.primitives import serialization
+
+        from ragling.tls import ensure_tls_certs
+
+        cfg = ensure_tls_certs(tmp_path / "tls")
+        server_key = serialization.load_pem_private_key(cfg.server_key.read_bytes(), password=None)
+        assert isinstance(server_key, ec.EllipticCurvePrivateKey)
+
+    def test_ca_key_uses_secp256r1(self, tmp_path: Path) -> None:
+        """CA key should use SECP256R1 (P-256) curve."""
+        from cryptography.hazmat.primitives import serialization
+
+        from ragling.tls import ensure_tls_certs
+
+        cfg = ensure_tls_certs(tmp_path / "tls")
+        ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
+        assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
+        assert isinstance(ca_key.curve, ec.SECP256R1)
+
+    def test_server_key_uses_secp256r1(self, tmp_path: Path) -> None:
+        """Server key should use SECP256R1 (P-256) curve."""
+        from cryptography.hazmat.primitives import serialization
+
+        from ragling.tls import ensure_tls_certs
+
+        cfg = ensure_tls_certs(tmp_path / "tls")
+        server_key = serialization.load_pem_private_key(cfg.server_key.read_bytes(), password=None)
+        assert isinstance(server_key, ec.EllipticCurvePrivateKey)
+        assert isinstance(server_key.curve, ec.SECP256R1)
 
 
 class TestServerCertGeneration:
@@ -272,12 +319,12 @@ def _write_near_expiry_cert(cfg: TLSConfig, days_remaining: int = 15) -> None:
     from datetime import timedelta
 
     from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives.asymmetric import ec
 
     ca_cert = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
     ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
 
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.now(timezone.utc)
 
     cert = (
@@ -385,12 +432,12 @@ def _write_expired_cert(cfg: TLSConfig) -> None:
     from datetime import timedelta
 
     from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives.asymmetric import ec
 
     ca_cert = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
     ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
 
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.now(timezone.utc)
 
     cert = (
