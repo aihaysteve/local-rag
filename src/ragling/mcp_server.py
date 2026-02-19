@@ -299,6 +299,18 @@ def _get_user_context(config: Config | None) -> UserContext | None:
     )
 
 
+def _get_visible_collections(server_config: Config | None) -> list[str] | None:
+    """Compute the list of collections visible to the current user.
+
+    Returns None when unauthenticated (all collections visible).
+    """
+    user_ctx = _get_user_context(server_config)
+    if not user_ctx:
+        return None
+    global_coll = "global" if server_config and server_config.global_paths else None
+    return user_ctx.visible_collections(global_collection=global_coll)
+
+
 def create_server(
     group_name: str = "default",
     config: Config | None = None,
@@ -484,14 +496,8 @@ def create_server(
         from ragling.embeddings import OllamaConnectionError
         from ragling.search import perform_search
 
-        # Derive user context (present for SSE, None for stdio)
+        visible = _get_visible_collections(server_config)
         user_ctx = _get_user_context(server_config)
-
-        # Compute visible collections
-        visible: list[str] | None = None
-        if user_ctx:
-            global_coll = "global" if server_config and server_config.global_paths else None
-            visible = user_ctx.visible_collections(global_collection=global_coll)
 
         try:
             results = perform_search(
@@ -549,12 +555,7 @@ def create_server(
         conn = get_connection(config)
         init_db(conn, config)
 
-        # Derive user context for visibility filtering
-        user_ctx = _get_user_context(server_config)
-        visible: list[str] | None = None
-        if user_ctx:
-            global_coll = "global" if server_config and server_config.global_paths else None
-            visible = user_ctx.visible_collections(global_collection=global_coll)
+        visible = _get_visible_collections(server_config)
 
         try:
             rows = conn.execute("""
@@ -602,12 +603,7 @@ def create_server(
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
         """
-        # Derive user context for visibility filtering
-        user_ctx = _get_user_context(server_config)
-        visible: list[str] | None = None
-        if user_ctx:
-            global_coll = "global" if server_config and server_config.global_paths else None
-            visible = user_ctx.visible_collections(global_collection=global_coll)
+        visible = _get_visible_collections(server_config)
         if visible and collection not in visible:
             return {"error": f"Collection '{collection}' is not accessible."}
 
@@ -679,12 +675,7 @@ def create_server(
         Args:
             collection: The collection name.
         """
-        # Derive user context for visibility filtering
-        user_ctx = _get_user_context(server_config)
-        visible: list[str] | None = None
-        if user_ctx:
-            global_coll = "global" if server_config and server_config.global_paths else None
-            visible = user_ctx.visible_collections(global_collection=global_coll)
+        visible = _get_visible_collections(server_config)
         if visible and collection not in visible:
             return {"error": f"Collection '{collection}' is not accessible."}
 
