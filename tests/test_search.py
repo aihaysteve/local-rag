@@ -954,12 +954,13 @@ class TestPerformSearchParams:
     @patch("ragling.search.get_connection")
     @patch("ragling.search.init_db")
     @patch("ragling.search.search", return_value=[])
-    @patch("ragling.search.load_config")
-    def test_passes_visible_collections(
-        self, mock_load, mock_search, mock_init, mock_conn, mock_embed
-    ):
+    def test_passes_visible_collections(self, mock_search, mock_init, mock_conn, mock_embed):
         """perform_search passes visible_collections through to search."""
-        perform_search("test query", visible_collections=["kitchen", "global"])
+        perform_search(
+            "test query",
+            visible_collections=["kitchen", "global"],
+            config=Config(embedding_dimensions=4),
+        )
         _, kwargs = mock_search.call_args
         assert kwargs["visible_collections"] == ["kitchen", "global"]
 
@@ -967,14 +968,25 @@ class TestPerformSearchParams:
     @patch("ragling.search.get_connection")
     @patch("ragling.search.init_db")
     @patch("ragling.search.search", return_value=[])
-    @patch("ragling.search.load_config")
     def test_defaults_visible_collections_to_none(
-        self, mock_load, mock_search, mock_init, mock_conn, mock_embed
+        self, mock_search, mock_init, mock_conn, mock_embed
     ):
         """perform_search defaults visible_collections to None (full access)."""
-        perform_search("test query")
+        perform_search("test query", config=Config(embedding_dimensions=4))
         _, kwargs = mock_search.call_args
         assert kwargs["visible_collections"] is None
+
+    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.load_config")
+    def test_dimension_mismatch_raises_value_error(
+        self, mock_load, mock_init, mock_conn, mock_embed
+    ):
+        """perform_search raises ValueError when embedding dims don't match config."""
+        config = Config(embedding_dimensions=4)
+        with pytest.raises(ValueError, match="embedding dimension mismatch"):
+            perform_search("test query", config=config)
 
 
 @requires_sqlite_extensions

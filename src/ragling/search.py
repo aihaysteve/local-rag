@@ -464,6 +464,12 @@ def perform_search(
     try:
         query_embedding = get_embedding(query, config)
 
+        if len(query_embedding) != config.embedding_dimensions:
+            raise ValueError(
+                f"embedding dimension mismatch: got {len(query_embedding)}, "
+                f"expected {config.embedding_dimensions}"
+            )
+
         filters = SearchFilters(
             collection=collection,
             source_type=source_type,
