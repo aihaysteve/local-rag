@@ -111,9 +111,7 @@ class Config:
     group_db_dir: Path = field(default_factory=lambda: DEFAULT_GROUP_DB_DIR)
     home: Path | None = None
     global_paths: tuple[Path, ...] = ()
-    # TODO: users could be MappingProxyType[str, UserConfig] for full immutability,
-    # but the churn is not worth it since users is not mutated after construction.
-    users: dict[str, UserConfig] = field(default_factory=dict)
+    users: MappingProxyType[str, UserConfig] = field(default_factory=lambda: MappingProxyType({}))
     ollama_host: str | None = None
 
     @property
@@ -136,8 +134,8 @@ class Config:
     def with_overrides(self, **kwargs: Any) -> Config:
         """Return a new Config with the specified fields replaced.
 
-        Automatically converts plain dicts for ``code_groups`` to
-        ``MappingProxyType`` so callers don't need to import it.
+        Automatically converts plain dicts for ``code_groups`` and
+        ``users`` to ``MappingProxyType`` so callers don't need to import it.
 
         Args:
             **kwargs: Field names and new values.
@@ -147,6 +145,8 @@ class Config:
         """
         if "code_groups" in kwargs and isinstance(kwargs["code_groups"], dict):
             kwargs["code_groups"] = MappingProxyType(kwargs["code_groups"])
+        if "users" in kwargs and isinstance(kwargs["users"], dict):
+            kwargs["users"] = MappingProxyType(kwargs["users"])
         return replace(self, **kwargs)
 
 
@@ -303,7 +303,7 @@ def load_config(path: Path | None = None) -> Config:
         group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR))),
         home=home,
         global_paths=global_paths,
-        users=users,
+        users=MappingProxyType(users),
         ollama_host=data.get("ollama_host"),
     )
 
