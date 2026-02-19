@@ -23,6 +23,47 @@ requires_sqlite_extensions = pytest.mark.skipif(
 )
 
 
+def _insert_document(
+    conn,
+    collection_name,
+    source_path,
+    title,
+    content,
+    embedding,
+    metadata=None,
+    source_type="markdown",
+    file_modified_at="2025-01-15T10:00:00",
+):
+    """Helper to insert a document with its embedding."""
+    from ragling.db import get_or_create_collection
+    from ragling.embeddings import serialize_float32
+
+    col_id = get_or_create_collection(conn, collection_name)
+    cursor = conn.execute(
+        "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path, file_modified_at) VALUES (?, ?, ?, ?)",
+        (col_id, source_type, source_path, file_modified_at),
+    )
+    if cursor.lastrowid == 0:
+        source_id = conn.execute(
+            "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
+            (col_id, source_path),
+        ).fetchone()["id"]
+    else:
+        source_id = cursor.lastrowid
+    cursor = conn.execute(
+        "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
+        "VALUES (?, ?, 0, ?, ?, ?)",
+        (source_id, col_id, title, content, json.dumps(metadata or {})),
+    )
+    doc_id = cursor.lastrowid
+    conn.execute(
+        "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
+        (doc_id, serialize_float32(embedding), doc_id),
+    )
+    conn.commit()
+    return doc_id
+
+
 class TestRRFMerge:
     """Tests for rrf_merge (pure unit tests, no database)."""
 
@@ -202,52 +243,9 @@ class TestSearchWithDatabase:
         yield conn, config
         conn.close()
 
-    @staticmethod
-    def _insert_document(
-        conn,
-        collection_name,
-        source_path,
-        title,
-        content,
-        embedding,
-        metadata=None,
-        source_type="markdown",
-    ):
-        """Helper to insert a document with its embedding."""
-        from ragling.db import get_or_create_collection
-        from ragling.embeddings import serialize_float32
-
-        col_id = get_or_create_collection(conn, collection_name)
-
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path) VALUES (?, ?, ?)",
-            (col_id, source_type, source_path),
-        )
-        if cursor.lastrowid == 0:
-            source_id = conn.execute(
-                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-                (col_id, source_path),
-            ).fetchone()["id"]
-        else:
-            source_id = cursor.lastrowid
-
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
-            "VALUES (?, ?, 0, ?, ?, ?)",
-            (source_id, col_id, title, content, json.dumps(metadata or {})),
-        )
-        doc_id = cursor.lastrowid
-
-        conn.execute(
-            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-            (doc_id, serialize_float32(embedding), doc_id),
-        )
-        conn.commit()
-        return doc_id
-
     def test_fts_search_finds_document(self, db):
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "test",
             "/test.md",
@@ -267,7 +265,7 @@ class TestSearchWithDatabase:
 
     def test_fts_search_no_match(self, db):
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "test",
             "/test.md",
@@ -288,8 +286,8 @@ class TestSearchWithDatabase:
     def test_vec_search_finds_similar(self, db):
         conn, config = db
 
-        self._insert_document(conn, "test", "/a.md", "A", "content a", [1.0, 0.0, 0.0, 0.0])
-        self._insert_document(conn, "test", "/b.md", "B", "content b", [0.0, 1.0, 0.0, 0.0])
+        _insert_document(conn, "test", "/a.md", "A", "content a", [1.0, 0.0, 0.0, 0.0])
+        _insert_document(conn, "test", "/b.md", "B", "content b", [0.0, 1.0, 0.0, 0.0])
 
         from ragling.embeddings import serialize_float32
 
@@ -306,7 +304,7 @@ class TestSearchWithDatabase:
     def test_full_hybrid_search(self, db):
         """Test the full search() function with real DB."""
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "obsidian",
             "/notes/k8s.md",
@@ -314,7 +312,7 @@ class TestSearchWithDatabase:
             "kubernetes deployment strategies for production environments",
             [1.0, 0.0, 0.0, 0.0],
         )
-        self._insert_document(
+        _insert_document(
             conn,
             "obsidian",
             "/notes/docker.md",
@@ -342,10 +340,10 @@ class TestSearchWithDatabase:
 
     def test_search_with_collection_filter(self, db):
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn, "obsidian", "/a.md", "Note A", "common search term alpha", [1.0, 0.0, 0.0, 0.0]
         )
-        self._insert_document(
+        _insert_document(
             conn,
             "project-x",
             "/b.md",
@@ -370,7 +368,7 @@ class TestSearchWithDatabase:
 
     def test_search_returns_search_result_objects(self, db):
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "test-col",
             "/doc.md",
@@ -406,7 +404,7 @@ class TestSearchWithDatabase:
     def test_search_with_visible_collections_filter(self, db):
         """visible_collections limits results to allowed collections only."""
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "kitchen",
             "/kitchen/notes.md",
@@ -414,7 +412,7 @@ class TestSearchWithDatabase:
             "recipe for pasta carbonara",
             [1.0, 0.0, 0.0, 0.0],
         )
-        self._insert_document(
+        _insert_document(
             conn,
             "garage",
             "/garage/tools.md",
@@ -422,7 +420,7 @@ class TestSearchWithDatabase:
             "recipe for workshop organization",
             [0.9, 0.1, 0.0, 0.0],
         )
-        self._insert_document(
+        _insert_document(
             conn,
             "global",
             "/global/shared.md",
@@ -451,7 +449,7 @@ class TestSearchWithDatabase:
     def test_search_visible_collections_none_returns_all(self, db):
         """visible_collections=None returns results from all collections."""
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "col-a",
             "/a.md",
@@ -459,7 +457,7 @@ class TestSearchWithDatabase:
             "unique text alpha",
             [1.0, 0.0, 0.0, 0.0],
         )
-        self._insert_document(
+        _insert_document(
             conn,
             "col-b",
             "/b.md",
@@ -485,7 +483,7 @@ class TestSearchWithDatabase:
     def test_search_visible_collections_empty_returns_nothing(self, db):
         """visible_collections=[] returns no results."""
         conn, config = db
-        self._insert_document(
+        _insert_document(
             conn,
             "test",
             "/test.md",
@@ -536,49 +534,10 @@ class TestBatchLoadMetadata:
         yield conn, config
         conn.close()
 
-    @staticmethod
-    def _insert_document(
-        conn,
-        collection_name,
-        source_path,
-        title,
-        content,
-        embedding,
-        metadata=None,
-        source_type="markdown",
-    ):
-        from ragling.db import get_or_create_collection
-        from ragling.embeddings import serialize_float32
-
-        col_id = get_or_create_collection(conn, collection_name)
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path, file_modified_at) VALUES (?, ?, ?, ?)",
-            (col_id, source_type, source_path, "2025-01-15T10:00:00"),
-        )
-        if cursor.lastrowid == 0:
-            source_id = conn.execute(
-                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-                (col_id, source_path),
-            ).fetchone()["id"]
-        else:
-            source_id = cursor.lastrowid
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
-            "VALUES (?, ?, 0, ?, ?, ?)",
-            (source_id, col_id, title, content, json.dumps(metadata or {})),
-        )
-        doc_id = cursor.lastrowid
-        conn.execute(
-            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-            (doc_id, serialize_float32(embedding), doc_id),
-        )
-        conn.commit()
-        return doc_id
-
     def test_returns_metadata_for_multiple_docs(self, db):
         conn, config = db
-        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
-        id2 = self._insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
+        id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id2 = _insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -598,7 +557,7 @@ class TestBatchLoadMetadata:
 
     def test_includes_collection_and_source_info(self, db):
         conn, config = db
-        doc_id = self._insert_document(
+        doc_id = _insert_document(
             conn, "email-coll", "/mail/1", "Email", "body", [1, 0, 0, 0], source_type="email"
         )
 
@@ -612,7 +571,7 @@ class TestBatchLoadMetadata:
 
     def test_includes_file_modified_at(self, db):
         conn, config = db
-        doc_id = self._insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
+        doc_id = _insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -621,7 +580,7 @@ class TestBatchLoadMetadata:
 
     def test_skips_missing_ids(self, db):
         conn, config = db
-        doc_id = self._insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
+        doc_id = _insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -1016,49 +975,10 @@ class TestMetadataCache:
         yield conn, config
         conn.close()
 
-    @staticmethod
-    def _insert_document(
-        conn,
-        collection_name,
-        source_path,
-        title,
-        content,
-        embedding,
-        metadata=None,
-        source_type="markdown",
-    ):
-        from ragling.db import get_or_create_collection
-        from ragling.embeddings import serialize_float32
-
-        col_id = get_or_create_collection(conn, collection_name)
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path, file_modified_at) VALUES (?, ?, ?, ?)",
-            (col_id, source_type, source_path, "2025-01-15T10:00:00"),
-        )
-        if cursor.lastrowid == 0:
-            source_id = conn.execute(
-                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-                (col_id, source_path),
-            ).fetchone()["id"]
-        else:
-            source_id = cursor.lastrowid
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
-            "VALUES (?, ?, 0, ?, ?, ?)",
-            (source_id, col_id, title, content, json.dumps(metadata or {})),
-        )
-        doc_id = cursor.lastrowid
-        conn.execute(
-            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-            (doc_id, serialize_float32(embedding), doc_id),
-        )
-        conn.commit()
-        return doc_id
-
     def test_cache_stores_results(self, db) -> None:
         """Results from _batch_load_metadata are stored in the provided cache."""
         conn, config = db
-        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -1072,7 +992,7 @@ class TestMetadataCache:
     def test_cache_avoids_redundant_queries(self, db) -> None:
         """Second call with same IDs should not hit the database."""
         conn, config = db
-        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -1093,8 +1013,8 @@ class TestMetadataCache:
     def test_cache_partial_hit(self, db) -> None:
         """When some IDs are cached and some are not, only uncached IDs are queried."""
         conn, config = db
-        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
-        id2 = self._insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
+        id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id2 = _insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -1116,7 +1036,7 @@ class TestMetadataCache:
     def test_cache_none_behaves_as_before(self, db) -> None:
         """When cache is None, _batch_load_metadata works as before."""
         conn, config = db
-        id1 = self._insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
+        id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
 
@@ -1184,45 +1104,6 @@ class TestApplyFiltersEarlyTermination:
         yield conn, config
         conn.close()
 
-    @staticmethod
-    def _insert_document(
-        conn,
-        collection_name,
-        source_path,
-        title,
-        content,
-        embedding,
-        metadata=None,
-        source_type="markdown",
-    ):
-        from ragling.db import get_or_create_collection
-        from ragling.embeddings import serialize_float32
-
-        col_id = get_or_create_collection(conn, collection_name)
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path) VALUES (?, ?, ?)",
-            (col_id, source_type, source_path),
-        )
-        if cursor.lastrowid == 0:
-            source_id = conn.execute(
-                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-                (col_id, source_path),
-            ).fetchone()["id"]
-        else:
-            source_id = cursor.lastrowid
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
-            "VALUES (?, ?, 0, ?, ?, ?)",
-            (source_id, col_id, title, content, json.dumps(metadata or {})),
-        )
-        doc_id = cursor.lastrowid
-        conn.execute(
-            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-            (doc_id, serialize_float32(embedding), doc_id),
-        )
-        conn.commit()
-        return doc_id
-
     def test_returns_exactly_top_k_matches(self, db) -> None:
         """_apply_filters returns exactly top_k results when enough match."""
         conn, config = db
@@ -1232,14 +1113,14 @@ class TestApplyFiltersEarlyTermination:
         # Insert 10 docs in "wanted" collection and 10 in "other"
         wanted_ids = []
         for i in range(10):
-            doc_id = self._insert_document(
+            doc_id = _insert_document(
                 conn, "wanted", f"/wanted/{i}.md", f"W{i}", f"wanted content {i}", [1, 0, 0, 0]
             )
             wanted_ids.append(doc_id)
 
         other_ids = []
         for i in range(10):
-            doc_id = self._insert_document(
+            doc_id = _insert_document(
                 conn, "other", f"/other/{i}.md", f"O{i}", f"other content {i}", [0, 1, 0, 0]
             )
             other_ids.append(doc_id)
@@ -1267,7 +1148,7 @@ class TestApplyFiltersEarlyTermination:
         # Insert 20 matching docs
         all_ids = []
         for i in range(20):
-            doc_id = self._insert_document(
+            doc_id = _insert_document(
                 conn, "target", f"/target/{i}.md", f"T{i}", f"target content {i}", [1, 0, 0, 0]
             )
             all_ids.append(doc_id)
@@ -1332,52 +1213,13 @@ class TestSearchPipelineCacheCoherence:
         yield conn, config
         conn.close()
 
-    @staticmethod
-    def _insert_document(
-        conn,
-        collection_name,
-        source_path,
-        title,
-        content,
-        embedding,
-        metadata=None,
-        source_type="markdown",
-    ):
-        from ragling.db import get_or_create_collection
-        from ragling.embeddings import serialize_float32
-
-        col_id = get_or_create_collection(conn, collection_name)
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO sources (collection_id, source_type, source_path, file_modified_at) VALUES (?, ?, ?, ?)",
-            (col_id, source_type, source_path, "2025-01-15T10:00:00"),
-        )
-        if cursor.lastrowid == 0:
-            source_id = conn.execute(
-                "SELECT id FROM sources WHERE collection_id = ? AND source_path = ?",
-                (col_id, source_path),
-            ).fetchone()["id"]
-        else:
-            source_id = cursor.lastrowid
-        cursor = conn.execute(
-            "INSERT INTO documents (source_id, collection_id, chunk_index, title, content, metadata) "
-            "VALUES (?, ?, 0, ?, ?, ?)",
-            (source_id, col_id, title, content, json.dumps(metadata or {})),
-        )
-        doc_id = cursor.lastrowid
-        conn.execute(
-            "INSERT INTO vec_documents (rowid, embedding, document_id) VALUES (?, ?, ?)",
-            (doc_id, serialize_float32(embedding), doc_id),
-        )
-        conn.commit()
-        return doc_id
-
     def test_overlapping_vec_and_fts_results_use_shared_cache(self, db) -> None:
         """Documents found by both vector and FTS search are only loaded once from DB."""
         conn, config = db
 
         # Insert a document that will match both vector search (close embedding)
         # and FTS search (matching text content)
-        doc_id = self._insert_document(
+        doc_id = _insert_document(
             conn,
             "test",
             "/notes/overlap.md",
