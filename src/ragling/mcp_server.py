@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from ragling.auth import UserContext
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
+from ragling.indexer_types import IndexerType
 
 if TYPE_CHECKING:
     from ragling.indexing_queue import IndexingQueue
@@ -746,16 +747,20 @@ def create_server(
             }
 
         if collection == "obsidian":
-            job = IndexJob("directory", P(path) if path else None, "obsidian", "obsidian")
+            job = IndexJob("directory", P(path) if path else None, "obsidian", IndexerType.OBSIDIAN)
         elif collection == "email":
-            job = IndexJob("system_collection", P(path) if path else None, "email", "email")
+            job = IndexJob(
+                "system_collection", P(path) if path else None, "email", IndexerType.EMAIL
+            )
         elif collection == "calibre":
-            job = IndexJob("system_collection", P(path) if path else None, "calibre", "calibre")
+            job = IndexJob(
+                "system_collection", P(path) if path else None, "calibre", IndexerType.CALIBRE
+            )
         elif collection == "rss":
-            job = IndexJob("system_collection", P(path) if path else None, "rss", "rss")
+            job = IndexJob("system_collection", P(path) if path else None, "rss", IndexerType.RSS)
         elif collection in config.code_groups:
             for repo_path in config.code_groups[collection]:
-                job = IndexJob("directory", repo_path, collection, "code")
+                job = IndexJob("directory", repo_path, collection, IndexerType.CODE)
                 q.submit(job)
             return {
                 "status": "submitted",
@@ -764,7 +769,7 @@ def create_server(
                 "indexing": indexing_status.to_dict() if indexing_status else None,
             }
         elif path:
-            job = IndexJob("directory", P(path), collection, "project")
+            job = IndexJob("directory", P(path), collection, IndexerType.PROJECT)
         else:
             return {
                 "error": f"Unknown collection '{collection}'. Provide a path for project indexing."

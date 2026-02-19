@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ragling.config import Config
+from ragling.indexer_types import IndexerType
 from ragling.indexing_queue import IndexJob
 
 if TYPE_CHECKING:
@@ -151,7 +152,7 @@ def run_startup_sync(
                             job_type="directory",
                             path=vault,
                             collection_name="obsidian",
-                            indexer_type="obsidian",
+                            indexer_type=IndexerType.OBSIDIAN,
                         )
                     )
 
@@ -165,7 +166,7 @@ def run_startup_sync(
                             job_type="directory",
                             path=repo_path,
                             collection_name=group_name,
-                            indexer_type="code",
+                            indexer_type=IndexerType.CODE,
                         )
                     )
 
@@ -180,7 +181,7 @@ def run_startup_sync(
                         job_type="system_collection",
                         path=config.emclient_db_path,
                         collection_name="email",
-                        indexer_type="email",
+                        indexer_type=IndexerType.EMAIL,
                     )
                 )
 
@@ -193,7 +194,7 @@ def run_startup_sync(
                             job_type="system_collection",
                             path=lib,
                             collection_name="calibre",
-                            indexer_type="calibre",
+                            indexer_type=IndexerType.CALIBRE,
                         )
                     )
 
@@ -207,7 +208,7 @@ def run_startup_sync(
                         job_type="system_collection",
                         path=config.netnewswire_db_path,
                         collection_name="rss",
-                        indexer_type="rss",
+                        indexer_type=IndexerType.RSS,
                     )
                 )
 
@@ -251,7 +252,7 @@ def submit_file_change(
                 job_type="file_deleted",
                 path=file_path,
                 collection_name=collection,
-                indexer_type="prune",
+                indexer_type=IndexerType.PRUNE,
             )
         )
         return

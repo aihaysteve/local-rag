@@ -20,6 +20,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from ragling.config import Config
+from ragling.indexer_types import IndexerType
 from ragling.indexing_queue import IndexJob
 
 if TYPE_CHECKING:
@@ -57,11 +58,15 @@ class SystemCollectionWatcher:
         self._pending: set[Path] = set()
 
         # Build path-to-collection mapping
-        self._path_map: dict[Path, tuple[str, str]] = {}
+        self._path_map: dict[Path, tuple[str, IndexerType]] = {}
+        _collection_to_indexer: dict[str, IndexerType] = {
+            "email": IndexerType.EMAIL,
+            "calibre": IndexerType.CALIBRE,
+            "rss": IndexerType.RSS,
+        }
         for collection, path in self.get_db_paths():
             resolved = path.resolve()
-            # For system collections, indexer_type matches collection name
-            self._path_map[resolved] = (collection, collection)
+            self._path_map[resolved] = (collection, _collection_to_indexer[collection])
 
     def get_db_paths(self) -> list[tuple[str, Path]]:
         """Return list of (collection_name, db_path) for enabled system collections.

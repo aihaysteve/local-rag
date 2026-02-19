@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ragling.config import Config
+from ragling.indexer_types import IndexerType
 from ragling.indexing_queue import IndexJob, IndexingQueue, IndexRequest
 from ragling.indexing_status import IndexingStatus
 
@@ -18,7 +19,7 @@ class TestIndexJob:
             job_type="directory",
             path=Path("/test"),
             collection_name="test-coll",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         with pytest.raises(AttributeError):
             job.path = Path("/other")  # type: ignore[misc]
@@ -28,7 +29,7 @@ class TestIndexJob:
             job_type="file",
             path=Path("/test.md"),
             collection_name="docs",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         assert job.force is False
 
@@ -37,7 +38,7 @@ class TestIndexJob:
             job_type="file",
             path=Path("/test.md"),
             collection_name="docs",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
             force=True,
         )
         assert job.force is True
@@ -47,7 +48,7 @@ class TestIndexJob:
             job_type="system_collection",
             path=None,
             collection_name="email",
-            indexer_type="email",
+            indexer_type=IndexerType.EMAIL,
         )
         assert job.path is None
 
@@ -67,7 +68,7 @@ class TestIndexingQueue:
             job_type="file",
             path=Path("/test.md"),
             collection_name="docs",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         q.submit(job)
         assert status.is_active() is True
@@ -91,7 +92,7 @@ class TestIndexingQueue:
                 job_type="file",
                 path=Path("/test.md"),
                 collection_name="docs",
-                indexer_type="project",
+                indexer_type=IndexerType.PROJECT,
             )
             q.submit(job)
             q.shutdown()
@@ -110,7 +111,7 @@ class TestIndexingQueue:
                     job_type="file",
                     path=Path("/a.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             q.shutdown()
@@ -136,7 +137,7 @@ class TestIndexingQueue:
                     job_type="file",
                     path=Path("/fail.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             q.submit(
@@ -144,7 +145,7 @@ class TestIndexingQueue:
                     job_type="file",
                     path=Path("/ok.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             q.shutdown()
@@ -175,7 +176,7 @@ class TestIndexingQueue:
                         job_type="file",
                         path=Path(f"/file{i}.md"),
                         collection_name="docs",
-                        indexer_type="project",
+                        indexer_type=IndexerType.PROJECT,
                     )
                 )
             q.shutdown()
@@ -211,7 +212,7 @@ class TestProcessRouter:
             job_type="directory",
             path=Path("/docs"),
             collection_name="my-project",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         self._make_queue_and_process(job)
         mock_proj.assert_called_once()
@@ -229,7 +230,7 @@ class TestProcessRouter:
             job_type="directory",
             path=Path("/repo"),
             collection_name="my-org",
-            indexer_type="code",
+            indexer_type=IndexerType.CODE,
         )
         self._make_queue_and_process(job)
         mock_git.assert_called_once()
@@ -259,7 +260,7 @@ class TestProcessRouter:
             job_type="directory",
             path=Path("/repo"),
             collection_name="my-org",
-            indexer_type="code",
+            indexer_type=IndexerType.CODE,
         )
         self._make_queue_and_process(job)
 
@@ -282,7 +283,7 @@ class TestProcessRouter:
             job_type="directory",
             path=Path("/vault"),
             collection_name="obsidian",
-            indexer_type="obsidian",
+            indexer_type=IndexerType.OBSIDIAN,
         )
         self._make_queue_and_process(job)
         mock_obs.assert_called_once()
@@ -300,7 +301,7 @@ class TestProcessRouter:
             job_type="system_collection",
             path=Path("/emclient"),
             collection_name="email",
-            indexer_type="email",
+            indexer_type=IndexerType.EMAIL,
         )
         self._make_queue_and_process(job)
         mock_email.assert_called_once()
@@ -320,7 +321,7 @@ class TestProcessRouter:
             job_type="system_collection",
             path=None,
             collection_name="calibre",
-            indexer_type="calibre",
+            indexer_type=IndexerType.CALIBRE,
         )
         self._make_queue_and_process(job)
         mock_cal.assert_called_once()
@@ -338,7 +339,7 @@ class TestProcessRouter:
             job_type="system_collection",
             path=Path("/nnw"),
             collection_name="rss",
-            indexer_type="rss",
+            indexer_type=IndexerType.RSS,
         )
         self._make_queue_and_process(job)
         mock_rss.assert_called_once()
@@ -361,7 +362,7 @@ class TestProcessRouter:
             job_type="file_deleted",
             path=Path("/deleted.md"),
             collection_name="docs",
-            indexer_type="prune",
+            indexer_type=IndexerType.PRUNE,
         )
         self._make_queue_and_process(job)
         mock_delete.assert_called_once()
@@ -397,7 +398,7 @@ class TestSubmitAndWait:
             job_type="directory",
             path=tmp_path,
             collection_name="test-coll",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
 
         try:
@@ -434,7 +435,7 @@ class TestSubmitAndWait:
             job_type="directory",
             path=tmp_path,
             collection_name="test-coll",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         queue.submit(blocker)
 
@@ -443,7 +444,7 @@ class TestSubmitAndWait:
             job_type="directory",
             path=tmp_path,
             collection_name="test-coll",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
 
         result = queue.submit_and_wait(job, timeout=0.1)
@@ -502,7 +503,7 @@ class TestConcurrentSubmission:
                 job_type="file",
                 path=Path(f"/file_{thread_id}.md"),
                 collection_name=f"coll-{thread_id}",
-                indexer_type="project",
+                indexer_type=IndexerType.PROJECT,
             )
             barrier.wait()  # Ensure all threads submit concurrently
             q.submit(job)
@@ -531,7 +532,7 @@ class TestIndexRequest:
             job_type="directory",
             path=Path("/tmp/test"),
             collection_name="test",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         request = IndexRequest(job=job)
         assert not request.done.is_set()
@@ -567,7 +568,7 @@ class TestSingleWriterDesign:
                     job_type="file",
                     path=Path("/test.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             q.shutdown()
@@ -602,7 +603,7 @@ class TestGracefulShutdown:
                     job_type="file",
                     path=Path("/slow.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             # Give the worker time to pick up the job
@@ -635,7 +636,7 @@ class TestSubmitAndWaitFailure:
                 job_type="file",
                 path=Path("/boom.md"),
                 collection_name="docs",
-                indexer_type="project",
+                indexer_type=IndexerType.PROJECT,
             )
             result = q.submit_and_wait(job, timeout=5.0)
             q.shutdown()
@@ -676,7 +677,7 @@ class TestWorkerUsesFreshConfig:
                     job_type="file",
                     path=Path("/first.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             # Wait for first job to be processed
@@ -690,7 +691,7 @@ class TestWorkerUsesFreshConfig:
                     job_type="file",
                     path=Path("/second.md"),
                     collection_name="docs",
-                    indexer_type="project",
+                    indexer_type=IndexerType.PROJECT,
                 )
             )
             job_processed.wait(timeout=5.0)
@@ -731,7 +732,7 @@ class TestStatusPassthrough:
             job_type="directory",
             path=Path("/vault"),
             collection_name="obsidian",
-            indexer_type="obsidian",
+            indexer_type=IndexerType.OBSIDIAN,
         )
         q._process(job)
 
@@ -765,7 +766,7 @@ class TestStatusPassthrough:
             job_type="directory",
             path=Path("/docs"),
             collection_name="my-project",
-            indexer_type="project",
+            indexer_type=IndexerType.PROJECT,
         )
         q._process(job)
 
@@ -796,7 +797,7 @@ class TestStatusPassthrough:
             job_type="system_collection",
             path=Path("/emclient"),
             collection_name="email",
-            indexer_type="email",
+            indexer_type=IndexerType.EMAIL,
         )
         q._process(job)
 
@@ -830,7 +831,7 @@ class TestStatusPassthrough:
             job_type="system_collection",
             path=None,
             collection_name="calibre",
-            indexer_type="calibre",
+            indexer_type=IndexerType.CALIBRE,
         )
         q._process(job)
 
@@ -861,7 +862,7 @@ class TestStatusPassthrough:
             job_type="system_collection",
             path=Path("/nnw"),
             collection_name="rss",
-            indexer_type="rss",
+            indexer_type=IndexerType.RSS,
         )
         q._process(job)
 
@@ -895,7 +896,7 @@ class TestStatusPassthrough:
             job_type="directory",
             path=Path("/repo"),
             collection_name="my-org",
-            indexer_type="code",
+            indexer_type=IndexerType.CODE,
         )
         q._process(job)
 

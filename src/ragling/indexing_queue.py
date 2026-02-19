@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from ragling.config import Config
 from ragling.db import get_connection, get_or_create_collection, init_db
+from ragling.indexer_types import IndexerType
 from ragling.indexing_status import IndexingStatus
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ class IndexJob:
     job_type: str
     path: Path | None
     collection_name: str
-    indexer_type: str
+    indexer_type: IndexerType
     force: bool = False
 
 
@@ -178,14 +179,14 @@ class IndexingQueue:
         Raises:
             ValueError: If the indexer_type is not recognized.
         """
-        dispatch: dict[str, Callable[[IndexJob], IndexResult | None]] = {
-            "project": self._index_project,
-            "code": self._index_code,
-            "obsidian": self._index_obsidian,
-            "email": self._index_email,
-            "calibre": self._index_calibre,
-            "rss": self._index_rss,
-            "prune": self._prune_and_return_none,
+        dispatch: dict[IndexerType, Callable[[IndexJob], IndexResult | None]] = {
+            IndexerType.PROJECT: self._index_project,
+            IndexerType.CODE: self._index_code,
+            IndexerType.OBSIDIAN: self._index_obsidian,
+            IndexerType.EMAIL: self._index_email,
+            IndexerType.CALIBRE: self._index_calibre,
+            IndexerType.RSS: self._index_rss,
+            IndexerType.PRUNE: self._prune_and_return_none,
         }
         handler = dispatch.get(job.indexer_type)
         if handler is None:
