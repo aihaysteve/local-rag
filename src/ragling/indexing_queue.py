@@ -16,7 +16,7 @@ import logging
 import queue
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -178,23 +178,19 @@ class IndexingQueue:
         Raises:
             ValueError: If the indexer_type is not recognized.
         """
-        if job.indexer_type == "project":
-            return self._index_project(job)
-        elif job.indexer_type == "code":
-            return self._index_code(job)
-        elif job.indexer_type == "obsidian":
-            return self._index_obsidian(job)
-        elif job.indexer_type == "email":
-            return self._index_email(job)
-        elif job.indexer_type == "calibre":
-            return self._index_calibre(job)
-        elif job.indexer_type == "rss":
-            return self._index_rss(job)
-        elif job.indexer_type == "prune":
-            self._prune(job)
-            return None
-        else:
+        dispatch: dict[str, Callable[[IndexJob], IndexResult | None]] = {
+            "project": self._index_project,
+            "code": self._index_code,
+            "obsidian": self._index_obsidian,
+            "email": self._index_email,
+            "calibre": self._index_calibre,
+            "rss": self._index_rss,
+            "prune": self._prune_and_return_none,
+        }
+        handler = dispatch.get(job.indexer_type)
+        if handler is None:
             raise ValueError(f"Unknown indexer_type: {job.indexer_type!r}")
+        return handler(job)
 
     @contextmanager
     def _open_conn(self) -> Iterator[sqlite3.Connection]:
@@ -312,3 +308,7 @@ class IndexingQueue:
             collection_id = get_or_create_collection(conn, job.collection_name, "project")
             delete_source(conn, collection_id, str(path.resolve()))
             logger.info("Pruned source: %s from %s", path, job.collection_name)
+
+    def _prune_and_return_none(self, job: IndexJob) -> None:
+        """Wrapper for _prune that satisfies the dispatch dict signature."""
+        self._prune(job)
