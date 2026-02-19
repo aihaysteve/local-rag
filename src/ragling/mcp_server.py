@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -175,14 +176,57 @@ def _build_list_response(
     return response
 
 
-def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:
+def _get_allowed_paths(config: Config) -> list[Path]:
+    """Collect all configured source directories for path validation.
+
+    Gathers resolved absolute paths from all configured sources: obsidian vaults,
+    calibre libraries, code group repos, home directory, and global paths.
+
+    Args:
+        config: Application configuration.
+
+    Returns:
+        List of resolved Path objects representing allowed directories.
+    """
+    allowed: list[Path] = []
+
+    for vault in config.obsidian_vaults:
+        allowed.append(Path(vault).resolve())
+
+    for lib in config.calibre_libraries:
+        allowed.append(Path(lib).resolve())
+
+    for _group_name, repo_paths in config.code_groups.items():
+        for repo_path in repo_paths:
+            allowed.append(Path(repo_path).resolve())
+
+    if config.home is not None:
+        allowed.append(Path(config.home).resolve())
+
+    for gp in config.global_paths:
+        allowed.append(Path(gp).resolve())
+
+    return allowed
+
+
+def _convert_document(
+    file_path: str,
+    path_mappings: dict[str, str],
+    restrict_paths: bool = False,
+    config: Config | None = None,
+) -> str:
     """Convert a document to markdown text.
 
     Applies reverse path mapping if needed, then reads or converts the file.
+    When ``restrict_paths`` is True, the resolved host path must be within
+    one of the configured source directories.
 
     Args:
         file_path: Path to the file (may be a container path).
         path_mappings: Host->container mappings (reversed for lookup).
+        restrict_paths: When True, reject paths outside configured directories.
+            Should be True for SSE (remote user) requests.
+        config: Application config (required when restrict_paths is True).
 
     Returns:
         Markdown text content, or error message.
@@ -193,6 +237,11 @@ def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:
 
     host_path = apply_reverse(file_path, path_mappings)
     resolved = P(host_path).expanduser().resolve()
+
+    if restrict_paths and config is not None:
+        allowed = _get_allowed_paths(config)
+        if not any(resolved.is_relative_to(ap) for ap in allowed):
+            return "Error: file not accessible"
 
     if not resolved.exists():
         return f"Error: File not found: {file_path}"
@@ -206,8 +255,8 @@ def _convert_document(file_path: str, path_mappings: dict[str, str]) -> str:
         from ragling.doc_store import DocStore
         from ragling.docling_convert import convert_and_chunk
 
-        config = load_config()
-        doc_store = DocStore(config.shared_db_path)
+        effective_config = config or load_config()
+        doc_store = DocStore(effective_config.shared_db_path)
         try:
             chunks = convert_and_chunk(resolved, doc_store)
             return "\n\n".join(c.text for c in chunks)
@@ -673,7 +722,12 @@ def create_server(
         """
         user_ctx = _get_user_context(server_config)
         mappings = user_ctx.path_mappings if user_ctx else {}
-        return _convert_document(file_path, path_mappings=mappings)
+        return _convert_document(
+            file_path,
+            path_mappings=mappings,
+            restrict_paths=user_ctx is not None,
+            config=_get_config(),
+        )
 
     def _rag_index_via_queue(
         collection: str, path: str | None, config: Config, q: IndexingQueue
