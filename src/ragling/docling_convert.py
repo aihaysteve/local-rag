@@ -137,13 +137,13 @@ def ensure_audio_formats_registered() -> None:
 def _whisper_available() -> bool:
     """Check if any Whisper backend is installed."""
     try:
-        import whisper  # type: ignore[import-not-found]  # noqa: F401
+        import whisper  # type: ignore[import-untyped]  # noqa: F401
 
         return True
     except ImportError:
         pass
     try:
-        import mlx_whisper  # type: ignore[import-not-found]  # noqa: F401
+        import mlx_whisper  # type: ignore[import-untyped]  # noqa: F401
 
         return True
     except ImportError:
