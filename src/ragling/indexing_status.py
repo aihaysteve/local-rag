@@ -21,6 +21,7 @@ class IndexingStatus:
         self._lock = threading.Lock()
         self._counts: dict[str, int] = {}
         self._file_counts: dict[str, dict[str, int]] = {}
+        self._failures: dict[str, list[str]] = {}
 
     def increment(self, collection: str, count: int = 1) -> None:
         """Increment remaining count for a collection.
@@ -50,8 +51,19 @@ class IndexingStatus:
                 self._counts.pop(collection, None)
             else:
                 self._counts[collection] = new_val
-            # Clear file-level data when the job completes
+            # Clear file-level data and failures when the job completes
             self._file_counts.pop(collection, None)
+            self._failures.pop(collection, None)
+
+    def record_failure(self, collection: str, message: str) -> None:
+        """Record an indexing failure for a collection.
+
+        Args:
+            collection: Collection name.
+            message: Human-readable error message.
+        """
+        with self._lock:
+            self._failures.setdefault(collection, []).append(message)
 
     def set_file_total(self, collection: str, total: int, total_bytes: int = 0) -> None:
         """Set the total file count and byte size for a collection.
@@ -106,6 +118,7 @@ class IndexingStatus:
         with self._lock:
             self._counts.clear()
             self._file_counts.clear()
+            self._failures.clear()
 
     def is_collection_active(self, collection: str) -> bool:
         """Check if a collection has pending or in-progress work.
@@ -177,9 +190,12 @@ class IndexingStatus:
                     collections[name] = job_count
                     total_remaining += job_count
 
-            return {
+            result: dict[str, Any] = {
                 "active": True,
                 "total_remaining": total_remaining,
                 "total_remaining_bytes": total_remaining_bytes,
                 "collections": collections,
             }
+            if self._failures:
+                result["failures"] = {k: list(v) for k, v in self._failures.items()}
+            return result

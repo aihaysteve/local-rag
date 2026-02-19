@@ -326,3 +326,74 @@ class TestByteTracking:
         assert result["total_remaining_bytes"] == 3_000_000
         assert result["collections"]["obsidian"]["remaining_bytes"] == 3_000_000
         assert result["collections"]["email"]["remaining_bytes"] == 0
+
+
+class TestFailureTracking:
+    """Tests for failure tracking in IndexingStatus."""
+
+    def test_record_failure_stores_message(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.record_failure("obsidian", "Failed to embed document.md")
+        result = status.to_dict()
+        # Failures alone don't make status active (no remaining work)
+        # but if combined with active work they should appear
+        status.increment("obsidian")
+        result = status.to_dict()
+        assert result is not None
+        assert "failures" in result
+        assert "obsidian" in result["failures"]
+        assert result["failures"]["obsidian"] == ["Failed to embed document.md"]
+
+    def test_record_multiple_failures(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        status.record_failure("obsidian", "Error 1")
+        status.record_failure("obsidian", "Error 2")
+        result = status.to_dict()
+        assert result is not None
+        assert result["failures"]["obsidian"] == ["Error 1", "Error 2"]
+
+    def test_failures_across_collections(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        status.increment("email")
+        status.record_failure("obsidian", "Obs error")
+        status.record_failure("email", "Email error")
+        result = status.to_dict()
+        assert result is not None
+        assert result["failures"]["obsidian"] == ["Obs error"]
+        assert result["failures"]["email"] == ["Email error"]
+
+    def test_no_failures_key_when_empty(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        result = status.to_dict()
+        assert result is not None
+        assert "failures" not in result
+
+    def test_finish_clears_failures(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        status.record_failure("obsidian", "Some error")
+        status.finish()
+        assert status.to_dict() is None
+
+    def test_decrement_clears_collection_failures(self) -> None:
+        from ragling.indexing_status import IndexingStatus
+
+        status = IndexingStatus()
+        status.increment("obsidian")
+        status.record_failure("obsidian", "Some error")
+        status.decrement("obsidian")
+        # Collection is gone, failures should be cleared too
+        assert status.to_dict() is None

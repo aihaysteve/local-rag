@@ -158,6 +158,7 @@ class IndexingQueue:
                     item.result = result
             except Exception:
                 logger.exception("Indexing failed: %s", job)
+                self._status.record_failure(job.collection_name, str(job))
             finally:
                 self._status.decrement(job.collection_name)
                 if isinstance(item, IndexRequest):
