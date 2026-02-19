@@ -1,6 +1,5 @@
 """Authentication and user context for ragling SSE transport."""
 
-import hmac
 from dataclasses import dataclass, field
 
 from ragling.config import Config
@@ -40,11 +39,13 @@ def resolve_api_key(api_key: str, config: Config) -> UserContext | None:
     if not api_key or not config.users:
         return None
 
-    for username, user_config in config.users.items():
-        if hmac.compare_digest(user_config.api_key, api_key):
-            return UserContext(
-                username=username,
-                system_collections=user_config.system_collections,
-                path_mappings=user_config.path_mappings,
-            )
-    return None
+    key_to_user = {uc.api_key: (uname, uc) for uname, uc in config.users.items()}
+    match = key_to_user.get(api_key)
+    if match is None:
+        return None
+    username, user_config = match
+    return UserContext(
+        username=username,
+        system_collections=user_config.system_collections,
+        path_mappings=user_config.path_mappings,
+    )
