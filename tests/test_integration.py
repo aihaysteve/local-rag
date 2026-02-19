@@ -1,5 +1,9 @@
 # tests/test_integration.py
-"""Integration tests for ragling: multi-group sharing, cache reuse, and WAL concurrency."""
+"""Integration tests for ragling: multi-group sharing, cache reuse, and WAL concurrency.
+
+Includes end-to-end pipeline tests exercising file → indexer → chunking →
+embedding → DB → search → results.
+"""
 
 import sqlite3
 import threading
@@ -304,3 +308,308 @@ class TestConcurrentWALReads:
         assert len(results) == 5
         for source_list in results:
             assert len(source_list) == 5
+
+
+@requires_sqlite_extensions
+class TestFullPipelineEndToEnd:
+    """End-to-end test: file on disk -> ProjectIndexer -> chunking -> embedding -> DB -> search.
+
+    Mocks only the embedding layer (Ollama) and the Docling-based chunking
+    (heavy ML dependency). Uses real SQLite, real file system, and real
+    ProjectIndexer / search code.
+    """
+
+    def test_index_and_search_text_file(self, tmp_path: Path) -> None:
+        """Index a .txt file via ProjectIndexer, then find it via hybrid search."""
+        from ragling.chunker import Chunk
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.project import ProjectIndexer
+        from ragling.search import SearchResult, search
+
+        # 1. Create a text file on disk
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        test_file = doc_dir / "notes.txt"
+        test_file.write_text(
+            "Photosynthesis is the process by which green plants "
+            "convert sunlight into chemical energy."
+        )
+
+        # 2. Configure with small embedding dimensions for testing
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+
+        # 3. Set up real DB
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        # 4. Fixed embedding vectors
+        fixed_embedding = [0.5, 0.3, 0.1, 0.8]
+
+        # 5. Mock only embeddings and the Docling chunking path
+        with (
+            patch(
+                "ragling.indexers.project._parse_and_chunk",
+                return_value=[
+                    Chunk(
+                        text=(
+                            "Photosynthesis is the process by which green plants "
+                            "convert sunlight into chemical energy."
+                        ),
+                        title="notes.txt",
+                        metadata={"source_path": str(test_file)},
+                        chunk_index=0,
+                    ),
+                ],
+            ),
+            patch(
+                "ragling.indexers.project.get_embeddings",
+                return_value=[fixed_embedding],
+            ),
+        ):
+            # 6. Run ProjectIndexer
+            indexer = ProjectIndexer("test-collection", [doc_dir])
+            result = indexer.index(conn, config)
+
+        # Verify indexing succeeded
+        assert result.indexed == 1
+        assert result.errors == 0
+
+        # 7. Verify data is in the database
+        doc_row = conn.execute("SELECT content, title FROM documents").fetchone()
+        assert doc_row is not None
+        assert "Photosynthesis" in doc_row["content"]
+        assert doc_row["title"] == "notes.txt"
+
+        source_row = conn.execute("SELECT source_path, source_type FROM sources").fetchone()
+        assert source_row is not None
+        assert source_row["source_path"] == str(test_file.resolve())
+        assert source_row["source_type"] == "plaintext"
+
+        coll_row = conn.execute(
+            "SELECT name, collection_type FROM collections WHERE name = ?",
+            ("test-collection",),
+        ).fetchone()
+        assert coll_row is not None
+        assert coll_row["collection_type"] == "project"
+
+        # 8. Search and verify results
+        results = search(
+            conn=conn,
+            query_embedding=fixed_embedding,
+            query_text="photosynthesis plants sunlight",
+            top_k=5,
+            filters=None,
+            config=config,
+        )
+
+        assert len(results) >= 1
+        top_result = results[0]
+        assert isinstance(top_result, SearchResult)
+        assert "Photosynthesis" in top_result.content
+        assert top_result.title == "notes.txt"
+        assert top_result.collection == "test-collection"
+        assert top_result.source_type == "plaintext"
+        assert top_result.source_path == str(test_file.resolve())
+
+        conn.close()
+
+    def test_index_multiple_files_and_search(self, tmp_path: Path) -> None:
+        """Index multiple files and verify search returns the most relevant one."""
+        from ragling.chunker import Chunk
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.project import ProjectIndexer
+        from ragling.search import search
+
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+
+        # Two files with different content
+        file_a = doc_dir / "cooking.txt"
+        file_a.write_text("Italian pasta recipes with tomato sauce and basil.")
+        file_b = doc_dir / "astronomy.txt"
+        file_b.write_text("The Andromeda galaxy is the nearest spiral galaxy.")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        # Give the cooking doc a vector closer to the query vector
+        cooking_embedding = [0.9, 0.1, 0.0, 0.0]
+        astronomy_embedding = [0.0, 0.0, 0.1, 0.9]
+        query_embedding = [0.9, 0.1, 0.0, 0.0]  # close to cooking
+
+        parse_calls: list[Path] = []
+
+        def mock_parse_and_chunk(path: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
+            parse_calls.append(path)
+            if path.name == "cooking.txt":
+                return [
+                    Chunk(
+                        text="Italian pasta recipes with tomato sauce and basil.",
+                        title="cooking.txt",
+                        metadata={"source_path": str(path)},
+                        chunk_index=0,
+                    )
+                ]
+            elif path.name == "astronomy.txt":
+                return [
+                    Chunk(
+                        text="The Andromeda galaxy is the nearest spiral galaxy.",
+                        title="astronomy.txt",
+                        metadata={"source_path": str(path)},
+                        chunk_index=0,
+                    )
+                ]
+            return []
+
+        embed_calls: list[list[str]] = []
+
+        def mock_get_embeddings(texts: list[str], config):  # type: ignore[no-untyped-def]
+            embed_calls.append(texts)
+            embeddings = []
+            for text in texts:
+                if "pasta" in text.lower():
+                    embeddings.append(cooking_embedding)
+                else:
+                    embeddings.append(astronomy_embedding)
+            return embeddings
+
+        with (
+            patch(
+                "ragling.indexers.project._parse_and_chunk",
+                side_effect=mock_parse_and_chunk,
+            ),
+            patch(
+                "ragling.indexers.project.get_embeddings",
+                side_effect=mock_get_embeddings,
+            ),
+        ):
+            indexer = ProjectIndexer("multi-docs", [doc_dir])
+            result = indexer.index(conn, config)
+
+        assert result.indexed == 2
+        assert result.errors == 0
+
+        # Verify both documents are in the DB
+        doc_count = conn.execute("SELECT COUNT(*) AS cnt FROM documents").fetchone()["cnt"]
+        assert doc_count == 2
+
+        # Search with query embedding close to cooking
+        results = search(
+            conn=conn,
+            query_embedding=query_embedding,
+            query_text="pasta tomato cooking",
+            top_k=5,
+            filters=None,
+            config=config,
+        )
+
+        assert len(results) == 2
+        # The cooking doc should rank first (closer vector + FTS match)
+        assert results[0].title == "cooking.txt"
+        assert "pasta" in results[0].content.lower()
+
+        conn.close()
+
+    def test_reindex_updates_content(self, tmp_path: Path) -> None:
+        """Re-indexing a modified file replaces old content in the DB."""
+        from ragling.chunker import Chunk
+        from ragling.config import Config
+        from ragling.db import get_connection, init_db
+        from ragling.indexers.project import ProjectIndexer
+        from ragling.search import search
+
+        doc_dir = tmp_path / "docs"
+        doc_dir.mkdir()
+        test_file = doc_dir / "evolving.txt"
+        test_file.write_text("Original content about quantum computing.")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            embedding_dimensions=4,
+            chunk_size_tokens=256,
+        )
+
+        conn = get_connection(config)
+        init_db(conn, config)
+
+        embedding = [0.5, 0.5, 0.0, 0.0]
+
+        # First index
+        with (
+            patch(
+                "ragling.indexers.project._parse_and_chunk",
+                return_value=[
+                    Chunk(
+                        text="Original content about quantum computing.",
+                        title="evolving.txt",
+                        chunk_index=0,
+                    ),
+                ],
+            ),
+            patch(
+                "ragling.indexers.project.get_embeddings",
+                return_value=[embedding],
+            ),
+        ):
+            indexer = ProjectIndexer("evolving-coll", [doc_dir])
+            result1 = indexer.index(conn, config)
+
+        assert result1.indexed == 1
+
+        # Modify the file
+        test_file.write_text("Updated content about machine learning.")
+
+        # Re-index with force
+        with (
+            patch(
+                "ragling.indexers.project._parse_and_chunk",
+                return_value=[
+                    Chunk(
+                        text="Updated content about machine learning.",
+                        title="evolving.txt",
+                        chunk_index=0,
+                    ),
+                ],
+            ),
+            patch(
+                "ragling.indexers.project.get_embeddings",
+                return_value=[embedding],
+            ),
+        ):
+            indexer2 = ProjectIndexer("evolving-coll", [doc_dir])
+            result2 = indexer2.index(conn, config, force=True)
+
+        assert result2.indexed == 1
+
+        # Verify only the updated content is in the DB (no duplicates)
+        docs = conn.execute("SELECT content FROM documents").fetchall()
+        assert len(docs) == 1
+        assert "machine learning" in docs[0]["content"]
+        assert "quantum computing" not in docs[0]["content"]
+
+        # Search should find updated content
+        results = search(
+            conn=conn,
+            query_embedding=embedding,
+            query_text="machine learning",
+            top_k=5,
+            filters=None,
+            config=config,
+        )
+
+        assert len(results) >= 1
+        assert "machine learning" in results[0].content
+
+        conn.close()
