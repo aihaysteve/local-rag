@@ -58,6 +58,13 @@ class UserConfig:
     system_collections: list[str] = field(default_factory=list)
     path_mappings: dict[str, str] = field(default_factory=dict)
 
+    def __repr__(self) -> str:
+        return (
+            f"UserConfig(api_key='****', "
+            f"system_collections={self.system_collections!r}, "
+            f"path_mappings={self.path_mappings!r})"
+        )
+
 
 @dataclass(frozen=True)
 class Config:

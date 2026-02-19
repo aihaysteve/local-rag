@@ -6,7 +6,7 @@ from types import MappingProxyType
 
 import pytest
 
-from ragling.config import Config, load_config
+from ragling.config import Config, UserConfig, load_config
 
 
 class TestAsrConfigDefaults:
@@ -197,6 +197,26 @@ class TestUserConfig:
         config = load_config(config_file)
         mapping_keys = list(config.users["test"].path_mappings.keys())
         assert not any("~" in k for k in mapping_keys)
+
+
+class TestUserConfigRepr:
+    """UserConfig.__repr__ must mask api_key to prevent accidental leakage."""
+
+    def test_repr_masks_api_key(self) -> None:
+        uc = UserConfig(api_key="rag_supersecretkey123")
+        r = repr(uc)
+        assert "rag_supersecretkey123" not in r
+        assert "****" in r
+
+    def test_repr_shows_other_fields(self) -> None:
+        uc = UserConfig(
+            api_key="rag_secret",
+            system_collections=["obsidian"],
+            path_mappings={"/a/": "/b/"},
+        )
+        r = repr(uc)
+        assert "obsidian" in r
+        assert "/a/" in r
 
 
 class TestConfigImmutability:
