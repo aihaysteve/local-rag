@@ -177,6 +177,10 @@ def _get_asr_model_spec(model_name: str) -> Any:
     return spec
 
 
+# Thread safety: lru_cache is safe here because IndexingQueue uses a
+# single worker thread, so get_converter() is only called serially.
+# If multiple worker threads are ever added, this cache must be replaced
+# with a thread-safe wrapper or explicit locking.
 @lru_cache
 def get_converter(
     asr_model: str = "small",
