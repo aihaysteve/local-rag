@@ -434,7 +434,6 @@ def _parse_watermarks(description: str | None) -> dict[str, str]:
                 return data
         except (json.JSONDecodeError, TypeError):
             logger.warning("Failed to parse watermarks JSON from collection description")
-            pass
 
     # Legacy format: "git:{repo_path}:{commit_sha}"
     if description.startswith(_WATERMARK_PREFIX):

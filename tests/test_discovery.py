@@ -272,7 +272,7 @@ class TestReconciliation:
         """Sub-collection whose marker no longer exists gets deleted."""
         from ragling.db import get_or_create_collection
 
-        conn, config = self._setup_db(tmp_path)
+        conn, _config = self._setup_db(tmp_path)
 
         # Create a sub-collection as if a previous run found a vault
         get_or_create_collection(conn, "myproject/old-vault", "system")
@@ -294,7 +294,7 @@ class TestReconciliation:
         """Sub-collections that still have markers are not deleted."""
         from ragling.db import get_or_create_collection
 
-        conn, config = self._setup_db(tmp_path)
+        conn, _config = self._setup_db(tmp_path)
 
         get_or_create_collection(conn, "myproject/vault", "system")
 
@@ -316,7 +316,7 @@ class TestReconciliation:
         """The parent project collection is never deleted by reconciliation."""
         from ragling.db import get_or_create_collection
 
-        conn, config = self._setup_db(tmp_path)
+        conn, _config = self._setup_db(tmp_path)
         get_or_create_collection(conn, "myproject", "project")
 
         result = DiscoveryResult(vaults=[], repos=[], leftover_paths=[])

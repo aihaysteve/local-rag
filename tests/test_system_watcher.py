@@ -260,7 +260,7 @@ class TestStartSystemWatcher:
         # Create the DB file so the watch directory exists
         (tmp_path / "emclient.db").touch()
 
-        observer, watcher = start_system_watcher(config, queue)
+        observer, _watcher = start_system_watcher(config, queue)
         assert observer.is_alive()
         observer.stop()
         observer.join(timeout=5)

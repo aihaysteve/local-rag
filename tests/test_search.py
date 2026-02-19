@@ -244,7 +244,7 @@ class TestSearchWithDatabase:
         conn.close()
 
     def test_fts_search_finds_document(self, db):
-        conn, config = db
+        conn, _config = db
         _insert_document(
             conn,
             "test",
@@ -264,7 +264,7 @@ class TestSearchWithDatabase:
         assert len(rows) == 1
 
     def test_fts_search_no_match(self, db):
-        conn, config = db
+        conn, _config = db
         _insert_document(
             conn,
             "test",
@@ -284,7 +284,7 @@ class TestSearchWithDatabase:
         assert len(rows) == 0
 
     def test_vec_search_finds_similar(self, db):
-        conn, config = db
+        conn, _config = db
 
         _insert_document(conn, "test", "/a.md", "A", "content a", [1.0, 0.0, 0.0, 0.0])
         _insert_document(conn, "test", "/b.md", "B", "content b", [0.0, 1.0, 0.0, 0.0])
@@ -535,7 +535,7 @@ class TestBatchLoadMetadata:
         conn.close()
 
     def test_returns_metadata_for_multiple_docs(self, db):
-        conn, config = db
+        conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
         id2 = _insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
 
@@ -548,7 +548,7 @@ class TestBatchLoadMetadata:
         assert meta[id2]["title"] == "B"
 
     def test_returns_empty_for_empty_ids(self, db):
-        conn, config = db
+        conn, _config = db
 
         from ragling.search import _batch_load_metadata
 
@@ -556,7 +556,7 @@ class TestBatchLoadMetadata:
         assert meta == {}
 
     def test_includes_collection_and_source_info(self, db):
-        conn, config = db
+        conn, _config = db
         doc_id = _insert_document(
             conn, "email-coll", "/mail/1", "Email", "body", [1, 0, 0, 0], source_type="email"
         )
@@ -570,7 +570,7 @@ class TestBatchLoadMetadata:
         assert row["source_path"] == "/mail/1"
 
     def test_includes_file_modified_at(self, db):
-        conn, config = db
+        conn, _config = db
         doc_id = _insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
@@ -579,7 +579,7 @@ class TestBatchLoadMetadata:
         assert meta[doc_id]["file_modified_at"] == "2025-01-15T10:00:00"
 
     def test_skips_missing_ids(self, db):
-        conn, config = db
+        conn, _config = db
         doc_id = _insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
@@ -977,7 +977,7 @@ class TestMetadataCache:
 
     def test_cache_stores_results(self, db) -> None:
         """Results from _batch_load_metadata are stored in the provided cache."""
-        conn, config = db
+        conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
@@ -991,7 +991,7 @@ class TestMetadataCache:
 
     def test_cache_avoids_redundant_queries(self, db) -> None:
         """Second call with same IDs should not hit the database."""
-        conn, config = db
+        conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
@@ -1012,7 +1012,7 @@ class TestMetadataCache:
 
     def test_cache_partial_hit(self, db) -> None:
         """When some IDs are cached and some are not, only uncached IDs are queried."""
-        conn, config = db
+        conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
         id2 = _insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
 
@@ -1035,7 +1035,7 @@ class TestMetadataCache:
 
     def test_cache_none_behaves_as_before(self, db) -> None:
         """When cache is None, _batch_load_metadata works as before."""
-        conn, config = db
+        conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
         from ragling.search import _batch_load_metadata
@@ -1106,7 +1106,7 @@ class TestApplyFiltersEarlyTermination:
 
     def test_returns_exactly_top_k_matches(self, db) -> None:
         """_apply_filters returns exactly top_k results when enough match."""
-        conn, config = db
+        conn, _config = db
 
         from ragling.search import _apply_filters
 
@@ -1141,7 +1141,7 @@ class TestApplyFiltersEarlyTermination:
 
     def test_early_termination_does_not_process_all_candidates(self, db) -> None:
         """_apply_filters stops once top_k matches are found (early break)."""
-        conn, config = db
+        conn, _config = db
 
         from ragling.search import _apply_filters
 

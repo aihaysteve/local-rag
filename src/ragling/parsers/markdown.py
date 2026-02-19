@@ -146,7 +146,7 @@ def parse_markdown(text: str, filename: str) -> MarkdownDocument:
     body = _strip_dataview_blocks(body)
 
     # Extract and strip embeds
-    body, embeds = _extract_embeds(body)
+    body, _embeds = _extract_embeds(body)
 
     # Convert wikilinks
     body, links = _convert_wikilinks(body)
