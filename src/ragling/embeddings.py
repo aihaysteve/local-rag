@@ -104,7 +104,19 @@ def get_embeddings(texts: list[str], config: Config) -> list[list[float]]:
             all_embeddings.extend(response["embeddings"])
         except Exception as e:
             _raise_if_connection_error(e, config=config)
-            raise
+            logger.warning("Batch embed failed, retrying %d texts individually", len(batch))
+            for i, text in enumerate(batch):
+                try:
+                    resp = client.embed(model=config.embedding_model, input=text)
+                    all_embeddings.append(resp["embeddings"][0])
+                except Exception as individual_e:
+                    _raise_if_connection_error(individual_e, config=config)
+                    logger.warning(
+                        "Text %d (%d chars) produced bad embedding, using zero vector",
+                        start + i,
+                        len(text),
+                    )
+                    all_embeddings.append([0.0] * config.embedding_dimensions)
 
     return all_embeddings
 
