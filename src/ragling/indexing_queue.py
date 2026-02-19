@@ -186,7 +186,7 @@ class IndexingQueue:
             IndexerType.EMAIL: self._index_email,
             IndexerType.CALIBRE: self._index_calibre,
             IndexerType.RSS: self._index_rss,
-            IndexerType.PRUNE: self._prune_and_return_none,
+            IndexerType.PRUNE: self._prune,
         }
         handler = dispatch.get(job.indexer_type)
         if handler is None:
@@ -309,7 +309,3 @@ class IndexingQueue:
             collection_id = get_or_create_collection(conn, job.collection_name, "project")
             delete_source(conn, collection_id, str(path.resolve()))
             logger.info("Pruned source: %s from %s", path, job.collection_name)
-
-    def _prune_and_return_none(self, job: IndexJob) -> None:
-        """Wrapper for _prune that satisfies the dispatch dict signature."""
-        self._prune(job)

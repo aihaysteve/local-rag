@@ -130,11 +130,7 @@ class IndexingStatus:
             True if the collection has remaining jobs or file-level work.
         """
         with self._lock:
-            if collection in self._counts:
-                return True
-            if collection in self._file_counts:
-                return True
-            return False
+            return collection in self._counts or collection in self._file_counts
 
     def is_active(self) -> bool:
         """Check if any indexing is in progress."""
