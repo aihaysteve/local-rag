@@ -47,8 +47,64 @@ def _raise_if_connection_error(e: Exception, *, config: Config) -> None:
         raise OllamaConnectionError(detail) from e
 
 
+def _truncate_to_words(text: str, max_words: int = 256) -> str:
+    """Truncate text to the first *max_words* whitespace-delimited words.
+
+    Args:
+        text: Input text.
+        max_words: Maximum number of words to keep.
+
+    Returns:
+        Truncated text (or original if already within limit).
+    """
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words])
+
+
+def _embed_single_with_retry(client: ollama.Client, text: str, *, config: Config) -> list[float]:
+    """Embed a single text with one truncation retry on failure.
+
+    On the first failure (that is not a connection error), retries once with
+    the text truncated to 256 words.  If the retry also fails, the exception
+    propagates to the caller.
+
+    Args:
+        client: An Ollama client instance.
+        text: Text to embed.
+        config: Application configuration.
+
+    Returns:
+        Embedding vector as list of floats.
+
+    Raises:
+        OllamaConnectionError: If Ollama is not running or unreachable.
+    """
+    try:
+        response = client.embed(model=config.embedding_model, input=text)
+        return response["embeddings"][0]
+    except Exception as e:
+        _raise_if_connection_error(e, config=config)
+        truncated = _truncate_to_words(text)
+        logger.warning(
+            "Embedding failed for text (%d chars), retrying with truncated text (%d chars)",
+            len(text),
+            len(truncated),
+        )
+        try:
+            response = client.embed(model=config.embedding_model, input=truncated)
+            return response["embeddings"][0]
+        except Exception as retry_e:
+            _raise_if_connection_error(retry_e, config=config)
+            raise
+
+
 def get_embedding(text: str, config: Config) -> list[float]:
     """Get embedding for a single text.
+
+    On failure, retries once with the text truncated to 256 words.
+    If the retry also fails, the exception is raised (no zero-vector fallback).
 
     Args:
         text: Text to embed.
@@ -60,12 +116,7 @@ def get_embedding(text: str, config: Config) -> list[float]:
     Raises:
         OllamaConnectionError: If Ollama is not running or unreachable.
     """
-    try:
-        response = _client(config).embed(model=config.embedding_model, input=text)
-        return response["embeddings"][0]
-    except Exception as e:
-        _raise_if_connection_error(e, config=config)
-        raise
+    return _embed_single_with_retry(_client(config), text, config=config)
 
 
 def get_embeddings(texts: list[str], config: Config) -> list[list[float]]:
@@ -105,18 +156,8 @@ def get_embeddings(texts: list[str], config: Config) -> list[list[float]]:
         except Exception as e:
             _raise_if_connection_error(e, config=config)
             logger.warning("Batch embed failed, retrying %d texts individually", len(batch))
-            for i, text in enumerate(batch):
-                try:
-                    resp = client.embed(model=config.embedding_model, input=text)
-                    all_embeddings.append(resp["embeddings"][0])
-                except Exception as individual_e:
-                    _raise_if_connection_error(individual_e, config=config)
-                    logger.warning(
-                        "Text %d (%d chars) produced bad embedding, using zero vector",
-                        start + i,
-                        len(text),
-                    )
-                    all_embeddings.append([0.0] * config.embedding_dimensions)
+            for text in batch:
+                all_embeddings.append(_embed_single_with_retry(client, text, config=config))
 
     return all_embeddings
 
