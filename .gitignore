@@ -27,3 +27,7 @@ config.json
 
 # Git worktrees
 .worktrees/
+
+# Auto-generated benchmark fixtures
+scripts/fixtures/git-repo-small/
+scripts/fixtures/git-repo-large/
