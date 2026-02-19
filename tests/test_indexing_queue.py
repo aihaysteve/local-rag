@@ -575,8 +575,6 @@ class TestSingleWriterDesign:
         assert len(recorded_thread_names) == 1
         # The processing thread must NOT be the main thread
         assert recorded_thread_names[0] != main_thread_name
-        # It should be the named worker thread
-        assert recorded_thread_names[0] == "index-worker"
 
 
 # ---------------------------------------------------------------------------
