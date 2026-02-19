@@ -664,14 +664,14 @@ class TestConverterConfigHash:
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
             asr_model="small",
         )
         hash2 = converter_config_hash(
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
             asr_model="turbo",
         )
         assert hash1 != hash2
@@ -683,14 +683,14 @@ class TestConverterConfigHash:
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
             asr_model="small",
         )
         hash2 = converter_config_hash(
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
             asr_model="small",
         )
         assert hash1 == hash2

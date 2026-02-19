@@ -10,7 +10,7 @@ class TestConverterConfigHash:
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
         )
         assert isinstance(result, str)
         assert len(result) == 16  # truncated SHA-256
@@ -22,13 +22,13 @@ class TestConverterConfigHash:
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
         )
         b = converter_config_hash(
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
         )
         assert a == b
 
@@ -39,13 +39,13 @@ class TestConverterConfigHash:
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
         )
         b = converter_config_hash(
             do_picture_description=False,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
         )
         assert a != b
 
@@ -58,7 +58,7 @@ class TestConverterConfigHash:
             do_picture_description=True,
             do_code_enrichment=True,
             do_formula_enrichment=True,
-            table_mode="accurate",
+            table_mode="fast",
         )
         # Just verify it's a valid hex string, not a specific value
         int(result, 16)  # will raise if not hex
@@ -84,7 +84,7 @@ def test_convert_and_chunk_uses_enrichment_config() -> None:
         do_picture_description=False,
         do_code_enrichment=False,
         do_formula_enrichment=False,
-        table_mode="accurate",
+        table_mode="fast",
     )
 
     doc_store = MagicMock()

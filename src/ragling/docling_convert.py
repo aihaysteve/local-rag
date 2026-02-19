@@ -192,7 +192,7 @@ def get_converter(
     pdf_options = PdfPipelineOptions(
         do_table_structure=do_table_structure,
         table_structure_options=TableStructureOptions(
-            mode=TableFormerMode.ACCURATE,
+            mode=TableFormerMode.FAST,
             do_cell_matching=True,
         ),
         do_picture_description=do_picture_description,
@@ -457,7 +457,7 @@ def convert_and_chunk(
         do_picture_description=enrichments.image_description,
         do_code_enrichment=enrichments.code_enrichment,
         do_formula_enrichment=enrichments.formula_enrichment,
-        table_mode="accurate",
+        table_mode="fast",
         asr_model=asr_model,
     )
 
