@@ -245,7 +245,7 @@ def _convert_document(
             return "Error: file not accessible"
 
     if not resolved.exists():
-        return f"Error: File not found: {file_path}"
+        return "Error: file not found"
 
     # For markdown, just read directly
     if resolved.suffix.lower() == ".md":
@@ -263,8 +263,9 @@ def _convert_document(
             return "\n\n".join(c.text for c in chunks)
         finally:
             doc_store.close()
-    except Exception as e:
-        return f"Error converting {file_path}: {e}"
+    except Exception:
+        logger.exception("Document conversion failed for %s", resolved)
+        return "Error: conversion failed"
 
 
 def _get_user_context(config: Config | None) -> UserContext | None:
@@ -548,6 +549,13 @@ def create_server(
         conn = get_connection(config)
         init_db(conn, config)
 
+        # Derive user context for visibility filtering
+        user_ctx = _get_user_context(server_config)
+        visible: list[str] | None = None
+        if user_ctx:
+            global_coll = "global" if server_config and server_config.global_paths else None
+            visible = user_ctx.visible_collections(global_collection=global_coll)
+
         try:
             rows = conn.execute("""
                 SELECT c.name, c.collection_type, c.description, c.created_at,
@@ -570,6 +578,8 @@ def create_server(
                 }
                 for row in rows
             ]
+            if visible:
+                collections = [c for c in collections if c["name"] in visible]
             return _build_list_response(collections, indexing_status, role_getter)
         finally:
             conn.close()
@@ -592,6 +602,15 @@ def create_server(
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
         """
+        # Derive user context for visibility filtering
+        user_ctx = _get_user_context(server_config)
+        visible: list[str] | None = None
+        if user_ctx:
+            global_coll = "global" if server_config and server_config.global_paths else None
+            visible = user_ctx.visible_collections(global_collection=global_coll)
+        if visible and collection not in visible:
+            return {"error": f"Collection '{collection}' is not accessible."}
+
         config = _get_config()
 
         if not config.is_collection_enabled(collection):
@@ -660,6 +679,15 @@ def create_server(
         Args:
             collection: The collection name.
         """
+        # Derive user context for visibility filtering
+        user_ctx = _get_user_context(server_config)
+        visible: list[str] | None = None
+        if user_ctx:
+            global_coll = "global" if server_config and server_config.global_paths else None
+            visible = user_ctx.visible_collections(global_collection=global_coll)
+        if visible and collection not in visible:
+            return {"error": f"Collection '{collection}' is not accessible."}
+
         config = _get_config()
         conn = get_connection(config)
         init_db(conn, config)

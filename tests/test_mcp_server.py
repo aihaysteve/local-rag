@@ -279,6 +279,25 @@ class TestConvertDocument:
         result = _convert_document("/nonexistent/file.pdf", {})
         assert "error" in result.lower() or "not found" in result.lower()
 
+    def test_error_does_not_leak_file_path(self) -> None:
+        from ragling.mcp_server import _convert_document
+
+        result = _convert_document("/nonexistent/secret/path.pdf", {})
+        assert "/nonexistent/secret" not in result
+
+    def test_conversion_error_does_not_leak_details(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        from ragling.mcp_server import _convert_document
+
+        pdf = tmp_path / "test.pdf"
+        pdf.write_text("not a real pdf")
+        with patch("ragling.mcp_server.load_config") as mock_config:
+            mock_config.return_value.shared_db_path = tmp_path / "shared.db"
+            result = _convert_document(str(pdf), {})
+        assert str(tmp_path) not in result
+        assert "error" in result.lower()
+
 
 class TestCreateServerSignature:
     """Tests for create_server accepting config and indexing_status."""
@@ -826,6 +845,246 @@ class TestRagIndexFollowerMode:
         result: dict[str, Any] = rag_index_fn(collection="obsidian")
 
         queue.submit.assert_called_once()
+        assert result["status"] == "submitted"
+
+
+class TestVisibilityFiltering:
+    """Tests for collection visibility filtering by user context (S1, S3)."""
+
+    def _setup_server_with_collections(
+        self, tmp_path: Path, user_collections: list[str] | None = None
+    ) -> tuple[Any, dict[str, Any]]:
+        """Create a server with collections in the DB and an authenticated user.
+
+        Returns (server, tools_dict).
+        """
+        from ragling.config import UserConfig
+        from ragling.db import get_connection, init_db
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=(tmp_path / "vault",),
+            users={
+                "kitchen": UserConfig(
+                    api_key="test-key",
+                    system_collections=user_collections or ["obsidian"],
+                ),
+            },
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        # Seed the database with some collections
+        conn = get_connection(config)
+        init_db(conn, config)
+        conn.execute(
+            "INSERT OR IGNORE INTO collections (name, collection_type) VALUES (?, ?)",
+            ("obsidian", "system"),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO collections (name, collection_type) VALUES (?, ?)",
+            ("email", "system"),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO collections (name, collection_type) VALUES (?, ?)",
+            ("kitchen", "project"),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO collections (name, collection_type) VALUES (?, ?)",
+            ("secret_project", "project"),
+        )
+        conn.commit()
+        conn.close()
+
+        server = create_server(group_name="default", config=config)
+        tools = server._tool_manager._tools
+        return server, tools
+
+    # -- rag_list_collections visibility --
+
+    def test_list_collections_filters_by_user_visibility(self, tmp_path: Path) -> None:
+        """Authenticated user only sees their visible collections."""
+        _server, tools = self._setup_server_with_collections(
+            tmp_path, user_collections=["obsidian"]
+        )
+        fn = tools["rag_list_collections"].fn
+
+        mock_token = MagicMock()
+        mock_token.client_id = "kitchen"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            result = fn()
+
+        names = [c["name"] for c in result["result"]]
+        # kitchen user sees: "kitchen" (own) + "obsidian" (system_collections)
+        assert "kitchen" in names
+        assert "obsidian" in names
+        # Should NOT see email or secret_project
+        assert "email" not in names
+        assert "secret_project" not in names
+
+    def test_list_collections_no_filter_when_unauthenticated(self, tmp_path: Path) -> None:
+        """Without auth (stdio), all collections are returned."""
+        _server, tools = self._setup_server_with_collections(tmp_path)
+        fn = tools["rag_list_collections"].fn
+
+        with patch("ragling.mcp_server.get_access_token", return_value=None):
+            result = fn()
+
+        names = [c["name"] for c in result["result"]]
+        assert "obsidian" in names
+        assert "email" in names
+        assert "kitchen" in names
+        assert "secret_project" in names
+
+    # -- rag_collection_info visibility --
+
+    def test_collection_info_rejects_unauthorized_collection(self, tmp_path: Path) -> None:
+        """Authenticated user cannot view info for collections they can't see."""
+        _server, tools = self._setup_server_with_collections(
+            tmp_path, user_collections=["obsidian"]
+        )
+        fn = tools["rag_collection_info"].fn
+
+        mock_token = MagicMock()
+        mock_token.client_id = "kitchen"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            result = fn(collection="email")
+
+        assert "error" in result
+
+    def test_collection_info_allows_authorized_collection(self, tmp_path: Path) -> None:
+        """Authenticated user can view info for their visible collections."""
+        _server, tools = self._setup_server_with_collections(
+            tmp_path, user_collections=["obsidian"]
+        )
+        fn = tools["rag_collection_info"].fn
+
+        mock_token = MagicMock()
+        mock_token.client_id = "kitchen"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            result = fn(collection="obsidian")
+
+        assert "error" not in result
+        assert result["name"] == "obsidian"
+
+    def test_collection_info_no_filter_when_unauthenticated(self, tmp_path: Path) -> None:
+        """Without auth, any collection can be queried."""
+        _server, tools = self._setup_server_with_collections(tmp_path)
+        fn = tools["rag_collection_info"].fn
+
+        with patch("ragling.mcp_server.get_access_token", return_value=None):
+            result = fn(collection="email")
+
+        assert "error" not in result
+        assert result["name"] == "email"
+
+    # -- rag_index visibility --
+
+    def test_index_rejects_unauthorized_collection(self, tmp_path: Path) -> None:
+        """Authenticated user cannot index collections they can't see."""
+        from ragling.indexing_queue import IndexingQueue
+
+        from ragling.config import UserConfig
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=(tmp_path / "vault",),
+            users={
+                "kitchen": UserConfig(
+                    api_key="test-key",
+                    system_collections=["obsidian"],
+                ),
+            },
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        queue = MagicMock(spec=IndexingQueue)
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_queue=queue,
+        )
+        tools = server._tool_manager._tools
+        fn = tools["rag_index"].fn
+
+        mock_token = MagicMock()
+        mock_token.client_id = "kitchen"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            result = fn(collection="email")
+
+        assert "error" in result
+        queue.submit.assert_not_called()
+
+    def test_index_allows_authorized_collection(self, tmp_path: Path) -> None:
+        """Authenticated user can index their visible collections."""
+        from ragling.indexing_queue import IndexingQueue
+
+        from ragling.config import UserConfig
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=(tmp_path / "vault",),
+            users={
+                "kitchen": UserConfig(
+                    api_key="test-key",
+                    system_collections=["obsidian"],
+                ),
+            },
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        queue = MagicMock(spec=IndexingQueue)
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_queue=queue,
+        )
+        tools = server._tool_manager._tools
+        fn = tools["rag_index"].fn
+
+        mock_token = MagicMock()
+        mock_token.client_id = "kitchen"
+        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+            result = fn(collection="obsidian")
+
+        assert "error" not in result
+        assert result["status"] == "submitted"
+
+    def test_index_no_filter_when_unauthenticated(self, tmp_path: Path) -> None:
+        """Without auth, any collection can be indexed."""
+        from ragling.indexing_queue import IndexingQueue
+
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=(tmp_path / "vault",),
+        )
+        (tmp_path / "vault").mkdir(exist_ok=True)
+
+        queue = MagicMock(spec=IndexingQueue)
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_queue=queue,
+        )
+        tools = server._tool_manager._tools
+        fn = tools["rag_index"].fn
+
+        with patch("ragling.mcp_server.get_access_token", return_value=None):
+            result = fn(collection="obsidian")
+
+        assert "error" not in result
         assert result["status"] == "submitted"
 
 
