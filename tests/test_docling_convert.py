@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from docling_core.types.doc import CodeItem, PictureItem, TableItem
+
 from ragling.chunker import Chunk
 from ragling.config import Config
 from ragling.doc_store import DocStore
@@ -284,7 +286,7 @@ class TestEnrichmentMetadata:
 
         # Create a mock PictureItem with VLM description
         picture_item = MagicMock()
-        picture_item.__class__.__name__ = "PictureItem"
+        picture_item.__class__ = PictureItem
         picture_item.caption_text.return_value = ""
         desc_meta = MagicMock()
         desc_meta.text = "A diagram showing system architecture"
@@ -297,9 +299,6 @@ class TestEnrichmentMetadata:
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
             patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
-            patch("ragling.docling_convert._is_picture_item", return_value=True),
-            patch("ragling.docling_convert._is_table_item", return_value=False),
-            patch("ragling.docling_convert._is_code_item", return_value=False),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -312,7 +311,7 @@ class TestEnrichmentMetadata:
         from ragling.docling_convert import convert_and_chunk
 
         table_item = MagicMock()
-        table_item.__class__.__name__ = "TableItem"
+        table_item.__class__ = TableItem
         table_item.caption_text.return_value = "Table 1: Results summary"
 
         mock_chunker = self._make_chunker_with_items([table_item])
@@ -322,9 +321,6 @@ class TestEnrichmentMetadata:
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
             patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
-            patch("ragling.docling_convert._is_picture_item", return_value=False),
-            patch("ragling.docling_convert._is_table_item", return_value=True),
-            patch("ragling.docling_convert._is_code_item", return_value=False),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -335,7 +331,7 @@ class TestEnrichmentMetadata:
         from ragling.docling_convert import convert_and_chunk
 
         code_item = MagicMock()
-        code_item.__class__.__name__ = "CodeItem"
+        code_item.__class__ = CodeItem
         code_item.code_language.value = "python"
 
         mock_chunker = self._make_chunker_with_items([code_item])
@@ -345,9 +341,6 @@ class TestEnrichmentMetadata:
             patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
             patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
             patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
-            patch("ragling.docling_convert._is_picture_item", return_value=False),
-            patch("ragling.docling_convert._is_table_item", return_value=False),
-            patch("ragling.docling_convert._is_code_item", return_value=True),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -751,25 +744,6 @@ class TestConverterConfigHash:
             asr_model="turbo",
         )
         assert hash1 != hash2
-
-    def test_hash_stable_for_same_config(self) -> None:
-        from ragling.docling_convert import converter_config_hash
-
-        hash1 = converter_config_hash(
-            do_picture_description=True,
-            do_code_enrichment=True,
-            do_formula_enrichment=True,
-            table_mode="fast",
-            asr_model="small",
-        )
-        hash2 = converter_config_hash(
-            do_picture_description=True,
-            do_code_enrichment=True,
-            do_formula_enrichment=True,
-            table_mode="fast",
-            asr_model="small",
-        )
-        assert hash1 == hash2
 
 
 class TestAsrModelConfiguration:

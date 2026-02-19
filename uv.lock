@@ -2168,6 +2168,7 @@ asr-mlx = [
     { name = "mutagen" },
 ]
 dev = [
+    { name = "mutagen" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -2186,6 +2187,7 @@ requires-dist = [
     { name = "mlx-whisper", marker = "extra == 'asr-mlx'", specifier = ">=0.4.0" },
     { name = "mutagen", marker = "extra == 'asr'", specifier = ">=1.47" },
     { name = "mutagen", marker = "extra == 'asr-mlx'", specifier = ">=1.47" },
+    { name = "mutagen", marker = "extra == 'dev'", specifier = ">=1.47" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "ollama", specifier = ">=0.4.0" },
     { name = "openai-whisper", marker = "extra == 'asr'", specifier = ">=20231117" },

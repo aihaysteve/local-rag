@@ -34,6 +34,7 @@ dev = [
     "ruff",
     "mypy>=1.0",
     "types-PyYAML",
+    "mutagen>=1.47",
 ]
 asr = [
     "openai-whisper>=20231117",

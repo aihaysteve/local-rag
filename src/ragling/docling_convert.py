@@ -143,7 +143,7 @@ def _whisper_available() -> bool:
     except ImportError:
         pass
     try:
-        import mlx_whisper  # type: ignore[import-untyped]  # noqa: F401
+        import mlx_whisper  # type: ignore[import-not-found]  # noqa: F401
 
         return True
     except ImportError:
@@ -286,21 +286,6 @@ def _get_tokenizer(model_id: str, max_tokens: int) -> HuggingFaceTokenizer:
     return HuggingFaceTokenizer(tokenizer=hf_tok, max_tokens=max_tokens)
 
 
-def _is_picture_item(item: object) -> bool:
-    """Check if a doc_item is a PictureItem."""
-    return isinstance(item, PictureItem)
-
-
-def _is_table_item(item: object) -> bool:
-    """Check if a doc_item is a TableItem."""
-    return isinstance(item, TableItem)
-
-
-def _is_code_item(item: object) -> bool:
-    """Check if a doc_item is a CodeItem."""
-    return isinstance(item, CodeItem)
-
-
 @lru_cache
 def _get_vlm_engine(ollama_host: str | None = None) -> Any:
     """Get or create a cached VLM engine for standalone image description.
@@ -330,22 +315,18 @@ def _get_vlm_engine(ollama_host: str | None = None) -> Any:
                 concurrency=1,
             ),
         )
-        return create_vlm_engine(
-            options=options.engine_options,
-            model_spec=options.model_spec,
-            artifacts_path=None,
-            accelerator_options=AcceleratorOptions(),
-            enable_remote_services=True,
-        )
+        enable_remote = True
     else:
         options = PictureDescriptionVlmEngineOptions.from_preset("smolvlm")
-        return create_vlm_engine(
-            options=options.engine_options,
-            model_spec=options.model_spec,
-            artifacts_path=None,
-            accelerator_options=AcceleratorOptions(),
-            enable_remote_services=False,
-        )
+        enable_remote = False
+
+    return create_vlm_engine(
+        options=options.engine_options,
+        model_spec=options.model_spec,
+        artifacts_path=None,
+        accelerator_options=AcceleratorOptions(),
+        enable_remote_services=enable_remote,
+    )
 
 
 def _extract_pdf_text_fallback(path: Path) -> str:
@@ -472,17 +453,17 @@ def chunk_with_hybrid(
 
         # Extract enrichment metadata from doc_items (only present for Docling-converted docs)
         for doc_item in getattr(dc.meta, "doc_items", []):
-            if _is_picture_item(doc_item):
+            if isinstance(doc_item, PictureItem):
                 caption = doc_item.caption_text(doc)
                 if caption:
                     metadata.setdefault("captions", []).append(caption)
-                if getattr(doc_item, "meta", None) and getattr(doc_item.meta, "description", None):
+                if doc_item.meta is not None and doc_item.meta.description is not None:
                     metadata["picture_description"] = doc_item.meta.description.text
-            elif _is_table_item(doc_item):
+            elif isinstance(doc_item, TableItem):
                 caption = doc_item.caption_text(doc)
                 if caption:
                     metadata.setdefault("captions", []).append(caption)
-            elif _is_code_item(doc_item):
+            elif isinstance(doc_item, CodeItem):
                 lang = getattr(doc_item, "code_language", None)
                 if lang:
                     metadata["code_language"] = lang.value
@@ -536,7 +517,8 @@ def convert_and_chunk(
     from ragling.config import EnrichmentConfig
 
     enrichments = config.enrichments if config is not None else EnrichmentConfig()
-    vlm_backend = "ollama" if (config is not None and config.ollama_host) else "local"
+    ollama_host = config.ollama_host if config is not None else None
+    vlm_backend = "ollama" if ollama_host else "local"
 
     config_hash = converter_config_hash(
         do_picture_description=enrichments.image_description,
@@ -549,7 +531,6 @@ def convert_and_chunk(
 
     def _do_convert(p: Path) -> dict[str, Any]:
         try:
-            ollama_host = config.ollama_host if config is not None else None
             result = get_converter(
                 asr_model=asr_model,
                 do_picture_description=enrichments.image_description,
@@ -594,7 +575,6 @@ def convert_and_chunk(
     # Standalone image fallback: Docling's image pipeline doesn't run VLM
     # enrichment, so photos/diagrams produce zero chunks. Use VLM directly.
     if not chunks and source_type == "image":
-        ollama_host = config.ollama_host if config is not None else None
         description = describe_image(path, ollama_host=ollama_host)
         if description:
             logger.info("Image fallback: generated VLM description for %s", path)
