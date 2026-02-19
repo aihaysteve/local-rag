@@ -92,9 +92,9 @@ class DebouncedIndexQueue:
         Args:
             path: Path to a changed file.
         """
-        if not self._running:
-            return
         with self._lock:
+            if not self._running:
+                return
             self._pending.add(path)
             if self._timer:
                 self._timer.cancel()
