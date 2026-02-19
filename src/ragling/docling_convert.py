@@ -64,6 +64,7 @@ def converter_config_hash(
     do_formula_enrichment: bool,
     table_mode: str,
     asr_model: str = "small",
+    vlm_backend: str = "local",
 ) -> str:
     """Deterministic hash of converter pipeline configuration.
 
@@ -76,6 +77,7 @@ def converter_config_hash(
         do_formula_enrichment: Whether formula LaTeX extraction is enabled.
         table_mode: Table extraction mode (e.g. ``"accurate"`` or ``"fast"``).
         asr_model: Whisper model name for audio transcription.
+        vlm_backend: VLM inference backend (``"local"`` or ``"ollama"``).
 
     Returns:
         A 16-character hex string derived from SHA-256.
@@ -87,6 +89,7 @@ def converter_config_hash(
             "do_code_enrichment": do_code_enrichment,
             "do_formula_enrichment": do_formula_enrichment,
             "table_mode": table_mode,
+            "vlm_backend": vlm_backend,
         },
         sort_keys=True,
     )
@@ -481,6 +484,7 @@ def convert_and_chunk(
     from ragling.config import EnrichmentConfig
 
     enrichments = config.enrichments if config is not None else EnrichmentConfig()
+    vlm_backend = "ollama" if (config is not None and config.ollama_host) else "local"
 
     config_hash = converter_config_hash(
         do_picture_description=enrichments.image_description,
@@ -488,16 +492,19 @@ def convert_and_chunk(
         do_formula_enrichment=enrichments.formula_enrichment,
         table_mode="fast",
         asr_model=asr_model,
+        vlm_backend=vlm_backend,
     )
 
     def _do_convert(p: Path) -> dict[str, Any]:
         try:
+            ollama_host = config.ollama_host if config is not None else None
             result = get_converter(
                 asr_model=asr_model,
                 do_picture_description=enrichments.image_description,
                 do_code_enrichment=enrichments.code_enrichment,
                 do_formula_enrichment=enrichments.formula_enrichment,
                 do_table_structure=enrichments.table_structure,
+                ollama_host=ollama_host,
             ).convert(p)
             return result.document.model_dump(mode="json")
         except ConversionError:

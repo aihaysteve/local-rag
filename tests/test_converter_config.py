@@ -63,6 +63,25 @@ class TestConverterConfigHash:
         # Just verify it's a valid hex string, not a specific value
         int(result, 16)  # will raise if not hex
 
+    def test_vlm_backend_changes_hash(self) -> None:
+        """Different VLM backends produce different hashes."""
+        from ragling.docling_convert import converter_config_hash
+
+        local_hash = converter_config_hash(
+            do_picture_description=True,
+            do_code_enrichment=True,
+            do_formula_enrichment=True,
+            table_mode="fast",
+        )
+        remote_hash = converter_config_hash(
+            do_picture_description=True,
+            do_code_enrichment=True,
+            do_formula_enrichment=True,
+            table_mode="fast",
+            vlm_backend="ollama",
+        )
+        assert local_hash != remote_hash
+
 
 def test_convert_and_chunk_uses_enrichment_config() -> None:
     """convert_and_chunk uses Config.enrichments instead of hardcoded True."""
@@ -99,6 +118,37 @@ def test_convert_and_chunk_uses_enrichment_config() -> None:
         pass
 
     # Verify doc_store.get_or_convert was called with config_hash from enrichment flags
+    call_args = doc_store.get_or_convert.call_args
+    assert call_args is not None
+    assert call_args.kwargs.get("config_hash") == expected_hash
+
+
+def test_convert_and_chunk_passes_ollama_vlm_backend_in_hash() -> None:
+    """When config has ollama_host, config_hash includes vlm_backend."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from ragling.config import Config
+    from ragling.docling_convert import convert_and_chunk, converter_config_hash
+
+    config = Config(ollama_host="http://gpu:11434")
+
+    expected_hash = converter_config_hash(
+        do_picture_description=True,
+        do_code_enrichment=True,
+        do_formula_enrichment=True,
+        table_mode="fast",
+        vlm_backend="ollama",
+    )
+
+    doc_store = MagicMock()
+    doc_store.get_or_convert = MagicMock(side_effect=Exception("stop here"))
+
+    try:
+        convert_and_chunk(Path("/tmp/fake.pdf"), doc_store, config=config)
+    except Exception:
+        pass
+
     call_args = doc_store.get_or_convert.call_args
     assert call_args is not None
     assert call_args.kwargs.get("config_hash") == expected_hash
