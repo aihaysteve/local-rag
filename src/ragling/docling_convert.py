@@ -175,6 +175,7 @@ def get_converter(
     do_code_enrichment: bool = True,
     do_formula_enrichment: bool = True,
     do_table_structure: bool = True,
+    ollama_host: str | None = None,
 ) -> DocumentConverter:
     """Get or create the Docling DocumentConverter singleton.
 
@@ -188,7 +189,34 @@ def get_converter(
         do_code_enrichment: Whether code block extraction is enabled.
         do_formula_enrichment: Whether formula LaTeX extraction is enabled.
         do_table_structure: Whether table structure extraction is enabled.
+        ollama_host: When set, VLM engines (picture description, code/formula
+            extraction) use the remote Ollama server via API instead of local
+            inference. Derives the API URL from this host.
     """
+    # VLM engine configuration: remote Ollama or local
+    if ollama_host is not None:
+        from docling.datamodel.vlm_engine_options import ApiVlmEngineOptions
+        from docling.models.inference_engines.vlm.base import VlmEngineType
+
+        vlm_url = f"{ollama_host.rstrip('/')}/v1/chat/completions"
+        api_engine = ApiVlmEngineOptions(
+            engine_type=VlmEngineType.API_OLLAMA,
+            url=vlm_url,
+            concurrency=4,
+        )
+        pic_options = PictureDescriptionVlmEngineOptions.from_preset(
+            "granite_vision", engine_options=api_engine
+        )
+        code_options = CodeFormulaVlmOptions.from_preset(
+            "granite_docling", engine_options=api_engine
+        )
+        enable_remote = True
+        logger.info("VLM engines using Ollama at %s", ollama_host)
+    else:
+        pic_options = PictureDescriptionVlmEngineOptions.from_preset("smolvlm")
+        code_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
+        enable_remote = False
+
     pdf_options = PdfPipelineOptions(
         do_table_structure=do_table_structure,
         table_structure_options=TableStructureOptions(
@@ -196,10 +224,11 @@ def get_converter(
             do_cell_matching=True,
         ),
         do_picture_description=do_picture_description,
-        picture_description_options=PictureDescriptionVlmEngineOptions.from_preset("smolvlm"),
+        picture_description_options=pic_options,
         do_code_enrichment=do_code_enrichment,
         do_formula_enrichment=do_formula_enrichment,
-        code_formula_options=CodeFormulaVlmOptions.from_preset("codeformulav2"),
+        code_formula_options=code_options,
+        enable_remote_services=enable_remote,
     )
 
     format_options: dict[InputFormat, Any] = {

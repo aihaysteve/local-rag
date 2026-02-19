@@ -157,6 +157,82 @@ class TestGetConverter:
             assert opts.do_formula_enrichment is True
             assert opts.do_table_structure is True
 
+    def test_get_converter_uses_ollama_for_vlm_when_host_set(self) -> None:
+        """When ollama_host is provided, VLM engines use API_OLLAMA."""
+        from docling.datamodel.base_models import InputFormat
+
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            get_converter(ollama_host="http://gpu-box:11434")
+
+            call_kwargs = mock_cls.call_args.kwargs
+            format_options = call_kwargs["format_options"]
+            pdf_option = format_options[InputFormat.PDF]
+            opts = pdf_option.pipeline_options
+
+            # Picture description should use granite_vision preset
+            pic_opts = opts.picture_description_options
+            assert pic_opts.engine_options.engine_type.value == "api_ollama"
+
+            # Code/formula should use granite_docling preset
+            code_opts = opts.code_formula_options
+            assert code_opts.engine_options.engine_type.value == "api_ollama"
+
+            # Remote services must be enabled
+            assert opts.enable_remote_services is True
+
+    def test_get_converter_uses_correct_ollama_url(self) -> None:
+        """Ollama URL is constructed from the configured host."""
+        from docling.datamodel.base_models import InputFormat
+
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            get_converter(ollama_host="http://gpu-box:11434")
+
+            call_kwargs = mock_cls.call_args.kwargs
+            pdf_option = call_kwargs["format_options"][InputFormat.PDF]
+            pic_opts = pdf_option.pipeline_options.picture_description_options
+            url = str(pic_opts.engine_options.url)
+            assert "gpu-box:11434" in url
+
+    def test_get_converter_sets_concurrency(self) -> None:
+        """Ollama VLM requests should use concurrency > 1."""
+        from docling.datamodel.base_models import InputFormat
+
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            get_converter(ollama_host="http://gpu-box:11434")
+
+            call_kwargs = mock_cls.call_args.kwargs
+            pdf_option = call_kwargs["format_options"][InputFormat.PDF]
+            pic_opts = pdf_option.pipeline_options.picture_description_options
+            assert pic_opts.engine_options.concurrency == 4
+
+    def test_get_converter_local_when_no_ollama_host(self) -> None:
+        """Without ollama_host, VLM engines stay local (no API_OLLAMA)."""
+        from docling.datamodel.base_models import InputFormat
+
+        from ragling.docling_convert import get_converter
+
+        get_converter.cache_clear()
+        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            get_converter()
+
+            call_kwargs = mock_cls.call_args.kwargs
+            pdf_option = call_kwargs["format_options"][InputFormat.PDF]
+            opts = pdf_option.pipeline_options
+            assert opts.enable_remote_services is False
+
 
 class TestDoclingFormats:
     """Test the DOCLING_FORMATS set."""
