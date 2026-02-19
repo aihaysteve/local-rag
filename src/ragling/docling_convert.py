@@ -290,11 +290,14 @@ def _is_code_item(item: object) -> bool:
 
 
 @lru_cache
-def _get_vlm_engine() -> Any:
+def _get_vlm_engine(ollama_host: str | None = None) -> Any:
     """Get or create a cached VLM engine for standalone image description.
 
-    Uses SmolVLM (same model as PDF picture descriptions) via Docling's
-    engine factory. Lazy-loaded on first call, cached for process lifetime.
+    When ``ollama_host`` is set, uses the remote Ollama server with
+    granite_vision preset. Otherwise uses SmolVLM locally.
+
+    Args:
+        ollama_host: When set, use Ollama API at this host for VLM inference.
 
     Returns:
         A VLM engine instance with ``predict()`` method.
@@ -302,14 +305,35 @@ def _get_vlm_engine() -> Any:
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.models.inference_engines.vlm import create_vlm_engine
 
-    options = PictureDescriptionVlmEngineOptions.from_preset("smolvlm")
-    return create_vlm_engine(
-        options=options.engine_options,
-        model_spec=options.model_spec,
-        artifacts_path=None,
-        accelerator_options=AcceleratorOptions(),
-        enable_remote_services=False,
-    )
+    if ollama_host is not None:
+        from docling.datamodel.vlm_engine_options import ApiVlmEngineOptions
+        from docling.models.inference_engines.vlm.base import VlmEngineType
+
+        vlm_url = f"{ollama_host.rstrip('/')}/v1/chat/completions"
+        options = PictureDescriptionVlmEngineOptions.from_preset(
+            "granite_vision",
+            engine_options=ApiVlmEngineOptions(
+                engine_type=VlmEngineType.API_OLLAMA,
+                url=vlm_url,
+                concurrency=1,
+            ),
+        )
+        return create_vlm_engine(
+            options=options.engine_options,
+            model_spec=options.model_spec,
+            artifacts_path=None,
+            accelerator_options=AcceleratorOptions(),
+            enable_remote_services=True,
+        )
+    else:
+        options = PictureDescriptionVlmEngineOptions.from_preset("smolvlm")
+        return create_vlm_engine(
+            options=options.engine_options,
+            model_spec=options.model_spec,
+            artifacts_path=None,
+            accelerator_options=AcceleratorOptions(),
+            enable_remote_services=False,
+        )
 
 
 def _extract_pdf_text_fallback(path: Path) -> str:
@@ -342,14 +366,18 @@ def _extract_pdf_text_fallback(path: Path) -> str:
         return ""
 
 
-def describe_image(path: Path) -> str:
-    """Generate a text description of a standalone image using SmolVLM.
+def describe_image(path: Path, ollama_host: str | None = None) -> str:
+    """Generate a text description of a standalone image using a VLM.
+
+    When ``ollama_host`` is set, uses the remote Ollama server with
+    granite_vision. Otherwise uses SmolVLM locally.
 
     Workaround for Docling's limitation where standalone images don't
     receive VLM enrichment (only images embedded in PDFs do).
 
     Args:
         path: Path to an image file (PNG, JPG, TIFF, BMP, WEBP).
+        ollama_host: When set, use Ollama API at this host for VLM inference.
 
     Returns:
         A text description of the image, or empty string on failure.
@@ -363,7 +391,7 @@ def describe_image(path: Path) -> str:
 
         from docling.models.inference_engines.vlm import VlmEngineInput
 
-        engine = _get_vlm_engine()
+        engine = _get_vlm_engine(ollama_host=ollama_host)
         image = Image.open(path)
         result = engine.predict(
             VlmEngineInput(
@@ -540,9 +568,10 @@ def convert_and_chunk(
                 chunk.metadata.update(audio_meta)
 
     # Standalone image fallback: Docling's image pipeline doesn't run VLM
-    # enrichment, so photos/diagrams produce zero chunks. Use SmolVLM directly.
+    # enrichment, so photos/diagrams produce zero chunks. Use VLM directly.
     if not chunks and source_type == "image":
-        description = describe_image(path)
+        ollama_host = config.ollama_host if config is not None else None
+        description = describe_image(path, ollama_host=ollama_host)
         if description:
             logger.info("Image fallback: generated VLM description for %s", path)
             from ragling.docling_bridge import plaintext_to_docling_doc

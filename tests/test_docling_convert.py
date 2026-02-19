@@ -951,6 +951,189 @@ class TestAudioMetadataIntegration:
         mock_extract.assert_not_called()
 
 
+class TestGetVlmEngine:
+    """Tests for the _get_vlm_engine() factory with Ollama support."""
+
+    def test_uses_ollama_when_host_set(self) -> None:
+        """_get_vlm_engine returns an API engine when ollama_host is provided."""
+        from ragling.docling_convert import _get_vlm_engine
+
+        _get_vlm_engine.cache_clear()
+        with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
+            mock_create.return_value = MagicMock()
+            _get_vlm_engine(ollama_host="http://gpu:11434")
+
+            call_kwargs = mock_create.call_args
+            assert call_kwargs.kwargs.get("enable_remote_services") is True
+
+    def test_uses_local_when_no_host(self) -> None:
+        """_get_vlm_engine uses local transformers when no ollama_host."""
+        from ragling.docling_convert import _get_vlm_engine
+
+        _get_vlm_engine.cache_clear()
+        with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
+            mock_create.return_value = MagicMock()
+            _get_vlm_engine()
+
+            call_kwargs = mock_create.call_args
+            assert call_kwargs.kwargs.get("enable_remote_services") is False
+
+    def test_ollama_uses_granite_vision_preset(self) -> None:
+        """When ollama_host is set, should use granite_vision preset."""
+        from ragling.docling_convert import _get_vlm_engine
+
+        _get_vlm_engine.cache_clear()
+        with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
+            mock_create.return_value = MagicMock()
+            _get_vlm_engine(ollama_host="http://gpu:11434")
+
+            call_kwargs = mock_create.call_args
+            engine_opts = call_kwargs.kwargs.get("options")
+            assert engine_opts.engine_type.value == "api_ollama"
+
+    def test_ollama_url_constructed_correctly(self) -> None:
+        """Ollama URL includes /v1/chat/completions path."""
+        from ragling.docling_convert import _get_vlm_engine
+
+        _get_vlm_engine.cache_clear()
+        with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
+            mock_create.return_value = MagicMock()
+            _get_vlm_engine(ollama_host="http://gpu:11434")
+
+            call_kwargs = mock_create.call_args
+            engine_opts = call_kwargs.kwargs.get("options")
+            assert "gpu:11434/v1/chat/completions" in str(engine_opts.url)
+
+    def test_ollama_concurrency_is_one(self) -> None:
+        """Standalone image description uses concurrency=1."""
+        from ragling.docling_convert import _get_vlm_engine
+
+        _get_vlm_engine.cache_clear()
+        with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
+            mock_create.return_value = MagicMock()
+            _get_vlm_engine(ollama_host="http://gpu:11434")
+
+            call_kwargs = mock_create.call_args
+            engine_opts = call_kwargs.kwargs.get("options")
+            assert engine_opts.concurrency == 1
+
+
+class TestDescribeImageOllama:
+    """Tests for describe_image() passing ollama_host through."""
+
+    def test_passes_ollama_host_to_vlm_engine(self, tmp_path: Path) -> None:
+        """describe_image should pass ollama_host to _get_vlm_engine."""
+        from ragling.docling_convert import describe_image
+
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100), color="red")
+        img_path = tmp_path / "test.png"
+        img.save(img_path)
+
+        mock_engine = MagicMock()
+        mock_output = MagicMock()
+        mock_output.text = "A red square"
+        mock_engine.predict.return_value = mock_output
+
+        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine) as mock_get:
+            describe_image(img_path, ollama_host="http://gpu:11434")
+            mock_get.assert_called_once_with(ollama_host="http://gpu:11434")
+
+    def test_passes_none_when_no_ollama_host(self, tmp_path: Path) -> None:
+        """describe_image with no ollama_host passes None."""
+        from ragling.docling_convert import describe_image
+
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100), color="blue")
+        img_path = tmp_path / "test.png"
+        img.save(img_path)
+
+        mock_engine = MagicMock()
+        mock_output = MagicMock()
+        mock_output.text = "A blue square"
+        mock_engine.predict.return_value = mock_output
+
+        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine) as mock_get:
+            describe_image(img_path)
+            mock_get.assert_called_once_with(ollama_host=None)
+
+
+class TestConvertAndChunkImageFallbackOllama:
+    """Tests that convert_and_chunk wires ollama_host from config to describe_image."""
+
+    def test_passes_ollama_host_from_config(self, store: DocStore, tmp_path: Path) -> None:
+        """Image fallback should pass config.ollama_host to describe_image."""
+        from ragling.docling_convert import convert_and_chunk
+
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100), color="green")
+        img_path = tmp_path / "photo.jpg"
+        img.save(img_path)
+
+        empty_doc = MagicMock()
+        mock_chunker = MagicMock()
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = []
+        mock_chunk.meta.doc_items = []
+        mock_chunker.chunk.side_effect = [[], [mock_chunk]]
+        mock_chunker.contextualize.return_value = "A green square"
+
+        cfg = Config(
+            db_path=tmp_path / "test.db",
+            chunk_size_tokens=256,
+            ollama_host="http://gpu:11434",
+        )
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert.describe_image", return_value="A green square"
+            ) as mock_desc,
+        ):
+            mock_doc_cls.model_validate.return_value = empty_doc
+            convert_and_chunk(img_path, store, source_type="image", config=cfg)
+
+        mock_desc.assert_called_once_with(img_path, ollama_host="http://gpu:11434")
+
+    def test_passes_none_when_no_config(self, store: DocStore, tmp_path: Path) -> None:
+        """Image fallback without config passes ollama_host=None."""
+        from ragling.docling_convert import convert_and_chunk
+
+        from PIL import Image
+
+        img = Image.new("RGB", (100, 100), color="red")
+        img_path = tmp_path / "photo.jpg"
+        img.save(img_path)
+
+        empty_doc = MagicMock()
+        mock_chunker = MagicMock()
+        mock_chunk = MagicMock()
+        mock_chunk.meta.headings = []
+        mock_chunk.meta.doc_items = []
+        mock_chunker.chunk.side_effect = [[], [mock_chunk]]
+        mock_chunker.contextualize.return_value = "A red square"
+
+        with (
+            patch.object(store, "get_or_convert", return_value={"name": "mock"}),
+            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch(
+                "ragling.docling_convert.describe_image", return_value="A red square"
+            ) as mock_desc,
+        ):
+            mock_doc_cls.model_validate.return_value = empty_doc
+            convert_and_chunk(img_path, store, source_type="image")
+
+        mock_desc.assert_called_once_with(img_path, ollama_host=None)
+
+
 class TestAudioGracefulDegradation:
     def test_audio_conversion_error_propagates(self, store: DocStore, tmp_path: Path) -> None:
         """Conversion errors for audio files propagate so callers can handle them."""
