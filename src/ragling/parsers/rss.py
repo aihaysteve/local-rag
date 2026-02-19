@@ -25,6 +25,8 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from ragling.parsers import open_ro as _open_ro
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,18 +43,6 @@ class Article:
     authors: list[str] = field(default_factory=list)
     date_published: str = ""
     date_published_ts: float = 0.0
-
-
-def _open_ro(db_path: Path) -> sqlite3.Connection | None:
-    """Open a SQLite database in read-only mode."""
-    uri = f"file:{db_path}?mode=ro"
-    try:
-        conn = sqlite3.connect(uri, uri=True)
-        conn.row_factory = sqlite3.Row
-        return conn
-    except sqlite3.OperationalError as e:
-        logger.warning("Cannot open %s: %s", db_path, e)
-        return None
 
 
 def _ts_to_iso(ts: int | float | None) -> str:

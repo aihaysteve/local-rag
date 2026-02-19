@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from ragling.parsers import open_ro as _open_ro
+
 logger = logging.getLogger(__name__)
 
 # .NET ticks epoch: 0001-01-01
@@ -106,18 +108,6 @@ def _strip_signature(text: str) -> str:
             text = text[: match.start()].rstrip()
 
     return text
-
-
-def _open_ro(db_path: Path) -> sqlite3.Connection | None:
-    """Open a SQLite database in read-only mode."""
-    uri = f"file:{db_path}?mode=ro"
-    try:
-        conn = sqlite3.connect(uri, uri=True)
-        conn.row_factory = sqlite3.Row
-        return conn
-    except sqlite3.OperationalError as e:
-        logger.warning("Cannot open %s: %s", db_path, e)
-        return None
 
 
 def find_account_dirs(base_path: Path) -> list[Path]:

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from ragling.parsers import open_ro
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,12 +49,8 @@ def parse_calibre_library(library_path: Path) -> list[CalibreBook]:
         logger.error("Calibre metadata.db not found at: %s", db_path)
         return []
 
-    uri = f"file:{db_path}?mode=ro"
-    try:
-        conn = sqlite3.connect(uri, uri=True)
-        conn.row_factory = sqlite3.Row
-    except sqlite3.OperationalError as e:
-        logger.error("Failed to open Calibre database at %s: %s", db_path, e)
+    conn = open_ro(db_path)
+    if conn is None:
         return []
 
     try:
