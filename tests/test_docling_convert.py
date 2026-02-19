@@ -1149,3 +1149,23 @@ class TestAudioGracefulDegradation:
 
         assert result.errors == 1
         assert result.indexed == 0
+
+
+class TestRealFileConversion:
+    """Integration tests that call the real Docling converter (no mocking)."""
+
+    def test_convert_real_text_file(self, tmp_path: Path) -> None:
+        """Convert a real markdown file through the actual Docling pipeline."""
+        # Use .md because Docling natively supports it; .txt maps to XML_USPTO
+        md_file = tmp_path / "sample.md"
+        md_file.write_text("# Sample\n\nThis is a test document for Docling conversion.")
+
+        from ragling.docling_convert import convert_and_chunk
+
+        store = DocStore(tmp_path / "doc_store.sqlite")
+        chunks = convert_and_chunk(md_file, store, chunk_max_tokens=50)
+
+        assert len(chunks) > 0
+        assert any("test document" in c.text for c in chunks)
+        assert all(c.title == "sample.md" for c in chunks)
+        assert all(c.metadata["source_path"] == str(md_file) for c in chunks)
