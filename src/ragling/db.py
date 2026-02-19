@@ -209,7 +209,8 @@ def get_or_create_collection(
     )
     conn.commit()
     row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
-    assert row is not None
+    if row is None:
+        raise RuntimeError(f"Failed to create or retrieve collection '{name}'")
     coll_id: int = row["id"]
     logger.info("Created collection '%s' (type=%s, id=%d)", name, collection_type, coll_id)
     return coll_id

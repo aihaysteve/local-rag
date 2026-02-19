@@ -113,7 +113,8 @@ def upsert_source_with_chunks(
             "VALUES (?, ?, ?, ?, ?, ?)",
             (collection_id, source_type, source_path, file_hash, file_modified_at, now),
         )
-        assert cursor.lastrowid is not None
+        if cursor.lastrowid is None:
+            raise RuntimeError("INSERT INTO sources returned no lastrowid")
         source_id = cursor.lastrowid
 
     # Insert new documents and vectors
@@ -124,7 +125,8 @@ def upsert_source_with_chunks(
             "title, content, metadata) VALUES (?, ?, ?, ?, ?, ?)",
             (source_id, collection_id, chunk.chunk_index, chunk.title, chunk.text, metadata_json),
         )
-        assert doc_cursor.lastrowid is not None
+        if doc_cursor.lastrowid is None:
+            raise RuntimeError("INSERT INTO documents returned no lastrowid")
         doc_id = doc_cursor.lastrowid
         conn.execute(
             "INSERT INTO vec_documents (embedding, document_id) VALUES (?, ?)",

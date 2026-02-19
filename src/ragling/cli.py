@@ -436,7 +436,8 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
             click.echo(f"  {label}...")
             try:
                 if label in git_indexers:
-                    assert isinstance(indexer, GitRepoIndexer)
+                    if not isinstance(indexer, GitRepoIndexer):
+                        raise TypeError(f"Expected GitRepoIndexer for '{label}'")
                     result = indexer.index(conn, config, force=force, index_history=True)
                 else:
                     result = indexer.index(conn, config, force=force)
