@@ -42,3 +42,44 @@ class TestSplitIntoWindows:
         from ragling.chunker import _split_into_windows
 
         assert _split_into_windows("", 10, 2) == []
+
+    def test_overlap_equals_chunk_size_terminates(self) -> None:
+        """When overlap == chunk_size, splitting must still terminate."""
+        from ragling.chunker import _split_into_windows
+
+        text = " ".join(f"w{i}" for i in range(10))
+        result = _split_into_windows(text, 3, 3)
+        assert len(result) >= 1
+        # All words should be covered
+        joined = " ".join(result)
+        for i in range(10):
+            assert f"w{i}" in joined
+
+    def test_overlap_exceeds_chunk_size_terminates(self) -> None:
+        """When overlap > chunk_size, splitting must still terminate."""
+        from ragling.chunker import _split_into_windows
+
+        text = " ".join(f"w{i}" for i in range(10))
+        result = _split_into_windows(text, 3, 5)
+        assert len(result) >= 1
+
+    def test_single_word(self) -> None:
+        from ragling.chunker import _split_into_windows
+
+        assert _split_into_windows("hello", 3, 1) == ["hello"]
+
+    def test_exact_chunk_boundary(self) -> None:
+        """Text with exactly chunk_size words produces a single chunk."""
+        from ragling.chunker import _split_into_windows
+
+        result = _split_into_windows("a b c", 3, 1)
+        assert result == ["a b c"]
+
+    def test_zero_overlap(self) -> None:
+        from ragling.chunker import _split_into_windows
+
+        text = " ".join(f"w{i}" for i in range(6))
+        result = _split_into_windows(text, 3, 0)
+        assert len(result) == 2
+        assert result[0] == "w0 w1 w2"
+        assert result[1] == "w3 w4 w5"

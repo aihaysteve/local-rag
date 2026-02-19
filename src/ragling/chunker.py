@@ -39,6 +39,6 @@ def _split_into_windows(text: str, chunk_size: int, overlap: int) -> list[str]:
         chunks.append(" ".join(chunk_words))
         if end >= len(words):
             break
-        start = end - overlap
+        start = max(end - overlap, start + 1)
 
     return chunks
