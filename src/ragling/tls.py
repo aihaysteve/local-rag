@@ -115,7 +115,8 @@ def _generate_server_cert(cfg: TLSConfig) -> None:
     """Generate a server certificate signed by the CA."""
     ca_cert = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
     ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
-    assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
+    if not isinstance(ca_key, ec.EllipticCurvePrivateKey):
+        raise TypeError(f"Expected EllipticCurvePrivateKey, got {type(ca_key).__name__}")
 
     key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.now(timezone.utc)
