@@ -725,7 +725,7 @@ class TestBackgroundFlag:
         ctx = MagicMock()
         ctx.obj = {"config_path": None}
 
-        with patch("subprocess.Popen") as mock_popen, patch("builtins.open") as mock_open:
+        with patch("subprocess.Popen") as mock_popen, patch("builtins.open"):
             _run_in_background(ctx, ["obsidian"], force=False)
 
         call_kwargs = mock_popen.call_args[1]
