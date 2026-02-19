@@ -1,5 +1,6 @@
 """Tests for ragling.docling_convert module."""
 
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +23,20 @@ def sample_file(tmp_path: Path) -> Path:
     f = tmp_path / "test.pdf"
     f.write_bytes(b"%PDF-1.4 fake content")
     return f
+
+
+@pytest.fixture(autouse=True)
+def _clear_caches() -> Iterator[None]:
+    """Clear lru_cache state before and after each test."""
+    from ragling.docling_convert import _get_tokenizer, _get_vlm_engine, get_converter
+
+    get_converter.cache_clear()
+    _get_tokenizer.cache_clear()
+    _get_vlm_engine.cache_clear()
+    yield
+    get_converter.cache_clear()
+    _get_tokenizer.cache_clear()
+    _get_vlm_engine.cache_clear()
 
 
 class TestConvertAndChunk:
@@ -120,7 +135,6 @@ class TestGetConverter:
     def test_get_converter_returns_document_converter(self) -> None:
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             converter = get_converter()
@@ -129,7 +143,6 @@ class TestGetConverter:
     def test_get_converter_configures_pdf_enrichments(self) -> None:
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter()
@@ -143,7 +156,6 @@ class TestGetConverter:
     def test_get_converter_enables_picture_description(self) -> None:
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter()
@@ -165,7 +177,6 @@ class TestGetConverter:
 
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter(ollama_host="http://gpu-box:11434")
@@ -192,7 +203,6 @@ class TestGetConverter:
 
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter(ollama_host="http://gpu-box:11434")
@@ -209,7 +219,6 @@ class TestGetConverter:
 
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter(ollama_host="http://gpu-box:11434")
@@ -225,7 +234,6 @@ class TestGetConverter:
 
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter()
@@ -750,7 +758,6 @@ class TestAsrModelConfiguration:
     def test_get_converter_uses_configured_model(self) -> None:
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with (
             patch("ragling.docling_convert.DocumentConverter") as mock_cls,
             patch("ragling.docling_convert._whisper_available", return_value=True),
@@ -781,7 +788,6 @@ class TestGetConverterAsr:
     def test_get_converter_includes_audio_format_option(self) -> None:
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             with patch("ragling.docling_convert._whisper_available", return_value=True):
@@ -797,7 +803,6 @@ class TestGetConverterAsr:
         """When whisper is not installed, audio format should not be configured."""
         from ragling.docling_convert import get_converter
 
-        get_converter.cache_clear()
         with (
             patch("ragling.docling_convert.DocumentConverter") as mock_cls,
             patch("ragling.docling_convert._whisper_available", return_value=False),
@@ -932,7 +937,6 @@ class TestGetVlmEngine:
         """_get_vlm_engine returns an API engine when ollama_host is provided."""
         from ragling.docling_convert import _get_vlm_engine
 
-        _get_vlm_engine.cache_clear()
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
             _get_vlm_engine(ollama_host="http://gpu:11434")
@@ -944,7 +948,6 @@ class TestGetVlmEngine:
         """_get_vlm_engine uses local transformers when no ollama_host."""
         from ragling.docling_convert import _get_vlm_engine
 
-        _get_vlm_engine.cache_clear()
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
             _get_vlm_engine()
@@ -956,7 +959,6 @@ class TestGetVlmEngine:
         """When ollama_host is set, should use granite_vision preset."""
         from ragling.docling_convert import _get_vlm_engine
 
-        _get_vlm_engine.cache_clear()
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
             _get_vlm_engine(ollama_host="http://gpu:11434")
@@ -969,7 +971,6 @@ class TestGetVlmEngine:
         """Ollama URL includes /v1/chat/completions path."""
         from ragling.docling_convert import _get_vlm_engine
 
-        _get_vlm_engine.cache_clear()
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
             _get_vlm_engine(ollama_host="http://gpu:11434")
@@ -982,7 +983,6 @@ class TestGetVlmEngine:
         """Standalone image description uses concurrency=1."""
         from ragling.docling_convert import _get_vlm_engine
 
-        _get_vlm_engine.cache_clear()
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
             _get_vlm_engine(ollama_host="http://gpu:11434")
