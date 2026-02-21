@@ -57,6 +57,7 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".bash": "bash",
     ".yaml": "yaml",
     ".yml": "yaml",
+    ".zig": "zig",
 }
 
 # Filename-based language detection (no extension match)
@@ -116,6 +117,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
     "bash": {"function_definition"},
     "yaml": set(),  # no structural splitting for YAML
     "dockerfile": set(),  # no structural splitting for Dockerfile
+    "zig": {"Decl", "TestDecl", "ComptimeDecl"},
 }
 
 
@@ -233,6 +235,26 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "zig":
+        if node.type == "TestDecl":
+            for child in node.children:
+                if child.type == "STRINGLITERALSINGLE":
+                    return child.text.decode("utf-8", errors="replace").strip('"')
+            return "test"
+        if node.type == "ComptimeDecl":
+            return "(comptime)"
+        # Decl: look inside FnProto or VarDecl for IDENTIFIER
+        for child in node.children:
+            if child.type == "FnProto":
+                for gc in child.children:
+                    if gc.type == "IDENTIFIER":
+                        return gc.text.decode("utf-8", errors="replace")
+            if child.type == "VarDecl":
+                for gc in child.children:
+                    if gc.type == "IDENTIFIER":
+                        return gc.text.decode("utf-8", errors="replace")
+        return node.type
+
     if language == "c" or language == "cpp":
         # function_definition -> declarator -> identifier
         for child in node.children:
@@ -255,7 +277,7 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
     return node.type
 
 
-def _node_symbol_type(node_type: str, language: str) -> str:
+def _node_symbol_type(node_type: str, language: str, node=None) -> str:
     """Map a tree-sitter node type to a human-readable symbol type."""
     type_map = {
         "function_definition": "function",
@@ -281,8 +303,33 @@ def _node_symbol_type(node_type: str, language: str) -> str:
         "module": "module",
         "export_statement": "export",
         "block": "block",  # HCL
+        "Decl": "declaration",  # Zig — refined below for functions/types
+        "TestDecl": "test",  # Zig
+        "ComptimeDecl": "comptime",  # Zig
     }
     result = type_map.get(node_type, "block")
+
+    # Zig: refine Decl based on inner structure
+    if language == "zig" and node_type == "Decl":
+        if node is not None:
+            for child in node.children:
+                if child.type == "FnProto":
+                    return "function"
+                if child.type == "VarDecl":
+                    # Peek at the assigned value to distinguish struct/enum/union/error
+                    for gc in child.children:
+                        if gc.type == "ErrorUnionExpr":
+                            val = (gc.text or b"").decode("utf-8", errors="replace")
+                            if val.startswith("struct"):
+                                return "struct"
+                            if val.startswith("enum"):
+                                return "enum"
+                            if val.startswith("union"):
+                                return "union"
+                            if val.startswith("error"):
+                                return "error_set"
+                    return "variable"
+
     return result
 
 
@@ -356,7 +403,16 @@ def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeD
         top_start_line = None
         top_end_line = None
 
+    # Zig: track pending `pub` visibility modifier to prepend to next Decl
+    zig_pending_pub_line: int | None = None
+
     for child in top_level_children:
+        # Zig: `pub` is a separate sibling node before Decl — capture it
+        if language == "zig" and child.type == "pub":
+            _flush_top_level()
+            zig_pending_pub_line = child.start_point.row + 1
+            continue
+
         if child.type in split_types:
             _flush_top_level()
 
@@ -364,8 +420,14 @@ def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeD
             start_line = child.start_point.row + 1  # convert 0-based to 1-based
             end_line = child.end_point.row + 1
 
+            # Zig: prepend `pub` if it preceded this declaration
+            if zig_pending_pub_line is not None:
+                node_text = "pub " + node_text
+                start_line = zig_pending_pub_line
+                zig_pending_pub_line = None
+
             symbol_name = _extract_symbol_name(child, language, source_bytes)
-            symbol_type = _node_symbol_type(child.type, language)
+            symbol_type = _node_symbol_type(child.type, language, child)
 
             # For decorated definitions, refine based on the inner node
             if symbol_type == "decorated" and language == "python":
@@ -389,6 +451,7 @@ def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeD
                 )
             )
         else:
+            zig_pending_pub_line = None  # clear stale pub if any
             # Accumulate into top-level block
             node_text = (child.text or b"").decode("utf-8", errors="replace")
             start = child.start_point.row + 1
