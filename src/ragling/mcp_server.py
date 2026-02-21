@@ -546,6 +546,108 @@ def create_server(
         return _build_search_response(result_dicts, indexing_status)
 
     @mcp.tool()
+    def rag_batch_search(
+        queries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Run multiple searches in a single call, returning all results at once.
+
+        This is more efficient than calling rag_search multiple times because it
+        shares one database connection and batches all embedding requests into a
+        single Ollama call.
+
+        Each query in the list accepts the same parameters as rag_search:
+        query (required), collection, top_k, source_type, date_from, date_to,
+        sender, author.
+
+        Example input::
+
+            queries=[
+                {"query": "memory allocator", "collection": "code"},
+                {"query": "error handling patterns", "top_k": 5},
+                {"query": "build system", "collection": "obsidian"}
+            ]
+
+        Args:
+            queries: List of search query dicts. Each must have a "query" key.
+                Other keys match rag_search parameters.
+
+        Returns:
+            Dict with ``results`` (list of per-query result lists, same order as
+            input) and optional ``indexing_status``.
+        """
+        from ragling.embeddings import OllamaConnectionError
+        from ragling.search import BatchQuery, perform_batch_search
+
+        if not queries:
+            return _build_search_response([], indexing_status)
+
+        visible = _get_visible_collections(server_config)
+        user_ctx = _get_user_context(server_config)
+
+        batch_queries = []
+        for q in queries:
+            if not isinstance(q, dict) or "query" not in q:
+                return {"error": "Each query must be a dict with a 'query' key."}
+            batch_queries.append(
+                BatchQuery(
+                    query=q["query"],
+                    collection=q.get("collection"),
+                    top_k=q.get("top_k", 10),
+                    source_type=q.get("source_type"),
+                    date_from=q.get("date_from"),
+                    date_to=q.get("date_to"),
+                    sender=q.get("sender"),
+                    author=q.get("author"),
+                )
+            )
+
+        try:
+            all_results = perform_batch_search(
+                queries=batch_queries,
+                group_name=group_name,
+                config=server_config,
+                visible_collections=visible,
+            )
+        except OllamaConnectionError as e:
+            return _build_search_response([{"error": str(e)}], indexing_status)
+
+        obsidian_vaults = (server_config or load_config()).obsidian_vaults
+
+        all_result_dicts = []
+        for result_list in all_results:
+            result_dicts = [
+                {
+                    "title": r.title,
+                    "content": r.content,
+                    "collection": r.collection,
+                    "source_type": r.source_type,
+                    "source_path": r.source_path,
+                    "source_uri": _build_source_uri(
+                        r.source_path,
+                        r.source_type,
+                        r.metadata,
+                        r.collection,
+                        obsidian_vaults,
+                    ),
+                    "score": round(r.score, 4),
+                    "metadata": r.metadata,
+                    "stale": r.stale,
+                }
+                for r in result_list
+            ]
+            if user_ctx:
+                result_dicts = _apply_user_context_to_results(result_dicts, user_ctx)
+            all_result_dicts.append(result_dicts)
+
+        response: dict[str, Any] = {"results": all_result_dicts}
+        if indexing_status:
+            status_dict = indexing_status.to_dict()
+            response["indexing"] = status_dict if status_dict and status_dict.get("active") else None
+        else:
+            response["indexing"] = None
+        return response
+
+    @mcp.tool()
     def rag_list_collections() -> dict[str, Any]:
         """List all available collections with source file counts, chunk counts, and metadata.
 

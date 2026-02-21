@@ -1148,3 +1148,193 @@ class TestRagIndexingStatus:
         result = fn()
 
         assert result == {"active": False}
+
+
+class TestRagBatchSearch:
+    """Tests for the rag_batch_search MCP tool."""
+
+    def test_batch_search_registered(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)
+        tools = server._tool_manager._tools
+        assert "rag_batch_search" in tools
+
+    def test_batch_search_empty_queries(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        result = fn(queries=[])
+        assert result["results"] == []
+        assert result["indexing"] is None
+
+    def test_batch_search_rejects_missing_query_key(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        result = fn(queries=[{"collection": "obsidian"}])
+        assert "error" in result
+
+    def test_batch_search_calls_perform_batch_search(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        with patch("ragling.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
+            result = fn(queries=[
+                {"query": "hello"},
+                {"query": "world", "collection": "code", "top_k": 5},
+            ])
+
+        mock_pbs.assert_called_once()
+        call_args = mock_pbs.call_args
+        batch_queries = call_args.kwargs["queries"]
+        assert len(batch_queries) == 2
+        assert batch_queries[0].query == "hello"
+        assert batch_queries[0].top_k == 10  # default
+        assert batch_queries[1].query == "world"
+        assert batch_queries[1].collection == "code"
+        assert batch_queries[1].top_k == 5
+        assert result["results"] == [[], []]
+
+    def test_batch_search_returns_per_query_results(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import create_server
+        from ragling.search import SearchResult
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        mock_results = [
+            [
+                SearchResult(
+                    content="result 1",
+                    title="Result 1",
+                    metadata={},
+                    score=0.9,
+                    collection="code",
+                    source_path="/tmp/a.py",
+                    source_type="code",
+                ),
+            ],
+            [
+                SearchResult(
+                    content="result 2",
+                    title="Result 2",
+                    metadata={},
+                    score=0.8,
+                    collection="obsidian",
+                    source_path="/tmp/b.md",
+                    source_type="markdown",
+                ),
+            ],
+        ]
+
+        with patch("ragling.search.perform_batch_search", return_value=mock_results):
+            result = fn(queries=[
+                {"query": "first"},
+                {"query": "second"},
+            ])
+
+        assert len(result["results"]) == 2
+        assert len(result["results"][0]) == 1
+        assert result["results"][0][0]["title"] == "Result 1"
+        assert len(result["results"][1]) == 1
+        assert result["results"][1][0]["title"] == "Result 2"
+
+    def test_batch_search_handles_ollama_error(self, tmp_path: Path) -> None:
+        from ragling.embeddings import OllamaConnectionError
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        server = create_server(config=config)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        with patch(
+            "ragling.search.perform_batch_search",
+            side_effect=OllamaConnectionError("connection refused"),
+        ):
+            result = fn(queries=[{"query": "test"}])
+
+        assert result["results"][0]["error"] == "connection refused"
+
+    def test_batch_search_includes_indexing_status(self, tmp_path: Path) -> None:
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        status.increment("obsidian", 3)
+        server = create_server(config=config, indexing_status=status)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        with patch("ragling.search.perform_batch_search", return_value=[[]]):
+            result = fn(queries=[{"query": "test"}])
+
+        assert result["indexing"] is not None
+        assert result["indexing"]["active"] is True
+        assert result["indexing"]["total_remaining"] == 3
+
+    def test_batch_search_idle_indexing_status(self, tmp_path: Path) -> None:
+        """Idle IndexingStatus (to_dict() returns None) must not crash."""
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()  # idle — no pending work
+        server = create_server(config=config, indexing_status=status)
+        tools = server._tool_manager._tools
+        fn = tools["rag_batch_search"].fn
+
+        with patch("ragling.search.perform_batch_search", return_value=[[]]):
+            result = fn(queries=[{"query": "test"}])
+
+        assert result["indexing"] is None
+
