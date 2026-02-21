@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
-from ragling.embeddings import get_embedding, serialize_float32
+from ragling.embeddings import get_embedding, get_embeddings, serialize_float32
 from ragling.search_utils import escape_fts_query
 
 logger = logging.getLogger(__name__)
@@ -488,5 +488,84 @@ def perform_search(
             config,
             visible_collections=visible_collections,
         )
+    finally:
+        conn.close()
+
+
+@dataclass
+class BatchQuery:
+    """A single query within a batch search request."""
+
+    query: str
+    collection: str | None = None
+    top_k: int = 10
+    source_type: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    sender: str | None = None
+    author: str | None = None
+
+
+def perform_batch_search(
+    queries: list[BatchQuery],
+    group_name: str = "default",
+    config: Config | None = None,
+    visible_collections: list[str] | None = None,
+) -> list[list[SearchResult]]:
+    """Run multiple searches sharing one DB connection and one embedding call.
+
+    Args:
+        queries: List of BatchQuery objects.
+        group_name: Group name for per-group indexes.
+        config: Optional pre-loaded Config.
+        visible_collections: Optional collection visibility filter.
+
+    Returns:
+        List of result lists, one per query in the same order.
+
+    Raises:
+        ragling.embeddings.OllamaConnectionError: If Ollama is not reachable.
+    """
+    if not queries:
+        return []
+
+    config = (config or load_config()).with_overrides(group_name=group_name)
+    conn = get_connection(config)
+    init_db(conn, config)
+
+    try:
+        query_texts = [q.query for q in queries]
+        all_embeddings = get_embeddings(query_texts, config)
+
+        for emb in all_embeddings:
+            if len(emb) != config.embedding_dimensions:
+                raise ValueError(
+                    f"embedding dimension mismatch: got {len(emb)}, "
+                    f"expected {config.embedding_dimensions}"
+                )
+
+        results: list[list[SearchResult]] = []
+        for q, embedding in zip(queries, all_embeddings):
+            filters = SearchFilters(
+                collection=q.collection,
+                source_type=q.source_type,
+                date_from=q.date_from,
+                date_to=q.date_to,
+                sender=q.sender,
+                author=q.author,
+            )
+            results.append(
+                search(
+                    conn,
+                    embedding,
+                    q.query,
+                    q.top_k,
+                    filters,
+                    config,
+                    visible_collections=visible_collections,
+                )
+            )
+
+        return results
     finally:
         conn.close()
