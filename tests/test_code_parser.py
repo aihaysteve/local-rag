@@ -1,8 +1,8 @@
-"""Tests for ragling.parsers.code -- extension map and language detection."""
+"""Tests for ragling.parsers.code -- extension map, language detection, and parsing."""
 
 from pathlib import Path
 
-from ragling.parsers.code import get_language, is_code_file
+from ragling.parsers.code import get_language, is_code_file, parse_code_file
 
 
 class TestCodeExtensionMap:
@@ -58,6 +58,9 @@ class TestCodeExtensionMap:
 
     def test_csharp_is_code_file(self) -> None:
         assert is_code_file(Path("Program.cs")) is True
+
+    def test_zig_is_code_file(self) -> None:
+        assert is_code_file(Path("main.zig")) is True
 
     def test_dockerfile_is_code_file(self) -> None:
         """Dockerfile is detected via _CODE_FILENAME_MAP, not extension."""
@@ -154,6 +157,9 @@ class TestGetLanguage:
     def test_yml_returns_yaml(self) -> None:
         assert get_language(Path("config.yml")) == "yaml"
 
+    def test_zig_returns_zig(self) -> None:
+        assert get_language(Path("main.zig")) == "zig"
+
     def test_dockerfile_returns_dockerfile(self) -> None:
         """Dockerfile is detected via _CODE_FILENAME_MAP."""
         assert get_language(Path("Dockerfile")) == "dockerfile"
@@ -172,3 +178,196 @@ class TestGetLanguage:
         """Extension matching should be case-insensitive."""
         assert get_language(Path("main.PY")) == "python"
         assert get_language(Path("app.JS")) == "javascript"
+
+
+class TestZigParsing:
+    """Tests for Zig code parsing via parse_code_file."""
+
+    # A comprehensive Zig source file covering all major declaration types
+    ZIG_SOURCE = """\
+const std = @import("std");
+
+pub fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn privateHelper() void {}
+
+const Point = struct {
+    x: f64,
+    y: f64,
+};
+
+const Color = enum {
+    red,
+    green,
+    blue,
+};
+
+test "addition works" {
+    const result = add(2, 3);
+    try std.testing.expectEqual(@as(i32, 5), result);
+}
+
+comptime {
+    _ = @import("other.zig");
+}
+"""
+
+    def _parse_zig(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Zig source to a temp file and parse it, returning blocks."""
+        zig_file = tmp_path / "test.zig"
+        zig_file.write_text(source if source is not None else self.ZIG_SOURCE)
+        doc = parse_code_file(zig_file, "zig", "test.zig")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """Zig source parses successfully and returns a CodeDocument."""
+        zig_file = tmp_path / "test.zig"
+        zig_file.write_text(self.ZIG_SOURCE)
+        doc = parse_code_file(zig_file, "zig", "test.zig")
+        assert doc is not None
+        assert doc.language == "zig"
+        assert doc.file_path == "test.zig"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """Zig source produces the expected number of structural blocks.
+
+        Expected blocks:
+        1. const std = @import("std"); (variable — Decl with VarDecl)
+        2. pub fn add (function)
+        3. fn privateHelper (function)
+        4. const Point = struct { ... } (struct)
+        5. const Color = enum { ... } (enum)
+        6. test "addition works" (test)
+        7. comptime { ... } (comptime)
+        """
+        blocks = self._parse_zig(tmp_path)
+        assert len(blocks) == 7
+
+    def test_import_declaration(self, tmp_path: Path) -> None:
+        """A top-level @import is a Decl/VarDecl classified as 'variable'."""
+        blocks = self._parse_zig(tmp_path)
+        import_block = blocks[0]
+        assert import_block.symbol_type == "variable"
+        assert import_block.symbol_name == "std"
+        assert "@import" in import_block.text
+
+    def test_pub_function_symbol_name(self, tmp_path: Path) -> None:
+        """A pub fn declaration extracts the correct symbol name."""
+        blocks = self._parse_zig(tmp_path)
+        pub_fn = blocks[1]
+        assert pub_fn.symbol_name == "add"
+
+    def test_pub_function_symbol_type(self, tmp_path: Path) -> None:
+        """A pub fn declaration is classified as symbol_type 'function'."""
+        blocks = self._parse_zig(tmp_path)
+        pub_fn = blocks[1]
+        assert pub_fn.symbol_type == "function"
+
+    def test_pub_prefix_prepended_to_text(self, tmp_path: Path) -> None:
+        """The ``pub`` visibility modifier is prepended to the block text."""
+        blocks = self._parse_zig(tmp_path)
+        pub_fn = blocks[1]
+        assert pub_fn.text.startswith("pub ")
+
+    def test_pub_prefix_adjusts_start_line(self, tmp_path: Path) -> None:
+        """The start_line for a pub declaration includes the pub keyword line."""
+        blocks = self._parse_zig(tmp_path)
+        pub_fn = blocks[1]
+        # "pub fn add" starts on line 3 (1-based)
+        assert pub_fn.start_line == 3
+
+    def test_private_function(self, tmp_path: Path) -> None:
+        """A private fn declaration is correctly parsed."""
+        blocks = self._parse_zig(tmp_path)
+        priv_fn = blocks[2]
+        assert priv_fn.symbol_name == "privateHelper"
+        assert priv_fn.symbol_type == "function"
+        assert not priv_fn.text.startswith("pub ")
+
+    def test_struct_declaration(self, tmp_path: Path) -> None:
+        """A const = struct { ... } declaration is classified as 'struct'."""
+        blocks = self._parse_zig(tmp_path)
+        struct_block = blocks[3]
+        assert struct_block.symbol_name == "Point"
+        assert struct_block.symbol_type == "struct"
+
+    def test_enum_declaration(self, tmp_path: Path) -> None:
+        """A const = enum { ... } declaration is classified as 'enum'."""
+        blocks = self._parse_zig(tmp_path)
+        enum_block = blocks[4]
+        assert enum_block.symbol_name == "Color"
+        assert enum_block.symbol_type == "enum"
+
+    def test_test_declaration_name(self, tmp_path: Path) -> None:
+        """A test declaration extracts the test name string."""
+        blocks = self._parse_zig(tmp_path)
+        test_block = blocks[5]
+        assert test_block.symbol_name == "addition works"
+
+    def test_test_declaration_type(self, tmp_path: Path) -> None:
+        """A test declaration is classified as symbol_type 'test'."""
+        blocks = self._parse_zig(tmp_path)
+        test_block = blocks[5]
+        assert test_block.symbol_type == "test"
+
+    def test_comptime_declaration(self, tmp_path: Path) -> None:
+        """A comptime block is classified as symbol_type 'comptime'."""
+        blocks = self._parse_zig(tmp_path)
+        comptime_block = blocks[6]
+        assert comptime_block.symbol_name == "(comptime)"
+        assert comptime_block.symbol_type == "comptime"
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_zig(tmp_path)
+        # All blocks should have positive line numbers
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_zig(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.zig"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'zig'."""
+        blocks = self._parse_zig(tmp_path)
+        for block in blocks:
+            assert block.language == "zig"
+
+    def test_variable_declaration(self, tmp_path: Path) -> None:
+        """A plain const variable (not struct/enum) is classified as 'variable'."""
+        source = """\
+const max_size: usize = 1024;
+"""
+        blocks = self._parse_zig(tmp_path, source)
+        assert len(blocks) >= 1
+        var_block = blocks[0]
+        assert var_block.symbol_name == "max_size"
+        assert var_block.symbol_type == "variable"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .zig file produces no blocks."""
+        zig_file = tmp_path / "empty.zig"
+        zig_file.write_text("")
+        doc = parse_code_file(zig_file, "zig", "empty.zig")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_pub_not_carried_across_non_decl_nodes(self, tmp_path: Path) -> None:
+        """A stale ``pub`` modifier is cleared if a non-Decl node follows."""
+        source = """\
+pub fn first() void {}
+fn second() void {}
+"""
+        blocks = self._parse_zig(tmp_path, source)
+        # first should have pub prefix, second should not
+        first = [b for b in blocks if b.symbol_name == "first"][0]
+        second = [b for b in blocks if b.symbol_name == "second"][0]
+        assert first.text.startswith("pub ")
+        assert not second.text.startswith("pub ")
