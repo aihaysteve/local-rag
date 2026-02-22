@@ -4,9 +4,15 @@ Parses source code files into structural blocks (functions, classes, etc.)
 using tree-sitter grammars via tree-sitter-language-pack.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tree_sitter import Node
 
 logger = logging.getLogger(__name__)
 
@@ -277,8 +283,20 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
     return node.type
 
 
-def _node_symbol_type(node_type: str, language: str, node=None) -> str:
-    """Map a tree-sitter node type to a human-readable symbol type."""
+def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -> str:
+    """Map a tree-sitter node type to a human-readable symbol type.
+
+    Args:
+        node_type: The tree-sitter node type string (e.g. "function_definition").
+        language: Language name (e.g. "python", "zig").
+        node: Optional tree-sitter Node, used for languages like Zig where the
+            node type alone is insufficient and child nodes must be inspected to
+            refine the symbol type (e.g. distinguishing functions from structs
+            within a Zig ``Decl`` node).
+
+    Returns:
+        Human-readable symbol type string (e.g. "function", "class", "struct").
+    """
     type_map = {
         "function_definition": "function",
         "function_declaration": "function",
