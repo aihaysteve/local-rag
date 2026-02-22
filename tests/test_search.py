@@ -10,7 +10,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ragling.config import Config
-from ragling.search import SearchFilters, SearchResult, perform_search, rrf_merge
+from ragling.search import (
+    BatchQuery,
+    SearchFilters,
+    SearchResult,
+    perform_batch_search,
+    perform_search,
+    rrf_merge,
+)
 
 # Check if sqlite3 supports loading extensions (required for sqlite-vec integration tests)
 _conn = sqlite3.connect(":memory:")
@@ -1303,3 +1310,69 @@ class TestFtsSearchEmptyShortCircuit:
 
         assert result == []
         mock_conn.execute.assert_not_called()
+
+
+class TestPerformBatchSearch:
+    """Tests for perform_batch_search."""
+
+    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    def test_calls_search_for_each_query(self, mock_search, mock_init, mock_conn, mock_embed):
+        queries = [
+            BatchQuery(query="first"),
+            BatchQuery(query="second", collection="code", top_k=5),
+        ]
+        results = perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        assert len(results) == 2
+        assert mock_search.call_count == 2
+
+    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    def test_uses_batch_embeddings(self, mock_search, mock_init, mock_conn, mock_embed):
+        """All query texts are embedded in a single batch call."""
+        queries = [
+            BatchQuery(query="alpha"),
+            BatchQuery(query="beta"),
+        ]
+        perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        mock_embed.assert_called_once_with(["alpha", "beta"], mock_embed.call_args[0][1])
+
+    def test_empty_queries_returns_empty(self):
+        result = perform_batch_search([])
+        assert result == []
+
+    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0]])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    def test_passes_filters_per_query(self, mock_search, mock_init, mock_conn, mock_embed):
+        queries = [
+            BatchQuery(query="test", collection="obsidian", source_type="pdf"),
+        ]
+        perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        call_args = mock_search.call_args
+        filters = call_args[0][4]  # 5th positional arg
+        assert filters.collection == "obsidian"
+        assert filters.source_type == "pdf"
+
+    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0]])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    def test_dimension_mismatch_raises(self, mock_init, mock_conn, mock_embed):
+        queries = [BatchQuery(query="test")]
+        with pytest.raises(ValueError, match="embedding dimension mismatch"):
+            perform_batch_search(queries, config=Config(embedding_dimensions=4))
+
+    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    @patch("ragling.search.get_connection")
+    @patch("ragling.search.init_db")
+    @patch("ragling.search.search", return_value=[])
+    def test_shares_single_connection(self, mock_search, mock_init, mock_conn, mock_embed):
+        """All queries use the same DB connection."""
+        queries = [BatchQuery(query="a"), BatchQuery(query="b")]
+        perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        mock_conn.assert_called_once()  # Only one connection created
