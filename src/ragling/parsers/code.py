@@ -64,6 +64,7 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".yaml": "yaml",
     ".yml": "yaml",
     ".zig": "zig",
+    ".kt": "kotlin",
 }
 
 # Filename-based language detection (no extension match)
@@ -124,6 +125,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
     "yaml": set(),  # no structural splitting for YAML
     "dockerfile": set(),  # no structural splitting for Dockerfile
     "zig": {"Decl", "TestDecl", "ComptimeDecl"},
+    "kotlin": {"class_declaration", "function_declaration", "object_declaration"},
 }
 
 
@@ -229,6 +231,16 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "kotlin":
+        # Kotlin: class_declaration, function_declaration, object_declaration
+        # Name is in type_identifier (classes/objects) or simple_identifier (functions)
+        for child in node.children:
+            if child.type == "type_identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "simple_identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
     if language in ("java", "csharp"):
         for child in node.children:
             if child.type == "identifier":
@@ -320,6 +332,7 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "mod_item": "module",
         "module": "module",
         "export_statement": "export",
+        "object_declaration": "object",  # Kotlin
         "block": "block",  # HCL
         "Decl": "declaration",  # Zig — refined below for functions/types
         "TestDecl": "test",  # Zig
@@ -347,6 +360,24 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
                             if val.startswith("error"):
                                 return "error_set"
                     return "variable"
+
+    # Kotlin: refine class_declaration based on keyword children
+    if language == "kotlin" and node_type == "class_declaration":
+        if node is not None:
+            child_types = {c.type for c in node.children}
+            if "interface" in child_types:
+                return "interface"
+            if "enum" in child_types:
+                return "enum"
+            # Check modifiers for data class
+            for child in node.children:
+                if child.type == "modifiers":
+                    for mod in child.children:
+                        if mod.type == "class_modifier":
+                            mod_text = (mod.text or b"").decode("utf-8", errors="replace")
+                            if mod_text == "data":
+                                return "data_class"
+            return "class"
 
     return result
 

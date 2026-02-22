@@ -371,3 +371,185 @@ fn second() void {}
         second = [b for b in blocks if b.symbol_name == "second"][0]
         assert first.text.startswith("pub ")
         assert not second.text.startswith("pub ")
+
+
+class TestKotlinParsing:
+    """Tests for Kotlin code parsing via parse_code_file."""
+
+    KOTLIN_SOURCE = """\
+package com.example
+
+class MyClass {
+    fun greet(name: String): String {
+        return "Hello, $name"
+    }
+
+    companion object {
+        const val VERSION = "1.0"
+    }
+}
+
+interface Greeter {
+    fun greet(): String
+}
+
+enum class Color {
+    RED, GREEN, BLUE
+}
+
+fun topLevelFunction(): Int {
+    return 42
+}
+
+data class Point(val x: Int, val y: Int)
+
+object Singleton {
+    fun doStuff() {}
+}
+"""
+
+    def _parse_kotlin(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Kotlin source to a temp file and parse it, returning blocks."""
+        kt_file = tmp_path / "test.kt"
+        kt_file.write_text(source if source is not None else self.KOTLIN_SOURCE)
+        doc = parse_code_file(kt_file, "kotlin", "test.kt")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_kotlin_is_code_file(self) -> None:
+        assert is_code_file(Path("Main.kt")) is True
+
+    def test_kotlin_returns_kotlin(self) -> None:
+        assert get_language(Path("Main.kt")) == "kotlin"
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        kt_file = tmp_path / "test.kt"
+        kt_file.write_text(self.KOTLIN_SOURCE)
+        doc = parse_code_file(kt_file, "kotlin", "test.kt")
+        assert doc is not None
+        assert doc.language == "kotlin"
+        assert doc.file_path == "test.kt"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """Expected: package (module_top), MyClass, Greeter, Color, topLevelFunction, Point, Singleton."""
+        blocks = self._parse_kotlin(tmp_path)
+        assert len(blocks) == 7
+
+    def test_top_level_package_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        top = blocks[0]
+        assert top.symbol_type == "module_top"
+        assert "package" in top.text
+
+    def test_class_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        cls = [b for b in blocks if b.symbol_name == "MyClass"][0]
+        assert cls.symbol_type == "class"
+        assert "fun greet" in cls.text
+
+    def test_interface_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        iface = [b for b in blocks if b.symbol_name == "Greeter"][0]
+        assert iface.symbol_type == "interface"
+
+    def test_enum_class_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        enum = [b for b in blocks if b.symbol_name == "Color"][0]
+        assert enum.symbol_type == "enum"
+
+    def test_top_level_function(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        func = [b for b in blocks if b.symbol_name == "topLevelFunction"][0]
+        assert func.symbol_type == "function"
+        assert "return 42" in func.text
+
+    def test_data_class_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        dc = [b for b in blocks if b.symbol_name == "Point"][0]
+        assert dc.symbol_type == "data_class"
+
+    def test_object_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        obj = [b for b in blocks if b.symbol_name == "Singleton"][0]
+        assert obj.symbol_type == "object"
+        assert "fun doStuff" in obj.text
+
+    def test_companion_object_not_split(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        companions = [b for b in blocks if b.symbol_name == "companion"]
+        assert len(companions) == 0
+
+    def test_symbol_names(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        names = {b.symbol_name for b in blocks if b.symbol_type != "module_top"}
+        assert names == {
+            "MyClass",
+            "Greeter",
+            "Color",
+            "topLevelFunction",
+            "Point",
+            "Singleton",
+        }
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.kt"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        for block in blocks:
+            assert block.language == "kotlin"
+
+    def test_sealed_class(self, tmp_path: Path) -> None:
+        source = "sealed class Result {}\n"
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "Result"
+        assert blocks[0].symbol_type == "class"
+
+    def test_abstract_class(self, tmp_path: Path) -> None:
+        source = "abstract class Base {}\n"
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "Base"
+        assert blocks[0].symbol_type == "class"
+
+    def test_annotation_class(self, tmp_path: Path) -> None:
+        source = "annotation class MyAnnotation\n"
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "MyAnnotation"
+        assert blocks[0].symbol_type == "class"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        kt_file = tmp_path / "empty.kt"
+        kt_file.write_text("")
+        doc = parse_code_file(kt_file, "kotlin", "empty.kt")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_function_only_file(self, tmp_path: Path) -> None:
+        source = 'fun main() { println("Hello") }\n'
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "main"
+        assert blocks[0].symbol_type == "function"
+
+    def test_class_start_end_lines(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        cls = [b for b in blocks if b.symbol_name == "MyClass"][0]
+        assert cls.start_line == 3
+        assert cls.end_line == 11
+
+    def test_function_start_end_lines(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        func = [b for b in blocks if b.symbol_name == "topLevelFunction"][0]
+        assert func.start_line == 21
+        assert func.end_line == 23
