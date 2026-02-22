@@ -371,3 +371,203 @@ fn second() void {}
         second = [b for b in blocks if b.symbol_name == "second"][0]
         assert first.text.startswith("pub ")
         assert not second.text.startswith("pub ")
+
+
+class TestPowerShellExtensionAndLanguage:
+    """Tests for PowerShell extension mapping and language detection."""
+
+    def test_ps1_is_code_file(self) -> None:
+        assert is_code_file(Path("script.ps1")) is True
+
+    def test_psm1_is_code_file(self) -> None:
+        assert is_code_file(Path("module.psm1")) is True
+
+    def test_ps1_returns_powershell(self) -> None:
+        assert get_language(Path("script.ps1")) == "powershell"
+
+    def test_psm1_returns_powershell(self) -> None:
+        assert get_language(Path("module.psm1")) == "powershell"
+
+
+class TestPowerShellParsing:
+    """Tests for PowerShell code parsing via parse_code_file."""
+
+    PS_SOURCE = """\
+function Get-Greeting {
+    param(
+        [string]$Name
+    )
+    return "Hello, $Name"
+}
+
+function Set-Config {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Path,
+        [hashtable]$Settings
+    )
+    $Settings | ConvertTo-Json | Set-Content $Path
+}
+
+filter Where-Even {
+    if ($_ % 2 -eq 0) { $_ }
+}
+
+class MyClass {
+    [string]$Name
+    MyClass([string]$name) {
+        $this.Name = $name
+    }
+    [string] Greet() {
+        return "Hello, $($this.Name)"
+    }
+}
+"""
+
+    def _parse_ps(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write PowerShell source to a temp file and parse it, returning blocks."""
+        ps_file = tmp_path / "test.ps1"
+        ps_file.write_text(source if source is not None else self.PS_SOURCE)
+        doc = parse_code_file(ps_file, "powershell", "test.ps1")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """PowerShell source parses successfully and returns a CodeDocument."""
+        ps_file = tmp_path / "test.ps1"
+        ps_file.write_text(self.PS_SOURCE)
+        doc = parse_code_file(ps_file, "powershell", "test.ps1")
+        assert doc is not None
+        assert doc.language == "powershell"
+        assert doc.file_path == "test.ps1"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """PowerShell source produces the expected number of structural blocks.
+
+        Expected blocks:
+        1. function Get-Greeting
+        2. function Set-Config
+        3. filter Where-Even (also a function_statement)
+        4. class MyClass
+        """
+        blocks = self._parse_ps(tmp_path)
+        assert len(blocks) == 4
+
+    def test_function_symbol_name(self, tmp_path: Path) -> None:
+        """A function declaration extracts the correct symbol name."""
+        blocks = self._parse_ps(tmp_path)
+        fn_block = blocks[0]
+        assert fn_block.symbol_name == "Get-Greeting"
+
+    def test_function_symbol_type(self, tmp_path: Path) -> None:
+        """A function declaration is classified as symbol_type 'function'."""
+        blocks = self._parse_ps(tmp_path)
+        fn_block = blocks[0]
+        assert fn_block.symbol_type == "function"
+
+    def test_function_with_cmdletbinding(self, tmp_path: Path) -> None:
+        """A function with [CmdletBinding()] parses correctly."""
+        blocks = self._parse_ps(tmp_path)
+        fn_block = blocks[1]
+        assert fn_block.symbol_name == "Set-Config"
+        assert fn_block.symbol_type == "function"
+
+    def test_filter_symbol_name(self, tmp_path: Path) -> None:
+        """A filter declaration extracts the correct symbol name."""
+        blocks = self._parse_ps(tmp_path)
+        filter_block = blocks[2]
+        assert filter_block.symbol_name == "Where-Even"
+
+    def test_filter_symbol_type(self, tmp_path: Path) -> None:
+        """A filter is classified as symbol_type 'function' (same as function_statement)."""
+        blocks = self._parse_ps(tmp_path)
+        filter_block = blocks[2]
+        assert filter_block.symbol_type == "function"
+
+    def test_class_symbol_name(self, tmp_path: Path) -> None:
+        """A class declaration extracts the correct symbol name."""
+        blocks = self._parse_ps(tmp_path)
+        class_block = blocks[3]
+        assert class_block.symbol_name == "MyClass"
+
+    def test_class_symbol_type(self, tmp_path: Path) -> None:
+        """A class declaration is classified as symbol_type 'class'."""
+        blocks = self._parse_ps(tmp_path)
+        class_block = blocks[3]
+        assert class_block.symbol_type == "class"
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_ps(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_ps(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.ps1"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'powershell'."""
+        blocks = self._parse_ps(tmp_path)
+        for block in blocks:
+            assert block.language == "powershell"
+
+    def test_function_text_contains_body(self, tmp_path: Path) -> None:
+        """The function block text includes the full function body."""
+        blocks = self._parse_ps(tmp_path)
+        fn_block = blocks[0]
+        assert "Get-Greeting" in fn_block.text
+        assert "param" in fn_block.text
+        assert "return" in fn_block.text
+
+    def test_class_text_contains_methods(self, tmp_path: Path) -> None:
+        """The class block text includes method definitions."""
+        blocks = self._parse_ps(tmp_path)
+        class_block = blocks[3]
+        assert "MyClass" in class_block.text
+        assert "Greet" in class_block.text
+
+    def test_top_level_code_becomes_module_top(self, tmp_path: Path) -> None:
+        """Top-level code outside functions/classes becomes module_top."""
+        source = """\
+$greeting = "Hello"
+Write-Host $greeting
+
+function Get-Name {
+    return "World"
+}
+"""
+        blocks = self._parse_ps(tmp_path, source)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        fn_blocks = [b for b in blocks if b.symbol_type == "function"]
+        assert len(top_blocks) == 1
+        assert len(fn_blocks) == 1
+        assert "$greeting" in top_blocks[0].text
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .ps1 file produces no blocks."""
+        ps_file = tmp_path / "empty.ps1"
+        ps_file.write_text("")
+        doc = parse_code_file(ps_file, "powershell", "empty.ps1")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_only_functions_no_class(self, tmp_path: Path) -> None:
+        """A file with only functions and no class parses correctly."""
+        source = """\
+function First {
+    "first"
+}
+
+function Second {
+    "second"
+}
+"""
+        blocks = self._parse_ps(tmp_path, source)
+        assert len(blocks) == 2
+        assert blocks[0].symbol_name == "First"
+        assert blocks[1].symbol_name == "Second"
