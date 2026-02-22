@@ -61,6 +61,8 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".rb": "ruby",
     ".sh": "bash",
     ".bash": "bash",
+    ".ps1": "powershell",
+    ".psm1": "powershell",
     ".yaml": "yaml",
     ".yml": "yaml",
     ".zig": "zig",
@@ -121,6 +123,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
     },
     "ruby": {"method", "class", "module"},
     "bash": {"function_definition"},
+    "powershell": {"function_statement", "class_statement"},
     "yaml": set(),  # no structural splitting for YAML
     "dockerfile": set(),  # no structural splitting for Dockerfile
     "zig": {"Decl", "TestDecl", "ComptimeDecl"},
@@ -261,6 +264,16 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                         return gc.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "powershell":
+        # function_statement: child function_name holds the name
+        # class_statement: child simple_name holds the name
+        for child in node.children:
+            if child.type == "function_name":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "simple_name":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
     if language == "c" or language == "cpp":
         # function_definition -> declarator -> identifier
         for child in node.children:
@@ -324,6 +337,8 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "Decl": "declaration",  # Zig — refined below for functions/types
         "TestDecl": "test",  # Zig
         "ComptimeDecl": "comptime",  # Zig
+        "function_statement": "function",  # PowerShell (functions and filters)
+        "class_statement": "class",  # PowerShell
     }
     result = type_map.get(node_type, "block")
 
@@ -394,6 +409,14 @@ def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeD
     # For HCL, the root has a "body" child that contains the actual blocks
     top_level_children = list(root.children)
     if language == "hcl" and len(top_level_children) == 1 and top_level_children[0].type == "body":
+        top_level_children = list(top_level_children[0].children)
+
+    # PowerShell: root is program -> statement_list -> actual statements
+    if (
+        language == "powershell"
+        and len(top_level_children) == 1
+        and top_level_children[0].type == "statement_list"
+    ):
         top_level_children = list(top_level_children[0].children)
 
     # Accumulate non-split nodes into module_top blocks
