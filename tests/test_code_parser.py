@@ -1557,3 +1557,255 @@ object Singleton {
         func = [b for b in blocks if b.symbol_name == "topLevelFunction"][0]
         assert func.start_line == 21
         assert func.end_line == 23
+
+
+class TestPhpExtensionAndLanguage:
+    """Tests for PHP extension mapping and language detection."""
+
+    def test_php_is_code_file(self) -> None:
+        assert is_code_file(Path("index.php")) is True
+
+    def test_php_returns_php(self) -> None:
+        assert get_language(Path("index.php")) == "php"
+
+    def test_php_case_insensitive(self) -> None:
+        assert is_code_file(Path("index.PHP")) is True
+        assert get_language(Path("index.PHP")) == "php"
+
+
+class TestPhpParsing:
+    """Tests for PHP code parsing via parse_code_file."""
+
+    PHP_SOURCE = (
+        "<?php\n"
+        "namespace App\\\\Models;\n"
+        "\n"
+        "class User {\n"
+        "    private string $name;\n"
+        "\n"
+        "    public function __construct(string $name) {\n"
+        "        $this->name = $name;\n"
+        "    }\n"
+        "\n"
+        "    public function getName(): string {\n"
+        "        return $this->name;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "interface Authenticatable {\n"
+        "    public function authenticate(): bool;\n"
+        "}\n"
+        "\n"
+        "trait HasTimestamps {\n"
+        "    public function createdAt(): DateTime {\n"
+        "        return $this->created_at;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "enum Status: string {\n"
+        "    case Active = 'active';\n"
+        "    case Inactive = 'inactive';\n"
+        "}\n"
+        "\n"
+        "function helper(): void {\n"
+        '    echo "hello";\n'
+        "}\n"
+    )
+
+    def _parse_php(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write PHP source to a temp file and parse it, returning blocks."""
+        php_file = tmp_path / "test.php"
+        php_file.write_text(source if source is not None else self.PHP_SOURCE)
+        doc = parse_code_file(php_file, "php", "test.php")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """PHP source parses successfully and returns a CodeDocument."""
+        php_file = tmp_path / "test.php"
+        php_file.write_text(self.PHP_SOURCE)
+        doc = parse_code_file(php_file, "php", "test.php")
+        assert doc is not None
+        assert doc.language == "php"
+        assert doc.file_path == "test.php"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """PHP source produces the expected number of structural blocks.
+
+        Expected blocks:
+        1. namespace App\\Models (top-level, non-split)
+        2. class User
+        3. interface Authenticatable
+        4. trait HasTimestamps
+        5. enum Status
+        6. function helper
+        """
+        blocks = self._parse_php(tmp_path)
+        split_blocks = [b for b in blocks if b.symbol_type != "module_top"]
+        assert len(split_blocks) == 5
+
+    def test_class_symbol_name(self, tmp_path: Path) -> None:
+        """A class declaration extracts the correct symbol name."""
+        blocks = self._parse_php(tmp_path)
+        class_block = [b for b in blocks if b.symbol_name == "User"][0]
+        assert class_block.symbol_name == "User"
+
+    def test_class_symbol_type(self, tmp_path: Path) -> None:
+        """A class declaration is classified as symbol_type 'class'."""
+        blocks = self._parse_php(tmp_path)
+        class_block = [b for b in blocks if b.symbol_name == "User"][0]
+        assert class_block.symbol_type == "class"
+
+    def test_class_text_contains_methods(self, tmp_path: Path) -> None:
+        """The class block text includes method definitions."""
+        blocks = self._parse_php(tmp_path)
+        class_block = [b for b in blocks if b.symbol_name == "User"][0]
+        assert "class User" in class_block.text
+        assert "__construct" in class_block.text
+        assert "getName" in class_block.text
+
+    def test_interface_symbol_name(self, tmp_path: Path) -> None:
+        """An interface declaration extracts the correct symbol name."""
+        blocks = self._parse_php(tmp_path)
+        iface_block = [b for b in blocks if b.symbol_name == "Authenticatable"][0]
+        assert iface_block.symbol_name == "Authenticatable"
+
+    def test_interface_symbol_type(self, tmp_path: Path) -> None:
+        """An interface declaration is classified as symbol_type 'interface'."""
+        blocks = self._parse_php(tmp_path)
+        iface_block = [b for b in blocks if b.symbol_name == "Authenticatable"][0]
+        assert iface_block.symbol_type == "interface"
+
+    def test_trait_symbol_name(self, tmp_path: Path) -> None:
+        """A trait declaration extracts the correct symbol name."""
+        blocks = self._parse_php(tmp_path)
+        trait_block = [b for b in blocks if b.symbol_name == "HasTimestamps"][0]
+        assert trait_block.symbol_name == "HasTimestamps"
+
+    def test_trait_symbol_type(self, tmp_path: Path) -> None:
+        """A trait declaration is classified as symbol_type 'trait'."""
+        blocks = self._parse_php(tmp_path)
+        trait_block = [b for b in blocks if b.symbol_name == "HasTimestamps"][0]
+        assert trait_block.symbol_type == "trait"
+
+    def test_enum_symbol_name(self, tmp_path: Path) -> None:
+        """An enum declaration extracts the correct symbol name."""
+        blocks = self._parse_php(tmp_path)
+        enum_block = [b for b in blocks if b.symbol_name == "Status"][0]
+        assert enum_block.symbol_name == "Status"
+
+    def test_enum_symbol_type(self, tmp_path: Path) -> None:
+        """An enum declaration is classified as symbol_type 'enum'."""
+        blocks = self._parse_php(tmp_path)
+        enum_block = [b for b in blocks if b.symbol_name == "Status"][0]
+        assert enum_block.symbol_type == "enum"
+
+    def test_function_symbol_name(self, tmp_path: Path) -> None:
+        """A function definition extracts the correct symbol name."""
+        blocks = self._parse_php(tmp_path)
+        fn_block = [b for b in blocks if b.symbol_name == "helper"][0]
+        assert fn_block.symbol_name == "helper"
+
+    def test_function_symbol_type(self, tmp_path: Path) -> None:
+        """A function definition is classified as symbol_type 'function'."""
+        blocks = self._parse_php(tmp_path)
+        fn_block = [b for b in blocks if b.symbol_name == "helper"][0]
+        assert fn_block.symbol_type == "function"
+
+    def test_function_text_contains_body(self, tmp_path: Path) -> None:
+        """The function block text includes the full function body."""
+        blocks = self._parse_php(tmp_path)
+        fn_block = [b for b in blocks if b.symbol_name == "helper"][0]
+        assert "function helper" in fn_block.text
+        assert "echo" in fn_block.text
+
+    def test_namespace_in_top_level(self, tmp_path: Path) -> None:
+        """Namespace and php_tag end up in module_top block."""
+        blocks = self._parse_php(tmp_path)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        assert len(top_blocks) >= 1
+        top_text = " ".join(b.text for b in top_blocks)
+        assert "namespace" in top_text
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_php(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_php(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.php"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'php'."""
+        blocks = self._parse_php(tmp_path)
+        for block in blocks:
+            assert block.language == "php"
+
+    def test_abstract_class(self, tmp_path: Path) -> None:
+        """An abstract class declaration is correctly parsed."""
+        source = (
+            "<?php\nabstract class BaseModel {\n    abstract public function save(): void;\n}\n"
+        )
+        blocks = self._parse_php(tmp_path, source)
+        class_blocks = [b for b in blocks if b.symbol_type == "class"]
+        assert len(class_blocks) == 1
+        assert class_blocks[0].symbol_name == "BaseModel"
+        assert "abstract class" in class_blocks[0].text
+
+    def test_final_class(self, tmp_path: Path) -> None:
+        """A final class declaration is correctly parsed."""
+        source = "<?php\nfinal class Config {\n    public static string $version = '1.0';\n}\n"
+        blocks = self._parse_php(tmp_path, source)
+        class_blocks = [b for b in blocks if b.symbol_type == "class"]
+        assert len(class_blocks) == 1
+        assert class_blocks[0].symbol_name == "Config"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .php file produces no blocks."""
+        php_file = tmp_path / "empty.php"
+        php_file.write_text("")
+        doc = parse_code_file(php_file, "php", "empty.php")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_only_functions(self, tmp_path: Path) -> None:
+        """A file with only functions parses correctly."""
+        source = (
+            "<?php\n"
+            "function first(): void {\n"
+            '    echo "first";\n'
+            "}\n"
+            "\n"
+            "function second(): void {\n"
+            '    echo "second";\n'
+            "}\n"
+        )
+        blocks = self._parse_php(tmp_path, source)
+        fn_blocks = [b for b in blocks if b.symbol_type == "function"]
+        assert len(fn_blocks) == 2
+        assert fn_blocks[0].symbol_name == "first"
+        assert fn_blocks[1].symbol_name == "second"
+
+    def test_top_level_code_becomes_module_top(self, tmp_path: Path) -> None:
+        """Top-level code outside declarations becomes module_top."""
+        source = (
+            "<?php\n"
+            "require_once 'vendor/autoload.php';\n"
+            "$app = new Application();\n"
+            "\n"
+            "function run(): void {\n"
+            '    echo "running";\n'
+            "}\n"
+        )
+        blocks = self._parse_php(tmp_path, source)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        fn_blocks = [b for b in blocks if b.symbol_type == "function"]
+        assert len(top_blocks) >= 1
+        assert len(fn_blocks) == 1
+        top_text = " ".join(b.text for b in top_blocks)
+        assert "require_once" in top_text
