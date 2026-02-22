@@ -1809,3 +1809,238 @@ class TestPhpParsing:
         assert len(fn_blocks) == 1
         top_text = " ".join(b.text for b in top_blocks)
         assert "require_once" in top_text
+
+
+class TestScalaExtensionAndLanguage:
+    """Tests for Scala file extension mapping and language detection."""
+
+    def test_scala_is_code_file(self) -> None:
+        assert is_code_file(Path("Main.scala")) is True
+
+    def test_sc_is_code_file(self) -> None:
+        assert is_code_file(Path("script.sc")) is True
+
+    def test_scala_returns_scala(self) -> None:
+        assert get_language(Path("Main.scala")) == "scala"
+
+    def test_sc_returns_scala(self) -> None:
+        assert get_language(Path("script.sc")) == "scala"
+
+
+class TestScalaParsing:
+    """Tests for Scala code parsing via parse_code_file."""
+
+    # A comprehensive Scala source file covering all major declaration types
+    SCALA_SOURCE = """\
+package com.example
+
+import scala.collection.mutable
+
+class Animal(val name: String) {
+  def speak(): String = "..."
+}
+
+case class Point(x: Double, y: Double)
+
+object Singleton {
+  def doStuff(): Unit = println("stuff")
+}
+
+trait Drawable {
+  def draw(): Unit
+}
+
+sealed trait Shape
+case class Circle(radius: Double) extends Shape
+case class Rectangle(w: Double, h: Double) extends Shape
+
+def topLevel(): Int = 42
+
+enum Color {
+  case Red, Green, Blue
+}
+"""
+
+    def _parse_scala(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Scala source to a temp file and parse it, returning blocks."""
+        scala_file = tmp_path / "test.scala"
+        scala_file.write_text(source if source is not None else self.SCALA_SOURCE)
+        doc = parse_code_file(scala_file, "scala", "test.scala")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """Scala source parses successfully and returns a CodeDocument."""
+        scala_file = tmp_path / "test.scala"
+        scala_file.write_text(self.SCALA_SOURCE)
+        doc = parse_code_file(scala_file, "scala", "test.scala")
+        assert doc is not None
+        assert doc.language == "scala"
+        assert doc.file_path == "test.scala"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """Scala source produces the expected number of structural blocks.
+
+        Expected blocks:
+        1. package + import (module_top)
+        2. class Animal (class)
+        3. case class Point (class)
+        4. object Singleton (object)
+        5. trait Drawable (trait)
+        6. sealed trait Shape (trait)
+        7. case class Circle (class)
+        8. case class Rectangle (class)
+        9. def topLevel (function)
+        10. enum Color (enum)
+        """
+        blocks = self._parse_scala(tmp_path)
+        assert len(blocks) == 10
+
+    def test_package_and_import_in_top_level(self, tmp_path: Path) -> None:
+        """Package and import statements are grouped into a module_top block."""
+        blocks = self._parse_scala(tmp_path)
+        top_block = blocks[0]
+        assert top_block.symbol_type == "module_top"
+        assert top_block.symbol_name == "(top-level)"
+        assert "package" in top_block.text
+        assert "import" in top_block.text
+
+    def test_class_definition(self, tmp_path: Path) -> None:
+        """A class definition is correctly parsed with symbol_type 'class'."""
+        blocks = self._parse_scala(tmp_path)
+        animal = blocks[1]
+        assert animal.symbol_name == "Animal"
+        assert animal.symbol_type == "class"
+        assert "class Animal" in animal.text
+
+    def test_case_class_definition(self, tmp_path: Path) -> None:
+        """A case class is parsed as symbol_type 'class'."""
+        blocks = self._parse_scala(tmp_path)
+        point = blocks[2]
+        assert point.symbol_name == "Point"
+        assert point.symbol_type == "class"
+        assert "case class" in point.text
+
+    def test_object_definition(self, tmp_path: Path) -> None:
+        """An object definition is parsed with symbol_type 'object'."""
+        blocks = self._parse_scala(tmp_path)
+        singleton = blocks[3]
+        assert singleton.symbol_name == "Singleton"
+        assert singleton.symbol_type == "object"
+        assert "object Singleton" in singleton.text
+
+    def test_trait_definition(self, tmp_path: Path) -> None:
+        """A trait definition is parsed with symbol_type 'trait'."""
+        blocks = self._parse_scala(tmp_path)
+        drawable = blocks[4]
+        assert drawable.symbol_name == "Drawable"
+        assert drawable.symbol_type == "trait"
+
+    def test_sealed_trait_definition(self, tmp_path: Path) -> None:
+        """A sealed trait is parsed with symbol_type 'trait'."""
+        blocks = self._parse_scala(tmp_path)
+        shape = blocks[5]
+        assert shape.symbol_name == "Shape"
+        assert shape.symbol_type == "trait"
+        assert "sealed" in shape.text
+
+    def test_case_class_extends(self, tmp_path: Path) -> None:
+        """Case classes extending a trait are parsed correctly."""
+        blocks = self._parse_scala(tmp_path)
+        circle = blocks[6]
+        assert circle.symbol_name == "Circle"
+        assert circle.symbol_type == "class"
+        assert "extends Shape" in circle.text
+
+    def test_top_level_function(self, tmp_path: Path) -> None:
+        """A top-level def is parsed with symbol_type 'function'."""
+        blocks = self._parse_scala(tmp_path)
+        top_fn = blocks[8]
+        assert top_fn.symbol_name == "topLevel"
+        assert top_fn.symbol_type == "function"
+
+    def test_enum_definition(self, tmp_path: Path) -> None:
+        """An enum definition (Scala 3) is parsed with symbol_type 'enum'."""
+        blocks = self._parse_scala(tmp_path)
+        color = blocks[9]
+        assert color.symbol_name == "Color"
+        assert color.symbol_type == "enum"
+        assert "enum Color" in color.text
+
+    def test_val_definition(self, tmp_path: Path) -> None:
+        """A top-level val definition is parsed with symbol_type 'val'."""
+        source = "val maxSize: Int = 42\n"
+        blocks = self._parse_scala(tmp_path, source)
+        assert len(blocks) >= 1
+        val_block = blocks[0]
+        assert val_block.symbol_name == "maxSize"
+        assert val_block.symbol_type == "val"
+
+    def test_var_definition(self, tmp_path: Path) -> None:
+        """A top-level var definition is parsed with symbol_type 'var'."""
+        source = "var counter: Int = 0\n"
+        blocks = self._parse_scala(tmp_path, source)
+        assert len(blocks) >= 1
+        var_block = blocks[0]
+        assert var_block.symbol_name == "counter"
+        assert var_block.symbol_type == "var"
+
+    def test_type_definition(self, tmp_path: Path) -> None:
+        """A type alias is parsed with symbol_type 'type'."""
+        source = "type Alias = List[Int]\n"
+        blocks = self._parse_scala(tmp_path, source)
+        assert len(blocks) >= 1
+        type_block = blocks[0]
+        assert type_block.symbol_name == "Alias"
+        assert type_block.symbol_type == "type"
+
+    def test_given_definition(self, tmp_path: Path) -> None:
+        """A given definition (Scala 3) is parsed with symbol_type 'given'."""
+        source = "given intOrd: Ordering[Int] = Ordering.Int\n"
+        blocks = self._parse_scala(tmp_path, source)
+        assert len(blocks) >= 1
+        given_block = blocks[0]
+        assert given_block.symbol_name == "intOrd"
+        assert given_block.symbol_type == "given"
+
+    def test_abstract_def_in_trait(self, tmp_path: Path) -> None:
+        """An abstract def (function_declaration) inside a trait is captured
+        as part of the trait block, not a separate top-level block."""
+        source = """\
+trait Foo {
+  def bar(): Unit
+}
+"""
+        blocks = self._parse_scala(tmp_path, source)
+        # Only 1 block: the trait itself (abstract def is nested inside)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_type == "trait"
+        assert blocks[0].symbol_name == "Foo"
+        assert "def bar" in blocks[0].text
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_scala(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_scala(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.scala"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'scala'."""
+        blocks = self._parse_scala(tmp_path)
+        for block in blocks:
+            assert block.language == "scala"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .scala file produces no blocks."""
+        scala_file = tmp_path / "empty.scala"
+        scala_file.write_text("")
+        doc = parse_code_file(scala_file, "scala", "empty.scala")
+        assert doc is not None
+        assert len(doc.blocks) == 0

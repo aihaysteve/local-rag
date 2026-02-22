@@ -63,6 +63,8 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".bash": "bash",
     ".ps1": "powershell",
     ".psm1": "powershell",
+    ".scala": "scala",
+    ".sc": "scala",
     ".yaml": "yaml",
     ".yml": "yaml",
     ".zig": "zig",
@@ -130,6 +132,17 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
         "enum_declaration",
     },
     "ruby": {"method", "class", "module"},
+    "scala": {
+        "class_definition",
+        "object_definition",
+        "trait_definition",
+        "function_definition",
+        "enum_definition",
+        "val_definition",
+        "var_definition",
+        "type_definition",
+        "given_definition",
+    },
     "bash": {"function_definition"},
     "powershell": {"function_statement", "class_statement"},
     "yaml": set(),  # no structural splitting for YAML
@@ -281,6 +294,13 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
     if language in ("java", "csharp"):
         for child in node.children:
             if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
+    if language == "scala":
+        # type_definition uses type_identifier; all others use identifier
+        for child in node.children:
+            if child.type in ("identifier", "type_identifier"):
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
@@ -458,6 +478,13 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "mod_item": "module",
         "module": "module",
         "export_statement": "export",
+        "object_definition": "object",  # Scala
+        "trait_definition": "trait",  # Scala
+        "enum_definition": "enum",  # Scala
+        "val_definition": "val",  # Scala
+        "var_definition": "var",  # Scala
+        "type_definition": "type",  # Scala
+        "given_definition": "given",  # Scala
         "block": "block",  # HCL
         "Decl": "declaration",  # Zig — refined below for functions/types
         "TestDecl": "test",  # Zig
