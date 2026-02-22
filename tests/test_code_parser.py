@@ -571,3 +571,199 @@ function Second {
         assert len(blocks) == 2
         assert blocks[0].symbol_name == "First"
         assert blocks[1].symbol_name == "Second"
+
+
+class TestRParsing:
+    """Tests for R code parsing via parse_code_file."""
+
+    # A comprehensive R source file covering major declaration types
+    R_SOURCE = """\
+# Simple function with <- assignment
+add <- function(x, y) {
+  x + y
+}
+
+# S3 method with dotted name
+print.myclass <- function(x, ...) {
+  cat("MyClass:", x$name, "\\n")
+}
+
+# Function with = assignment
+my_func = function(data) {
+  mean(data)
+}
+
+# Non-function assignment (global variable)
+threshold <- 0.05
+
+# Library call (top-level)
+library(ggplot2)
+
+# setRefClass call (class-like, not a function_definition)
+MyClass <- setRefClass("MyClass",
+  fields = list(
+    name = "character",
+    value = "numeric"
+  ),
+  methods = list(
+    greet = function() {
+      cat("Hello,", name, "\\n")
+    }
+  )
+)
+"""
+
+    def _parse_r(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write R source to a temp file and parse it, returning blocks."""
+        r_file = tmp_path / "test.R"
+        r_file.write_text(source if source is not None else self.R_SOURCE)
+        doc = parse_code_file(r_file, "r", "test.R")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """R source parses successfully and returns a CodeDocument."""
+        r_file = tmp_path / "test.R"
+        r_file.write_text(self.R_SOURCE)
+        doc = parse_code_file(r_file, "r", "test.R")
+        assert doc is not None
+        assert doc.language == "r"
+        assert doc.file_path == "test.R"
+
+    def test_function_blocks_extracted(self, tmp_path: Path) -> None:
+        """Function definitions are extracted as separate blocks."""
+        blocks = self._parse_r(tmp_path)
+        func_blocks = [b for b in blocks if b.symbol_type == "function"]
+        # add, print.myclass, my_func
+        assert len(func_blocks) == 3
+
+    def test_left_arrow_function_name(self, tmp_path: Path) -> None:
+        """A function assigned with <- extracts the correct symbol name."""
+        blocks = self._parse_r(tmp_path)
+        add_block = [b for b in blocks if b.symbol_name == "add"][0]
+        assert add_block.symbol_type == "function"
+
+    def test_left_arrow_function_text(self, tmp_path: Path) -> None:
+        """The block text for a <- function includes the full assignment."""
+        blocks = self._parse_r(tmp_path)
+        add_block = [b for b in blocks if b.symbol_name == "add"][0]
+        assert "add <- function" in add_block.text
+        assert "x + y" in add_block.text
+
+    def test_s3_method_name(self, tmp_path: Path) -> None:
+        """An S3 method with dotted name (print.myclass) extracts correctly."""
+        blocks = self._parse_r(tmp_path)
+        s3_block = [b for b in blocks if b.symbol_name == "print.myclass"][0]
+        assert s3_block.symbol_type == "function"
+
+    def test_equals_assignment_function(self, tmp_path: Path) -> None:
+        """A function assigned with = is also extracted as a function block."""
+        blocks = self._parse_r(tmp_path)
+        eq_block = [b for b in blocks if b.symbol_name == "my_func"][0]
+        assert eq_block.symbol_type == "function"
+        assert "my_func = function" in eq_block.text
+
+    def test_non_function_assignment_is_top_level(self, tmp_path: Path) -> None:
+        """A non-function assignment (threshold <- 0.05) is not a function block."""
+        blocks = self._parse_r(tmp_path)
+        func_names = [b.symbol_name for b in blocks if b.symbol_type == "function"]
+        assert "threshold" not in func_names
+
+    def test_top_level_calls_not_split(self, tmp_path: Path) -> None:
+        """Top-level calls like library() are not split into separate blocks."""
+        blocks = self._parse_r(tmp_path)
+        func_names = [b.symbol_name for b in blocks if b.symbol_type == "function"]
+        assert "library" not in func_names
+
+    def test_setrefclass_not_a_function_block(self, tmp_path: Path) -> None:
+        """setRefClass assignments are not classified as function blocks."""
+        blocks = self._parse_r(tmp_path)
+        func_names = [b.symbol_name for b in blocks if b.symbol_type == "function"]
+        assert "MyClass" not in func_names
+
+    def test_top_level_block_present(self, tmp_path: Path) -> None:
+        """Non-function code is gathered into module_top blocks."""
+        blocks = self._parse_r(tmp_path)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        assert len(top_blocks) >= 1
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_r(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_r(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.R"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'r'."""
+        blocks = self._parse_r(tmp_path)
+        for block in blocks:
+            assert block.language == "r"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .R file produces no blocks."""
+        r_file = tmp_path / "empty.R"
+        r_file.write_text("")
+        doc = parse_code_file(r_file, "r", "empty.R")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_function_only_file(self, tmp_path: Path) -> None:
+        """A file with only function definitions has no module_top blocks."""
+        source = """\
+add <- function(x, y) {
+  x + y
+}
+
+mul <- function(x, y) {
+  x * y
+}
+"""
+        blocks = self._parse_r(tmp_path, source)
+        func_blocks = [b for b in blocks if b.symbol_type == "function"]
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        assert len(func_blocks) == 2
+        assert len(top_blocks) == 0
+
+    def test_right_arrow_assignment_not_function(self, tmp_path: Path) -> None:
+        """Right-arrow assignment (value -> name) is not split as a function."""
+        source = """\
+42 -> answer
+"""
+        blocks = self._parse_r(tmp_path, source)
+        func_blocks = [b for b in blocks if b.symbol_type == "function"]
+        assert len(func_blocks) == 0
+
+
+class TestRExtensionMap:
+    """Tests for R file extension and language detection."""
+
+    def test_r_lowercase_is_code_file(self) -> None:
+        assert is_code_file(Path("script.r")) is True
+
+    def test_r_uppercase_is_code_file(self) -> None:
+        assert is_code_file(Path("script.R")) is True
+
+    def test_rmd_is_code_file(self) -> None:
+        assert is_code_file(Path("notebook.Rmd")) is True
+
+    def test_rmd_lowercase_is_code_file(self) -> None:
+        assert is_code_file(Path("notebook.rmd")) is True
+
+    def test_r_lowercase_returns_r(self) -> None:
+        assert get_language(Path("script.r")) == "r"
+
+    def test_r_uppercase_returns_r(self) -> None:
+        assert get_language(Path("script.R")) == "r"
+
+    def test_rmd_returns_r(self) -> None:
+        assert get_language(Path("notebook.Rmd")) == "r"
+
+    def test_rmd_lowercase_returns_r(self) -> None:
+        assert get_language(Path("notebook.rmd")) == "r"
