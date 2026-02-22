@@ -113,6 +113,7 @@ class Config:
     global_paths: tuple[Path, ...] = ()
     users: MappingProxyType[str, UserConfig] = field(default_factory=lambda: MappingProxyType({}))
     ollama_host: str | None = None
+    query_log_path: Path | None = None
 
     @property
     def group_index_db_path(self) -> Path:
@@ -280,8 +281,17 @@ def load_config(path: Path | None = None) -> Config:
         table_structure=enrichments_data.get("table_structure", True),
     )
 
+    db_path = _expand_path(data.get("db_path", str(DEFAULT_DB_PATH)))
+
+    # query_log_path: absent → default alongside db, null → disabled, string → use it
+    if "query_log_path" in data:
+        qlp_raw = data["query_log_path"]
+        query_log_path = _expand_path(qlp_raw) if qlp_raw is not None else None
+    else:
+        query_log_path = db_path.parent / "query_log.jsonl"
+
     config = Config(
-        db_path=_expand_path(data.get("db_path", str(DEFAULT_DB_PATH))),
+        db_path=db_path,
         embedding_model=data.get("embedding_model", "bge-m3"),
         embedding_dimensions=data.get("embedding_dimensions", 1024),
         chunk_size_tokens=data.get("chunk_size_tokens", 256),
@@ -305,6 +315,7 @@ def load_config(path: Path | None = None) -> Config:
         global_paths=global_paths,
         users=MappingProxyType(users),
         ollama_host=data.get("ollama_host"),
+        query_log_path=query_log_path,
     )
 
     return config

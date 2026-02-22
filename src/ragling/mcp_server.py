@@ -493,12 +493,15 @@ def create_server(
             collection, source_type, source_path, source_uri, score, and metadata)
             and optional ``indexing_status`` when background indexing is active.
         """
+        import time
+
         from ragling.embeddings import OllamaConnectionError
         from ragling.search import perform_search
 
         visible = _get_visible_collections(server_config)
         user_ctx = _get_user_context(server_config)
 
+        t0 = time.monotonic()
         try:
             results = perform_search(
                 query=query,
@@ -538,6 +541,28 @@ def create_server(
             }
             for r in results
         ]
+
+        # Log query for ACE telemetry
+        cfg = _get_config()
+        if cfg.query_log_path:
+            from ragling.query_logger import log_query
+
+            duration_ms = (time.monotonic() - t0) * 1000
+            log_query(
+                log_path=cfg.query_log_path,
+                query=query,
+                filters={
+                    "collection": collection,
+                    "source_type": source_type,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "sender": sender,
+                    "author": author,
+                },
+                top_k=top_k,
+                results=result_dicts,
+                duration_ms=duration_ms,
+            )
 
         # Apply path mappings for SSE users
         if user_ctx:
