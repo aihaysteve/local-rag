@@ -72,6 +72,7 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".pl": "perl",
     ".pm": "perl",
     ".dart": "dart",
+    ".kt": "kotlin",
 }
 
 # Filename-based language detection (no extension match)
@@ -149,6 +150,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
         "function_signature",
         "getter_signature",
     },
+    "kotlin": {"class_declaration", "function_declaration", "object_declaration"},
 }
 
 # Dart: node types that represent a signature which must be merged with the
@@ -255,6 +257,16 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
     if language == "rust":
         for child in node.children:
             if child.type in ("identifier", "type_identifier"):
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
+    if language == "kotlin":
+        # Kotlin: class_declaration, function_declaration, object_declaration
+        # Name is in type_identifier (classes/objects) or simple_identifier (functions)
+        for child in node.children:
+            if child.type == "type_identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "simple_identifier":
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
@@ -438,6 +450,7 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "variable_declaration": "variable",  # Lua — refined below for function assignments
         "subroutine_declaration_statement": "subroutine",  # Perl
         "package_statement": "package",  # Perl
+        "object_declaration": "object",  # Kotlin
         # Dart
         "mixin_declaration": "mixin",
         "extension_declaration": "extension",
@@ -496,6 +509,24 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
                                 if ggc.type == "function_definition":
                                     return "function"
         return "variable"
+
+    # Kotlin: refine class_declaration based on keyword children
+    if language == "kotlin" and node_type == "class_declaration":
+        if node is not None:
+            child_types = {c.type for c in node.children}
+            if "interface" in child_types:
+                return "interface"
+            if "enum" in child_types:
+                return "enum"
+            # Check modifiers for data class
+            for child in node.children:
+                if child.type == "modifiers":
+                    for mod in child.children:
+                        if mod.type == "class_modifier":
+                            mod_text = (mod.text or b"").decode("utf-8", errors="replace")
+                            if mod_text == "data":
+                                return "data_class"
+            return "class"
 
     return result
 

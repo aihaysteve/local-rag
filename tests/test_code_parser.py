@@ -442,65 +442,6 @@ class MyClass {
         ps_file = tmp_path / "test.ps1"
         ps_file.write_text(source if source is not None else self.PS_SOURCE)
         doc = parse_code_file(ps_file, "powershell", "test.ps1")
-class TestDartExtensionAndLanguage:
-    """Tests for Dart extension mapping and language detection."""
-
-    def test_dart_is_code_file(self) -> None:
-        assert is_code_file(Path("main.dart")) is True
-
-    def test_dart_returns_dart(self) -> None:
-        assert get_language(Path("main.dart")) == "dart"
-
-    def test_dart_case_insensitive(self) -> None:
-        assert is_code_file(Path("main.DART")) is True
-        assert get_language(Path("main.DART")) == "dart"
-
-
-class TestDartParsing:
-    """Tests for Dart code parsing via parse_code_file."""
-
-    # A comprehensive Dart source file covering all major declaration types
-    DART_SOURCE = """\
-import 'dart:math';
-
-class Animal {
-  String name;
-  Animal(this.name);
-  void speak() {
-    print('...');
-  }
-}
-
-abstract class Shape {
-  double area();
-}
-
-enum Color { red, green, blue }
-
-mixin Flyable {
-  void fly() => print('flying');
-}
-
-void topLevelFunction() {
-  print('hello');
-}
-
-extension StringExt on String {
-  bool get isBlank => trim().isEmpty;
-}
-
-typedef IntList = List<int>;
-
-sealed class Result {}
-
-class Success extends Result {}
-"""
-
-    def _parse_dart(self, tmp_path: Path, source: str | None = None) -> list:
-        """Write Dart source to a temp file and parse it, returning blocks."""
-        dart_file = tmp_path / "test.dart"
-        dart_file.write_text(source if source is not None else self.DART_SOURCE)
-        doc = parse_code_file(dart_file, "dart", "test.dart")
         assert doc is not None, "parse_code_file returned None"
         return doc.blocks
 
@@ -571,6 +512,142 @@ class Success extends Result {}
     def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_ps(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_ps(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.ps1"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'powershell'."""
+        blocks = self._parse_ps(tmp_path)
+        for block in blocks:
+            assert block.language == "powershell"
+
+    def test_function_text_contains_body(self, tmp_path: Path) -> None:
+        """The function block text includes the full function body."""
+        blocks = self._parse_ps(tmp_path)
+        fn_block = blocks[0]
+        assert "Get-Greeting" in fn_block.text
+        assert "param" in fn_block.text
+        assert "return" in fn_block.text
+
+    def test_class_text_contains_methods(self, tmp_path: Path) -> None:
+        """The class block text includes method definitions."""
+        blocks = self._parse_ps(tmp_path)
+        class_block = blocks[3]
+        assert "MyClass" in class_block.text
+        assert "Greet" in class_block.text
+
+    def test_top_level_code_becomes_module_top(self, tmp_path: Path) -> None:
+        """Top-level code outside functions/classes becomes module_top."""
+        source = """\
+$greeting = "Hello"
+Write-Host $greeting
+
+function Get-Name {
+    return "World"
+}
+"""
+        blocks = self._parse_ps(tmp_path, source)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        fn_blocks = [b for b in blocks if b.symbol_type == "function"]
+        assert len(top_blocks) == 1
+        assert len(fn_blocks) == 1
+        assert "$greeting" in top_blocks[0].text
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .ps1 file produces no blocks."""
+        ps_file = tmp_path / "empty.ps1"
+        ps_file.write_text("")
+        doc = parse_code_file(ps_file, "powershell", "empty.ps1")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_only_functions_no_class(self, tmp_path: Path) -> None:
+        """A file with only functions and no class parses correctly."""
+        source = """\
+function First {
+    "first"
+}
+
+function Second {
+    "second"
+}
+"""
+        blocks = self._parse_ps(tmp_path, source)
+        assert len(blocks) == 2
+        assert blocks[0].symbol_name == "First"
+        assert blocks[1].symbol_name == "Second"
+
+
+class TestDartExtensionAndLanguage:
+    """Tests for Dart extension mapping and language detection."""
+
+    def test_dart_is_code_file(self) -> None:
+        assert is_code_file(Path("main.dart")) is True
+
+    def test_dart_returns_dart(self) -> None:
+        assert get_language(Path("main.dart")) == "dart"
+
+    def test_dart_case_insensitive(self) -> None:
+        assert is_code_file(Path("main.DART")) is True
+        assert get_language(Path("main.DART")) == "dart"
+
+
+class TestDartParsing:
+    """Tests for Dart code parsing via parse_code_file."""
+
+    # A comprehensive Dart source file covering all major declaration types
+    DART_SOURCE = """\
+import 'dart:math';
+
+class Animal {
+  String name;
+  Animal(this.name);
+  void speak() {
+    print('...');
+  }
+}
+
+abstract class Shape {
+  double area();
+}
+
+enum Color { red, green, blue }
+
+mixin Flyable {
+  void fly() => print('flying');
+}
+
+void topLevelFunction() {
+  print('hello');
+}
+
+extension StringExt on String {
+  bool get isBlank => trim().isEmpty;
+}
+
+typedef IntList = List<int>;
+
+sealed class Result {}
+
+class Success extends Result {}
+"""
+
+    def _parse_dart(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Dart source to a temp file and parse it, returning blocks."""
+        dart_file = tmp_path / "test.dart"
+        dart_file.write_text(source if source is not None else self.DART_SOURCE)
+        doc = parse_code_file(dart_file, "dart", "test.dart")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
         """Dart source parses successfully and returns a CodeDocument."""
         dart_file = tmp_path / "test.dart"
         dart_file.write_text(self.DART_SOURCE)
@@ -700,71 +777,45 @@ extension type Wrapper(int value) {
 
     def test_file_path_propagated(self, tmp_path: Path) -> None:
         """The relative file_path is propagated to all blocks."""
-        blocks = self._parse_ps(tmp_path)
+        blocks = self._parse_dart(tmp_path)
         for block in blocks:
-            assert block.file_path == "test.ps1"
+            assert block.file_path == "test.dart"
 
     def test_language_set_on_blocks(self, tmp_path: Path) -> None:
-        """All blocks have language set to 'powershell'."""
-        blocks = self._parse_ps(tmp_path)
+        """All blocks have language set to 'dart'."""
+        blocks = self._parse_dart(tmp_path)
         for block in blocks:
-            assert block.language == "powershell"
-
-    def test_function_text_contains_body(self, tmp_path: Path) -> None:
-        """The function block text includes the full function body."""
-        blocks = self._parse_ps(tmp_path)
-        fn_block = blocks[0]
-        assert "Get-Greeting" in fn_block.text
-        assert "param" in fn_block.text
-        assert "return" in fn_block.text
-
-    def test_class_text_contains_methods(self, tmp_path: Path) -> None:
-        """The class block text includes method definitions."""
-        blocks = self._parse_ps(tmp_path)
-        class_block = blocks[3]
-        assert "MyClass" in class_block.text
-        assert "Greet" in class_block.text
-
-    def test_top_level_code_becomes_module_top(self, tmp_path: Path) -> None:
-        """Top-level code outside functions/classes becomes module_top."""
-        source = """\
-$greeting = "Hello"
-Write-Host $greeting
-
-function Get-Name {
-    return "World"
-}
-"""
-        blocks = self._parse_ps(tmp_path, source)
-        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
-        fn_blocks = [b for b in blocks if b.symbol_type == "function"]
-        assert len(top_blocks) == 1
-        assert len(fn_blocks) == 1
-        assert "$greeting" in top_blocks[0].text
+            assert block.language == "dart"
 
     def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
-        """An empty .ps1 file produces no blocks."""
-        ps_file = tmp_path / "empty.ps1"
-        ps_file.write_text("")
-        doc = parse_code_file(ps_file, "powershell", "empty.ps1")
+        """An empty .dart file produces no blocks."""
+        dart_file = tmp_path / "empty.dart"
+        dart_file.write_text("")
+        doc = parse_code_file(dart_file, "dart", "empty.dart")
         assert doc is not None
         assert len(doc.blocks) == 0
 
-    def test_only_functions_no_class(self, tmp_path: Path) -> None:
-        """A file with only functions and no class parses correctly."""
-        source = """\
-function First {
-    "first"
-}
+    def test_top_level_getter(self, tmp_path: Path) -> None:
+        """A top-level getter is parsed as a getter with correct name.
 
-function Second {
-    "second"
-}
+        Like functions, getters have signature + body as siblings.
+        """
+        source = """\
+int get topGetter => 42;
 """
-        blocks = self._parse_ps(tmp_path, source)
-        assert len(blocks) == 2
-        assert blocks[0].symbol_name == "First"
-        assert blocks[1].symbol_name == "Second"
+        blocks = self._parse_dart(tmp_path, source)
+        assert len(blocks) == 1
+        getter = blocks[0]
+        assert getter.symbol_name == "topGetter"
+        assert getter.symbol_type == "getter"
+        assert "42" in getter.text
+
+    def test_import_in_top_level(self, tmp_path: Path) -> None:
+        """Import statements are captured as module_top blocks."""
+        blocks = self._parse_dart(tmp_path)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        assert len(top_blocks) >= 1
+        assert any("import" in b.text for b in top_blocks)
 
 
 class TestRParsing:
@@ -1325,42 +1376,184 @@ sub method { }
         sub_new = blocks[2]
         assert "sub new" in sub_new.text
         assert "bless" in sub_new.text
-        blocks = self._parse_dart(tmp_path)
+
+
+class TestKotlinParsing:
+    """Tests for Kotlin code parsing via parse_code_file."""
+
+    KOTLIN_SOURCE = """\
+package com.example
+
+class MyClass {
+    fun greet(name: String): String {
+        return "Hello, $name"
+    }
+
+    companion object {
+        const val VERSION = "1.0"
+    }
+}
+
+interface Greeter {
+    fun greet(): String
+}
+
+enum class Color {
+    RED, GREEN, BLUE
+}
+
+fun topLevelFunction(): Int {
+    return 42
+}
+
+data class Point(val x: Int, val y: Int)
+
+object Singleton {
+    fun doStuff() {}
+}
+"""
+
+    def _parse_kotlin(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Kotlin source to a temp file and parse it, returning blocks."""
+        kt_file = tmp_path / "test.kt"
+        kt_file.write_text(source if source is not None else self.KOTLIN_SOURCE)
+        doc = parse_code_file(kt_file, "kotlin", "test.kt")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_kotlin_is_code_file(self) -> None:
+        assert is_code_file(Path("Main.kt")) is True
+
+    def test_kotlin_returns_kotlin(self) -> None:
+        assert get_language(Path("Main.kt")) == "kotlin"
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        kt_file = tmp_path / "test.kt"
+        kt_file.write_text(self.KOTLIN_SOURCE)
+        doc = parse_code_file(kt_file, "kotlin", "test.kt")
+        assert doc is not None
+        assert doc.language == "kotlin"
+        assert doc.file_path == "test.kt"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        assert len(blocks) == 7
+
+    def test_top_level_package_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        top = blocks[0]
+        assert top.symbol_type == "module_top"
+        assert "package" in top.text
+
+    def test_class_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        cls = [b for b in blocks if b.symbol_name == "MyClass"][0]
+        assert cls.symbol_type == "class"
+        assert "fun greet" in cls.text
+
+    def test_interface_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        iface = [b for b in blocks if b.symbol_name == "Greeter"][0]
+        assert iface.symbol_type == "interface"
+
+    def test_enum_class_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        enum = [b for b in blocks if b.symbol_name == "Color"][0]
+        assert enum.symbol_type == "enum"
+
+    def test_top_level_function(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        func = [b for b in blocks if b.symbol_name == "topLevelFunction"][0]
+        assert func.symbol_type == "function"
+        assert "return 42" in func.text
+
+    def test_data_class_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        dc = [b for b in blocks if b.symbol_name == "Point"][0]
+        assert dc.symbol_type == "data_class"
+
+    def test_object_declaration(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        obj = [b for b in blocks if b.symbol_name == "Singleton"][0]
+        assert obj.symbol_type == "object"
+        assert "fun doStuff" in obj.text
+
+    def test_companion_object_not_split(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        companions = [b for b in blocks if b.symbol_name == "companion"]
+        assert len(companions) == 0
+
+    def test_symbol_names(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        names = {b.symbol_name for b in blocks if b.symbol_type != "module_top"}
+        assert names == {
+            "MyClass",
+            "Greeter",
+            "Color",
+            "topLevelFunction",
+            "Point",
+            "Singleton",
+        }
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
         for block in blocks:
-            assert block.file_path == "test.dart"
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.kt"
 
     def test_language_set_on_blocks(self, tmp_path: Path) -> None:
-        """All blocks have language set to 'dart'."""
-        blocks = self._parse_dart(tmp_path)
+        blocks = self._parse_kotlin(tmp_path)
         for block in blocks:
-            assert block.language == "dart"
+            assert block.language == "kotlin"
+
+    def test_sealed_class(self, tmp_path: Path) -> None:
+        source = "sealed class Result {}\n"
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "Result"
+        assert blocks[0].symbol_type == "class"
+
+    def test_abstract_class(self, tmp_path: Path) -> None:
+        source = "abstract class Base {}\n"
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "Base"
+        assert blocks[0].symbol_type == "class"
+
+    def test_annotation_class(self, tmp_path: Path) -> None:
+        source = "annotation class MyAnnotation\n"
+        blocks = self._parse_kotlin(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_name == "MyAnnotation"
+        assert blocks[0].symbol_type == "class"
 
     def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
-        """An empty .dart file produces no blocks."""
-        dart_file = tmp_path / "empty.dart"
-        dart_file.write_text("")
-        doc = parse_code_file(dart_file, "dart", "empty.dart")
+        kt_file = tmp_path / "empty.kt"
+        kt_file.write_text("")
+        doc = parse_code_file(kt_file, "kotlin", "empty.kt")
         assert doc is not None
         assert len(doc.blocks) == 0
 
-    def test_top_level_getter(self, tmp_path: Path) -> None:
-        """A top-level getter is parsed as a getter with correct name.
-
-        Like functions, getters have signature + body as siblings.
-        """
-        source = """\
-int get topGetter => 42;
-"""
-        blocks = self._parse_dart(tmp_path, source)
+    def test_function_only_file(self, tmp_path: Path) -> None:
+        source = 'fun main() { println("Hello") }\n'
+        blocks = self._parse_kotlin(tmp_path, source)
         assert len(blocks) == 1
-        getter = blocks[0]
-        assert getter.symbol_name == "topGetter"
-        assert getter.symbol_type == "getter"
-        assert "42" in getter.text
+        assert blocks[0].symbol_name == "main"
+        assert blocks[0].symbol_type == "function"
 
-    def test_import_in_top_level(self, tmp_path: Path) -> None:
-        """Import statements are captured as module_top blocks."""
-        blocks = self._parse_dart(tmp_path)
-        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
-        assert len(top_blocks) >= 1
-        assert any("import" in b.text for b in top_blocks)
+    def test_class_start_end_lines(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        cls = [b for b in blocks if b.symbol_name == "MyClass"][0]
+        assert cls.start_line == 3
+        assert cls.end_line == 11
+
+    def test_function_start_end_lines(self, tmp_path: Path) -> None:
+        blocks = self._parse_kotlin(tmp_path)
+        func = [b for b in blocks if b.symbol_name == "topLevelFunction"][0]
+        assert func.start_line == 21
+        assert func.end_line == 23
