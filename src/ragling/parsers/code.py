@@ -69,6 +69,8 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".r": "r",
     ".rmd": "r",
     ".lua": "lua",
+    ".pl": "perl",
+    ".pm": "perl",
 }
 
 # Filename-based language detection (no extension match)
@@ -132,6 +134,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
     "zig": {"Decl", "TestDecl", "ComptimeDecl"},
     "r": {"binary_operator"},
     "lua": {"function_declaration", "variable_declaration"},
+    "perl": {"subroutine_declaration_statement", "package_statement"},
 }
 
 
@@ -273,6 +276,26 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
             return node.type
         return node.type
 
+    if language == "perl":
+        if node.type == "subroutine_declaration_statement":
+            # subroutine_declaration_statement -> bareword (sub name)
+            for child in node.children:
+                if child.type == "bareword":
+                    return child.text.decode("utf-8", errors="replace")
+            return node.type
+        if node.type == "package_statement":
+            # package_statement -> package (keyword) -> package (name)
+            # The second child of type "package" is the package name
+            found_keyword = False
+            for child in node.children:
+                if child.type == "package":
+                    if not found_keyword:
+                        found_keyword = True  # skip the "package" keyword
+                    else:
+                        return child.text.decode("utf-8", errors="replace")
+            return node.type
+        return node.type
+
     if language == "zig":
         if node.type == "TestDecl":
             for child in node.children:
@@ -377,6 +400,8 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "function_statement": "function",  # PowerShell (functions and filters)
         "class_statement": "class",  # PowerShell
         "variable_declaration": "variable",  # Lua — refined below for function assignments
+        "subroutine_declaration_statement": "subroutine",  # Perl
+        "package_statement": "package",  # Perl
     }
     result = type_map.get(node_type, "block")
 

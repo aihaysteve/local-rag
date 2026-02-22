@@ -62,6 +62,12 @@ class TestCodeExtensionMap:
     def test_zig_is_code_file(self) -> None:
         assert is_code_file(Path("main.zig")) is True
 
+    def test_perl_pl_is_code_file(self) -> None:
+        assert is_code_file(Path("script.pl")) is True
+
+    def test_perl_pm_is_code_file(self) -> None:
+        assert is_code_file(Path("Module.pm")) is True
+
     def test_dockerfile_is_code_file(self) -> None:
         """Dockerfile is detected via _CODE_FILENAME_MAP, not extension."""
         assert is_code_file(Path("Dockerfile")) is True
@@ -159,6 +165,12 @@ class TestGetLanguage:
 
     def test_zig_returns_zig(self) -> None:
         assert get_language(Path("main.zig")) == "zig"
+
+    def test_perl_pl_returns_perl(self) -> None:
+        assert get_language(Path("script.pl")) == "perl"
+
+    def test_perl_pm_returns_perl(self) -> None:
+        assert get_language(Path("Module.pm")) == "perl"
 
     def test_dockerfile_returns_dockerfile(self) -> None:
         """Dockerfile is detected via _CODE_FILENAME_MAP."""
@@ -962,3 +974,172 @@ end
         assert "function M.method" in dot_method.text
         assert "self.value + arg" in dot_method.text
         assert "end" in dot_method.text
+
+
+class TestPerlParsing:
+    """Tests for Perl code parsing via parse_code_file."""
+
+    # A comprehensive Perl source file covering major declaration types
+    PERL_SOURCE = """\
+package MyModule;
+use strict;
+use warnings;
+
+sub new {
+    my ($class, %args) = @_;
+    return bless \\%args, $class;
+}
+
+sub greet {
+    my ($self) = @_;
+    return "Hello, " . $self->{name};
+}
+
+my $helper = sub {
+    return 42;
+};
+
+sub _private_method {
+    my ($self) = @_;
+    return $self->{internal};
+}
+
+1;
+"""
+
+    def _parse_perl(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Perl source to a temp file and parse it, returning blocks."""
+        perl_file = tmp_path / "test.pm"
+        perl_file.write_text(source if source is not None else self.PERL_SOURCE)
+        doc = parse_code_file(perl_file, "perl", "test.pm")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """Perl source parses successfully and returns a CodeDocument."""
+        perl_file = tmp_path / "test.pm"
+        perl_file.write_text(self.PERL_SOURCE)
+        doc = parse_code_file(perl_file, "perl", "test.pm")
+        assert doc is not None
+        assert doc.language == "perl"
+        assert doc.file_path == "test.pm"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """Perl source produces the expected number of structural blocks.
+
+        Expected blocks:
+        1. package MyModule (package)
+        2. use strict; use warnings; (top-level)
+        3. sub new (subroutine)
+        4. sub greet (subroutine)
+        5. my $helper = sub { ... }; (top-level -- anonymous sub not split)
+        6. sub _private_method (subroutine)
+        7. 1; (top-level)
+        """
+        blocks = self._parse_perl(tmp_path)
+        assert len(blocks) == 7
+
+    def test_package_declaration(self, tmp_path: Path) -> None:
+        """A package statement is classified as 'package' with the package name."""
+        blocks = self._parse_perl(tmp_path)
+        pkg_block = blocks[0]
+        assert pkg_block.symbol_name == "MyModule"
+        assert pkg_block.symbol_type == "package"
+        assert "package MyModule" in pkg_block.text
+
+    def test_subroutine_new(self, tmp_path: Path) -> None:
+        """The 'new' subroutine is parsed with correct name and type."""
+        blocks = self._parse_perl(tmp_path)
+        sub_new = blocks[2]
+        assert sub_new.symbol_name == "new"
+        assert sub_new.symbol_type == "subroutine"
+
+    def test_subroutine_greet(self, tmp_path: Path) -> None:
+        """The 'greet' subroutine is parsed with correct name and type."""
+        blocks = self._parse_perl(tmp_path)
+        sub_greet = blocks[3]
+        assert sub_greet.symbol_name == "greet"
+        assert sub_greet.symbol_type == "subroutine"
+
+    def test_private_subroutine(self, tmp_path: Path) -> None:
+        """A private subroutine (prefixed with _) is correctly parsed."""
+        blocks = self._parse_perl(tmp_path)
+        sub_private = blocks[5]
+        assert sub_private.symbol_name == "_private_method"
+        assert sub_private.symbol_type == "subroutine"
+
+    def test_anonymous_sub_in_top_level(self, tmp_path: Path) -> None:
+        """An anonymous sub assigned to a variable is part of a top-level block."""
+        blocks = self._parse_perl(tmp_path)
+        # The anonymous sub is in a top-level expression_statement, not split
+        anon_block = blocks[4]
+        assert anon_block.symbol_type == "module_top"
+        assert "sub" in anon_block.text
+
+    def test_use_statements_in_top_level(self, tmp_path: Path) -> None:
+        """use statements are accumulated into a top-level block."""
+        blocks = self._parse_perl(tmp_path)
+        use_block = blocks[1]
+        assert use_block.symbol_type == "module_top"
+        assert "use strict" in use_block.text
+        assert "use warnings" in use_block.text
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_perl(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_perl(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.pm"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'perl'."""
+        blocks = self._parse_perl(tmp_path)
+        for block in blocks:
+            assert block.language == "perl"
+
+    def test_multiple_packages(self, tmp_path: Path) -> None:
+        """Multiple package declarations are each split into separate blocks."""
+        source = """\
+package First;
+sub foo { }
+package Second;
+sub bar { }
+1;
+"""
+        blocks = self._parse_perl(tmp_path, source)
+        pkg_blocks = [b for b in blocks if b.symbol_type == "package"]
+        assert len(pkg_blocks) == 2
+        assert pkg_blocks[0].symbol_name == "First"
+        assert pkg_blocks[1].symbol_name == "Second"
+
+    def test_namespaced_package(self, tmp_path: Path) -> None:
+        """A namespaced package name (e.g. Foo::Bar) is correctly extracted."""
+        source = """\
+package Foo::Bar::Baz;
+sub method { }
+1;
+"""
+        blocks = self._parse_perl(tmp_path, source)
+        pkg_block = [b for b in blocks if b.symbol_type == "package"][0]
+        assert pkg_block.symbol_name == "Foo::Bar::Baz"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .pl file produces no blocks."""
+        perl_file = tmp_path / "empty.pl"
+        perl_file.write_text("")
+        doc = parse_code_file(perl_file, "perl", "empty.pl")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_sub_text_contains_body(self, tmp_path: Path) -> None:
+        """A subroutine block's text contains the full sub body."""
+        blocks = self._parse_perl(tmp_path)
+        sub_new = blocks[2]
+        assert "sub new" in sub_new.text
+        assert "bless" in sub_new.text
