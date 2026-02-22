@@ -68,6 +68,7 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".zig": "zig",
     ".r": "r",
     ".rmd": "r",
+    ".lua": "lua",
 }
 
 # Filename-based language detection (no extension match)
@@ -130,6 +131,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
     "dockerfile": set(),  # no structural splitting for Dockerfile
     "zig": {"Decl", "TestDecl", "ComptimeDecl"},
     "r": {"binary_operator"},
+    "lua": {"function_declaration", "variable_declaration"},
 }
 
 
@@ -247,6 +249,30 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "lua":
+        if node.type == "function_declaration":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+                if child.type == "dot_index_expression":
+                    # e.g. M.method -> "M.method"
+                    return child.text.decode("utf-8", errors="replace")
+                if child.type == "method_index_expression":
+                    # e.g. M:otherMethod -> "M:otherMethod"
+                    return child.text.decode("utf-8", errors="replace")
+            return node.type
+        if node.type == "variable_declaration":
+            # local M = {} or local f = function(...)
+            for child in node.children:
+                if child.type == "assignment_statement":
+                    for gc in child.children:
+                        if gc.type == "variable_list":
+                            for ggc in gc.children:
+                                if ggc.type == "identifier":
+                                    return ggc.text.decode("utf-8", errors="replace")
+            return node.type
+        return node.type
+
     if language == "zig":
         if node.type == "TestDecl":
             for child in node.children:
@@ -350,6 +376,7 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "ComptimeDecl": "comptime",  # Zig
         "function_statement": "function",  # PowerShell (functions and filters)
         "class_statement": "class",  # PowerShell
+        "variable_declaration": "variable",  # Lua — refined below for function assignments
     }
     result = type_map.get(node_type, "block")
 
@@ -381,6 +408,26 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
                 if child.type == "function_definition":
                     return "function"
         return "block"
+
+    # Lua: refine function_declaration for method-style (M.method / M:method)
+    if language == "lua" and node_type == "function_declaration":
+        if node is not None:
+            for child in node.children:
+                if child.type in ("dot_index_expression", "method_index_expression"):
+                    return "method"
+        return "function"
+
+    # Lua: refine variable_declaration — distinguish variable from function assignment
+    if language == "lua" and node_type == "variable_declaration":
+        if node is not None:
+            for child in node.children:
+                if child.type == "assignment_statement":
+                    for gc in child.children:
+                        if gc.type == "expression_list":
+                            for ggc in gc.children:
+                                if ggc.type == "function_definition":
+                                    return "function"
+        return "variable"
 
     return result
 

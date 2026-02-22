@@ -767,3 +767,198 @@ class TestRExtensionMap:
 
     def test_rmd_lowercase_returns_r(self) -> None:
         assert get_language(Path("notebook.rmd")) == "r"
+
+
+class TestLuaExtensionAndLanguage:
+    """Tests for Lua extension mapping and language detection."""
+
+    def test_lua_is_code_file(self) -> None:
+        assert is_code_file(Path("init.lua")) is True
+
+    def test_lua_returns_lua(self) -> None:
+        assert get_language(Path("init.lua")) == "lua"
+
+    def test_lua_case_insensitive(self) -> None:
+        assert is_code_file(Path("script.LUA")) is True
+        assert get_language(Path("script.LUA")) == "lua"
+
+
+class TestLuaParsing:
+    """Tests for Lua code parsing via parse_code_file."""
+
+    # A comprehensive Lua source file covering major declaration patterns
+    LUA_SOURCE = """\
+local function helper(x)
+    return x * 2
+end
+
+function greet(name)
+    print("Hello, " .. name)
+end
+
+local M = {}
+
+function M.method(self, arg)
+    return self.value + arg
+end
+
+function M:otherMethod(arg)
+    return self.value - arg
+end
+
+local anonymous = function(a, b)
+    return a + b
+end
+"""
+
+    def _parse_lua(self, tmp_path: Path, source: str | None = None) -> list:
+        """Write Lua source to a temp file and parse it, returning blocks."""
+        lua_file = tmp_path / "test.lua"
+        lua_file.write_text(source if source is not None else self.LUA_SOURCE)
+        doc = parse_code_file(lua_file, "lua", "test.lua")
+        assert doc is not None, "parse_code_file returned None"
+        return doc.blocks
+
+    def test_parses_without_error(self, tmp_path: Path) -> None:
+        """Lua source parses successfully and returns a CodeDocument."""
+        lua_file = tmp_path / "test.lua"
+        lua_file.write_text(self.LUA_SOURCE)
+        doc = parse_code_file(lua_file, "lua", "test.lua")
+        assert doc is not None
+        assert doc.language == "lua"
+        assert doc.file_path == "test.lua"
+
+    def test_block_count(self, tmp_path: Path) -> None:
+        """Lua source produces the expected number of structural blocks.
+
+        Expected blocks:
+        1. local function helper (function)
+        2. function greet (function)
+        3. local M = {} (variable)
+        4. function M.method (method)
+        5. function M:otherMethod (method)
+        6. local anonymous = function(...) (function)
+        """
+        blocks = self._parse_lua(tmp_path)
+        assert len(blocks) == 6
+
+    def test_local_function_name(self, tmp_path: Path) -> None:
+        """A local function declaration extracts the correct symbol name."""
+        blocks = self._parse_lua(tmp_path)
+        local_fn = blocks[0]
+        assert local_fn.symbol_name == "helper"
+
+    def test_local_function_type(self, tmp_path: Path) -> None:
+        """A local function declaration is classified as 'function'."""
+        blocks = self._parse_lua(tmp_path)
+        local_fn = blocks[0]
+        assert local_fn.symbol_type == "function"
+
+    def test_local_function_text(self, tmp_path: Path) -> None:
+        """A local function block contains the full function text."""
+        blocks = self._parse_lua(tmp_path)
+        local_fn = blocks[0]
+        assert "local function helper" in local_fn.text
+        assert "return x * 2" in local_fn.text
+        assert "end" in local_fn.text
+
+    def test_global_function_name(self, tmp_path: Path) -> None:
+        """A global function declaration extracts the correct symbol name."""
+        blocks = self._parse_lua(tmp_path)
+        global_fn = blocks[1]
+        assert global_fn.symbol_name == "greet"
+
+    def test_global_function_type(self, tmp_path: Path) -> None:
+        """A global function declaration is classified as 'function'."""
+        blocks = self._parse_lua(tmp_path)
+        global_fn = blocks[1]
+        assert global_fn.symbol_type == "function"
+
+    def test_local_variable_declaration(self, tmp_path: Path) -> None:
+        """A local variable (table constructor) is classified as 'variable'."""
+        blocks = self._parse_lua(tmp_path)
+        var_block = blocks[2]
+        assert var_block.symbol_name == "M"
+        assert var_block.symbol_type == "variable"
+
+    def test_dot_method_name(self, tmp_path: Path) -> None:
+        """A dot-style method (M.method) extracts the full dotted name."""
+        blocks = self._parse_lua(tmp_path)
+        dot_method = blocks[3]
+        assert dot_method.symbol_name == "M.method"
+
+    def test_dot_method_type(self, tmp_path: Path) -> None:
+        """A dot-style method is classified as 'method'."""
+        blocks = self._parse_lua(tmp_path)
+        dot_method = blocks[3]
+        assert dot_method.symbol_type == "method"
+
+    def test_colon_method_name(self, tmp_path: Path) -> None:
+        """A colon-style method (M:otherMethod) extracts the full name."""
+        blocks = self._parse_lua(tmp_path)
+        colon_method = blocks[4]
+        assert colon_method.symbol_name == "M:otherMethod"
+
+    def test_colon_method_type(self, tmp_path: Path) -> None:
+        """A colon-style method is classified as 'method'."""
+        blocks = self._parse_lua(tmp_path)
+        colon_method = blocks[4]
+        assert colon_method.symbol_type == "method"
+
+    def test_anonymous_function_name(self, tmp_path: Path) -> None:
+        """An anonymous function assigned to a local extracts the variable name."""
+        blocks = self._parse_lua(tmp_path)
+        anon_fn = blocks[5]
+        assert anon_fn.symbol_name == "anonymous"
+
+    def test_anonymous_function_type(self, tmp_path: Path) -> None:
+        """An anonymous function assigned to a local is classified as 'function'."""
+        blocks = self._parse_lua(tmp_path)
+        anon_fn = blocks[5]
+        assert anon_fn.symbol_type == "function"
+
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+        """start_line and end_line use 1-based line numbers."""
+        blocks = self._parse_lua(tmp_path)
+        for block in blocks:
+            assert block.start_line >= 1
+            assert block.end_line >= block.start_line
+
+    def test_file_path_propagated(self, tmp_path: Path) -> None:
+        """The relative file_path is propagated to all blocks."""
+        blocks = self._parse_lua(tmp_path)
+        for block in blocks:
+            assert block.file_path == "test.lua"
+
+    def test_language_set_on_blocks(self, tmp_path: Path) -> None:
+        """All blocks have language set to 'lua'."""
+        blocks = self._parse_lua(tmp_path)
+        for block in blocks:
+            assert block.language == "lua"
+
+    def test_empty_file_produces_no_blocks(self, tmp_path: Path) -> None:
+        """An empty .lua file produces no blocks."""
+        lua_file = tmp_path / "empty.lua"
+        lua_file.write_text("")
+        doc = parse_code_file(lua_file, "lua", "empty.lua")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+    def test_only_comments_produces_single_block(self, tmp_path: Path) -> None:
+        """A file with only comments produces a single module_top block."""
+        source = """\
+-- This is a comment
+-- Another comment
+"""
+        blocks = self._parse_lua(tmp_path, source)
+        assert len(blocks) == 1
+        assert blocks[0].symbol_type == "module_top"
+        assert blocks[0].symbol_name == "(top-level)"
+
+    def test_method_text_contains_body(self, tmp_path: Path) -> None:
+        """A method block's text contains the full function body."""
+        blocks = self._parse_lua(tmp_path)
+        dot_method = blocks[3]
+        assert "function M.method" in dot_method.text
+        assert "self.value + arg" in dot_method.text
+        assert "end" in dot_method.text
