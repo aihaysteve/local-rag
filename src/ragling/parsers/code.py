@@ -73,6 +73,7 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".pm": "perl",
     ".dart": "dart",
     ".kt": "kotlin",
+    ".php": "php",
 }
 
 # Filename-based language detection (no extension match)
@@ -151,6 +152,13 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
         "getter_signature",
     },
     "kotlin": {"class_declaration", "function_declaration", "object_declaration"},
+    "php": {
+        "function_definition",
+        "class_declaration",
+        "interface_declaration",
+        "trait_declaration",
+        "enum_declaration",
+    },
 }
 
 # Dart: node types that represent a signature which must be merged with the
@@ -382,6 +390,14 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "php":
+        # PHP: class_declaration, interface_declaration, trait_declaration,
+        # enum_declaration, function_definition all have a direct "name" child
+        for child in node.children:
+            if child.type == "name":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
     if language == "c" or language == "cpp":
         # function_definition -> declarator -> identifier
         for child in node.children:
@@ -438,6 +454,7 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "struct_specifier": "struct",
         "impl_item": "impl",
         "trait_item": "trait",
+        "trait_declaration": "trait",  # PHP
         "mod_item": "module",
         "module": "module",
         "export_statement": "export",
