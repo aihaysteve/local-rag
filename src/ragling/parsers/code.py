@@ -66,6 +66,8 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".yaml": "yaml",
     ".yml": "yaml",
     ".zig": "zig",
+    ".r": "r",
+    ".rmd": "r",
 }
 
 # Filename-based language detection (no extension match)
@@ -127,6 +129,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
     "yaml": set(),  # no structural splitting for YAML
     "dockerfile": set(),  # no structural splitting for Dockerfile
     "zig": {"Decl", "TestDecl", "ComptimeDecl"},
+    "r": {"binary_operator"},
 }
 
 
@@ -274,6 +277,14 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                 return child.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "r":
+        # R: binary_operator nodes for function assignments
+        # Structure: identifier <- function_definition  or  identifier = function_definition
+        for child in node.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
     if language == "c" or language == "cpp":
         # function_definition -> declarator -> identifier
         for child in node.children:
@@ -362,6 +373,14 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
                             if val.startswith("error"):
                                 return "error_set"
                     return "variable"
+
+    # R: refine binary_operator based on whether it assigns a function
+    if language == "r" and node_type == "binary_operator":
+        if node is not None:
+            for child in node.children:
+                if child.type == "function_definition":
+                    return "function"
+        return "block"
 
     return result
 
@@ -455,6 +474,20 @@ def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeD
             continue
 
         if child.type in split_types:
+            # R: only split binary_operator when it assigns a function_definition;
+            # non-function assignments (e.g. threshold <- 0.05) stay as top-level
+            if language == "r" and child.type == "binary_operator":
+                has_func = any(c.type == "function_definition" for c in child.children)
+                if not has_func:
+                    node_text = (child.text or b"").decode("utf-8", errors="replace")
+                    start = child.start_point.row + 1
+                    end = child.end_point.row + 1
+                    if top_start_line is None:
+                        top_start_line = start
+                    top_end_line = end
+                    top_level_lines.append(node_text)
+                    continue
+
             _flush_top_level()
 
             node_text = (child.text or b"").decode("utf-8", errors="replace")
