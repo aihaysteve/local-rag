@@ -72,14 +72,44 @@ class TestCodeExtensionMap:
         """Dockerfile is detected via _CODE_FILENAME_MAP, not extension."""
         assert is_code_file(Path("Dockerfile")) is True
 
-    def test_markdown_is_not_code_file(self) -> None:
-        assert is_code_file(Path("readme.md")) is False
+    def test_json_is_code_file(self) -> None:
+        assert is_code_file(Path("package.json")) is True
+
+    def test_toml_is_code_file(self) -> None:
+        assert is_code_file(Path("pyproject.toml")) is True
+
+    def test_sql_is_code_file(self) -> None:
+        assert is_code_file(Path("schema.sql")) is True
+
+    def test_xml_is_code_file(self) -> None:
+        assert is_code_file(Path("pom.xml")) is True
+
+    def test_html_is_code_file(self) -> None:
+        assert is_code_file(Path("index.html")) is True
+
+    def test_htm_is_code_file(self) -> None:
+        assert is_code_file(Path("page.htm")) is True
+
+    def test_css_is_code_file(self) -> None:
+        assert is_code_file(Path("style.css")) is True
+
+    def test_scss_is_code_file(self) -> None:
+        assert is_code_file(Path("theme.scss")) is True
+
+    def test_markdown_is_code_file(self) -> None:
+        assert is_code_file(Path("readme.md")) is True
+
+    def test_csv_is_code_file(self) -> None:
+        assert is_code_file(Path("data.csv")) is True
+
+    def test_rst_is_code_file(self) -> None:
+        assert is_code_file(Path("docs.rst")) is True
 
     def test_pdf_is_not_code_file(self) -> None:
         assert is_code_file(Path("document.pdf")) is False
 
-    def test_txt_is_not_code_file(self) -> None:
-        assert is_code_file(Path("notes.txt")) is False
+    def test_txt_is_code_file(self) -> None:
+        assert is_code_file(Path("notes.txt")) is True
 
     def test_docx_is_not_code_file(self) -> None:
         assert is_code_file(Path("report.docx")) is False
@@ -87,9 +117,13 @@ class TestCodeExtensionMap:
     def test_unknown_is_not_code_file(self) -> None:
         assert is_code_file(Path("data.xyz")) is False
 
+    def test_makefile_is_code_file(self) -> None:
+        """Makefile is detected via _CODE_FILENAME_MAP."""
+        assert is_code_file(Path("Makefile")) is True
+
     def test_no_extension_is_not_code_file(self) -> None:
         """A file with no extension and no filename match is not a code file."""
-        assert is_code_file(Path("Makefile")) is False
+        assert is_code_file(Path("LICENSE")) is False
 
     def test_case_insensitive_extension(self) -> None:
         """Extension matching should be case-insensitive."""
@@ -176,15 +210,52 @@ class TestGetLanguage:
         """Dockerfile is detected via _CODE_FILENAME_MAP."""
         assert get_language(Path("Dockerfile")) == "dockerfile"
 
-    def test_unsupported_returns_none(self) -> None:
-        assert get_language(Path("readme.md")) is None
+    def test_json_returns_json(self) -> None:
+        assert get_language(Path("package.json")) == "json"
+
+    def test_toml_returns_toml(self) -> None:
+        assert get_language(Path("pyproject.toml")) == "toml"
+
+    def test_sql_returns_sql(self) -> None:
+        assert get_language(Path("schema.sql")) == "sql"
+
+    def test_xml_returns_xml(self) -> None:
+        assert get_language(Path("pom.xml")) == "xml"
+
+    def test_html_returns_html(self) -> None:
+        assert get_language(Path("index.html")) == "html"
+
+    def test_htm_returns_html(self) -> None:
+        assert get_language(Path("page.htm")) == "html"
+
+    def test_css_returns_css(self) -> None:
+        assert get_language(Path("style.css")) == "css"
+
+    def test_scss_returns_scss(self) -> None:
+        assert get_language(Path("theme.scss")) == "scss"
+
+    def test_markdown_returns_markdown(self) -> None:
+        assert get_language(Path("readme.md")) == "markdown"
+
+    def test_txt_returns_plaintext(self) -> None:
+        assert get_language(Path("notes.txt")) == "plaintext"
+
+    def test_csv_returns_csv(self) -> None:
+        assert get_language(Path("data.csv")) == "csv"
+
+    def test_rst_returns_rst(self) -> None:
+        assert get_language(Path("docs.rst")) == "rst"
+
+    def test_makefile_returns_make(self) -> None:
+        """Makefile is detected via _CODE_FILENAME_MAP."""
+        assert get_language(Path("Makefile")) == "make"
 
     def test_unknown_extension_returns_none(self) -> None:
         assert get_language(Path("data.xyz")) is None
 
     def test_no_extension_non_filename_returns_none(self) -> None:
         """A file with no extension and no filename match returns None."""
-        assert get_language(Path("Makefile")) is None
+        assert get_language(Path("LICENSE")) is None
 
     def test_case_insensitive_extension(self) -> None:
         """Extension matching should be case-insensitive."""
@@ -2257,3 +2328,393 @@ end
         mod_block = blocks[0]
         # defmodule MyApp.User starts at line 1, ends at line 19 (the 'end')
         assert mod_block.end_line == 19
+
+
+class TestPlaintextParsing:
+    """Tests for plaintext files (.txt) that bypass tree-sitter."""
+
+    def test_txt_parses_as_single_block(self, tmp_path: Path) -> None:
+        """A .txt file produces a single whole-file block."""
+        f = tmp_path / "notes.txt"
+        f.write_text("Line one\nLine two\nLine three\n")
+        doc = parse_code_file(f, "plaintext", "notes.txt")
+        assert doc is not None
+        assert len(doc.blocks) == 1
+
+    def test_txt_symbol_name_is_file(self, tmp_path: Path) -> None:
+        f = tmp_path / "notes.txt"
+        f.write_text("Some content\n")
+        doc = parse_code_file(f, "plaintext", "notes.txt")
+        assert doc is not None
+        assert doc.blocks[0].symbol_name == "(file)"
+
+    def test_txt_symbol_type_is_module_top(self, tmp_path: Path) -> None:
+        f = tmp_path / "notes.txt"
+        f.write_text("Some content\n")
+        doc = parse_code_file(f, "plaintext", "notes.txt")
+        assert doc is not None
+        assert doc.blocks[0].symbol_type == "module_top"
+
+    def test_txt_line_numbers(self, tmp_path: Path) -> None:
+        f = tmp_path / "notes.txt"
+        f.write_text("Line 1\nLine 2\nLine 3\n")
+        doc = parse_code_file(f, "plaintext", "notes.txt")
+        assert doc is not None
+        assert doc.blocks[0].start_line == 1
+        assert doc.blocks[0].end_line == 3
+
+    def test_txt_language_is_plaintext(self, tmp_path: Path) -> None:
+        f = tmp_path / "notes.txt"
+        f.write_text("Content\n")
+        doc = parse_code_file(f, "plaintext", "notes.txt")
+        assert doc is not None
+        assert doc.language == "plaintext"
+
+    def test_empty_txt_returns_no_blocks(self, tmp_path: Path) -> None:
+        """An empty plaintext file produces no blocks."""
+        f = tmp_path / "empty.txt"
+        f.write_text("")
+        doc = parse_code_file(f, "plaintext", "empty.txt")
+        assert doc is not None
+        assert len(doc.blocks) == 0
+
+
+class TestNonSplittingFormats:
+    """Tests for formats with tree-sitter but no structural splitting (JSON, XML, HTML, CSV)."""
+
+    def test_json_parses_as_single_block(self, tmp_path: Path) -> None:
+        f = tmp_path / "config.json"
+        f.write_text('{"name": "test", "version": 1}\n')
+        doc = parse_code_file(f, "json", "config.json")
+        assert doc is not None
+        assert len(doc.blocks) == 1
+        assert doc.blocks[0].symbol_type == "module_top"
+
+    def test_xml_parses_as_single_block(self, tmp_path: Path) -> None:
+        f = tmp_path / "data.xml"
+        f.write_text("<root><item>text</item></root>\n")
+        doc = parse_code_file(f, "xml", "data.xml")
+        assert doc is not None
+        assert len(doc.blocks) == 1
+        assert doc.blocks[0].symbol_type == "module_top"
+
+    def test_html_parses_as_single_block(self, tmp_path: Path) -> None:
+        f = tmp_path / "page.html"
+        f.write_text("<html><body><p>Hello</p></body></html>\n")
+        doc = parse_code_file(f, "html", "page.html")
+        assert doc is not None
+        assert len(doc.blocks) == 1
+        assert doc.blocks[0].symbol_type == "module_top"
+
+    def test_csv_parses_as_single_block(self, tmp_path: Path) -> None:
+        f = tmp_path / "data.csv"
+        f.write_text("name,age\nalice,30\nbob,25\n")
+        doc = parse_code_file(f, "csv", "data.csv")
+        assert doc is not None
+        assert len(doc.blocks) == 1
+        assert doc.blocks[0].symbol_type == "module_top"
+
+
+class TestTomlParsing:
+    """Tests for TOML structural splitting on table sections."""
+
+    TOML_SOURCE = """\
+[package]
+name = "test"
+version = "1.0"
+
+[dependencies]
+foo = "1.0"
+bar = "2.0"
+
+[build]
+target = "release"
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "config.toml"
+        f.write_text(self.TOML_SOURCE)
+        doc = parse_code_file(f, "toml", "config.toml")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_into_three_tables(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert len(blocks) == 3
+
+    def test_table_symbol_names(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        names = [b.symbol_name for b in blocks]
+        assert names == ["package", "dependencies", "build"]
+
+    def test_table_symbol_type(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert all(b.symbol_type == "table" for b in blocks)
+
+    def test_first_table_start_line(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[0].start_line == 1
+
+    def test_second_table_start_line(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[1].start_line == 5
+
+
+class TestSqlParsing:
+    """Tests for SQL structural splitting on statements."""
+
+    SQL_SOURCE = """\
+CREATE TABLE users (id INT, name TEXT);
+SELECT * FROM users WHERE id = 1;
+INSERT INTO users VALUES (1, 'test');
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "schema.sql"
+        f.write_text(self.SQL_SOURCE)
+        doc = parse_code_file(f, "sql", "schema.sql")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_into_three_statements(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        stmts = [b for b in blocks if b.symbol_type == "statement"]
+        assert len(stmts) == 3
+
+    def test_statement_symbol_type(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        stmts = [b for b in blocks if b.symbol_type == "statement"]
+        assert len(stmts) == 3
+
+    def test_create_table_symbol_name(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        stmts = [b for b in blocks if b.symbol_type == "statement"]
+        assert "CREATE TABLE" in stmts[0].symbol_name
+
+    def test_select_symbol_name(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        stmts = [b for b in blocks if b.symbol_type == "statement"]
+        assert "SELECT" in stmts[1].symbol_name
+
+
+class TestCssParsing:
+    """Tests for CSS structural splitting on rule sets and at-rules."""
+
+    CSS_SOURCE = """\
+@import url('fonts.css');
+
+body {
+    margin: 0;
+}
+
+.header {
+    color: red;
+    font-size: 16px;
+}
+
+@media (max-width: 768px) {
+    .header { color: blue; }
+}
+
+@keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "style.css"
+        f.write_text(self.CSS_SOURCE)
+        doc = parse_code_file(f, "css", "style.css")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_into_five_blocks(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert len(blocks) == 5
+
+    def test_import_block(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[0].symbol_type == "import"
+
+    def test_rule_set_symbol_type(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        # body and .header are rule_set nodes
+        assert blocks[1].symbol_type == "rule"
+        assert blocks[2].symbol_type == "rule"
+
+    def test_rule_set_symbol_names(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[1].symbol_name == "body"
+        assert blocks[2].symbol_name == ".header"
+
+    def test_media_block(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[3].symbol_type == "media"
+
+    def test_keyframes_block(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[4].symbol_type == "keyframes"
+        assert "fade" in blocks[4].symbol_name
+
+
+class TestScssParsing:
+    """Tests for SCSS splitting (shares CSS logic)."""
+
+    SCSS_SOURCE = """\
+$primary: #333;
+
+.header {
+    color: $primary;
+
+    &__title {
+        font-size: 16px;
+    }
+}
+
+#main {
+    display: flex;
+}
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "theme.scss"
+        f.write_text(self.SCSS_SOURCE)
+        doc = parse_code_file(f, "scss", "theme.scss")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_rule_sets(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        rule_blocks = [b for b in blocks if b.symbol_type == "rule"]
+        assert len(rule_blocks) == 2
+
+    def test_header_symbol_name(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        rule_blocks = [b for b in blocks if b.symbol_type == "rule"]
+        names = [b.symbol_name for b in rule_blocks]
+        assert ".header" in names
+        assert "#main" in names
+
+
+class TestMarkdownParsing:
+    """Tests for Markdown structural splitting on sections."""
+
+    MD_SOURCE = """\
+# Title
+
+Intro paragraph.
+
+## Section One
+
+First section content.
+
+## Section Two
+
+Second section content.
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "doc.md"
+        f.write_text(self.MD_SOURCE)
+        doc = parse_code_file(f, "markdown", "doc.md")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_into_sections(self, tmp_path: Path) -> None:
+        """Top-level section contains nested sections."""
+        blocks = self._parse(tmp_path)
+        assert len(blocks) >= 1
+
+    def test_section_symbol_type(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert all(b.symbol_type == "section" for b in blocks)
+
+    def test_section_symbol_name_contains_heading(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert blocks[0].symbol_name == "Title"
+
+
+class TestMakeParsing:
+    """Tests for Makefile structural splitting on rules."""
+
+    MAKE_SOURCE = """\
+CC=gcc
+CFLAGS=-Wall
+
+all: main.o
+\t$(CC) $(CFLAGS) -o main main.o
+
+main.o: main.c
+\t$(CC) $(CFLAGS) -c main.c
+
+clean:
+\trm -f main main.o
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "Makefile"
+        f.write_text(self.MAKE_SOURCE)
+        doc = parse_code_file(f, "make", "Makefile")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_rules(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        rule_blocks = [b for b in blocks if b.symbol_type == "rule"]
+        assert len(rule_blocks) == 3
+
+    def test_rule_symbol_names(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        rule_blocks = [b for b in blocks if b.symbol_type == "rule"]
+        names = [b.symbol_name for b in rule_blocks]
+        assert "all" in names
+        assert "clean" in names
+
+    def test_top_level_variables_accumulated(self, tmp_path: Path) -> None:
+        """Variable assignments outside rules become module_top blocks."""
+        blocks = self._parse(tmp_path)
+        top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
+        assert len(top_blocks) >= 1
+
+
+class TestRstParsing:
+    """Tests for reStructuredText structural splitting on sections."""
+
+    RST_SOURCE = """\
+Title
+=====
+
+Some paragraph text.
+
+Section 1
+---------
+
+More text here.
+
+Section 2
+---------
+
+Final text.
+"""
+
+    def _parse(self, tmp_path: Path) -> list:
+        f = tmp_path / "docs.rst"
+        f.write_text(self.RST_SOURCE)
+        doc = parse_code_file(f, "rst", "docs.rst")
+        assert doc is not None
+        return doc.blocks
+
+    def test_splits_into_sections(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        assert len(blocks) >= 1
+
+    def test_section_symbol_type(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        section_blocks = [b for b in blocks if b.symbol_type == "section"]
+        assert len(section_blocks) >= 1
+
+    def test_section_symbol_name_contains_title(self, tmp_path: Path) -> None:
+        blocks = self._parse(tmp_path)
+        names = [b.symbol_name for b in blocks]
+        assert any("Title" in n or "Section" in n for n in names)
