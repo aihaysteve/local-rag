@@ -76,6 +76,7 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".dart": "dart",
     ".kt": "kotlin",
     ".php": "php",
+    ".swift": "swift",
     ".ex": "elixir",
     ".exs": "elixir",
     ".json": "json",
@@ -179,6 +180,7 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
         "function_signature",
         "getter_signature",
     },
+    "swift": {"class_declaration", "protocol_declaration", "function_declaration"},
     "kotlin": {"class_declaration", "function_declaration", "object_declaration"},
     "php": {
         "function_definition",
@@ -342,6 +344,40 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
         for child in node.children:
             if child.type in ("identifier", "type_identifier"):
                 return child.text.decode("utf-8", errors="replace")
+        return node.type
+
+    if language == "swift":
+        # Swift: class, struct, enum, and extension all parse as class_declaration.
+        # For extensions the name lives in a user_type child (e.g. "Animal" in
+        # "extension Animal: Drawable"), otherwise it's a direct type_identifier.
+        # function_declaration uses simple_identifier for the function name.
+        # protocol_declaration uses type_identifier.
+        if node.type == "class_declaration":
+            # Check for extension — name is in user_type child
+            for child in node.children:
+                if child.type == "extension":
+                    # The extended type is in the first user_type child
+                    for sibling in node.children:
+                        if sibling.type == "user_type":
+                            for gc in sibling.children:
+                                if gc.type == "type_identifier":
+                                    return gc.text.decode("utf-8", errors="replace")
+                    return node.type
+            # class / struct / enum — name is type_identifier
+            for child in node.children:
+                if child.type == "type_identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return node.type
+        if node.type == "protocol_declaration":
+            for child in node.children:
+                if child.type == "type_identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return node.type
+        if node.type == "function_declaration":
+            for child in node.children:
+                if child.type == "simple_identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return node.type
         return node.type
 
     if language == "kotlin":
@@ -628,6 +664,7 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "struct_specifier": "struct",
         "impl_item": "impl",
         "trait_item": "trait",
+        "protocol_declaration": "protocol",  # Swift
         "trait_declaration": "trait",  # PHP
         "mod_item": "module",
         "module": "module",
@@ -716,6 +753,18 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
                                 if ggc.type == "function_definition":
                                     return "function"
         return "variable"
+
+    # Swift: refine class_declaration based on keyword child (class/struct/enum/extension)
+    if language == "swift" and node_type == "class_declaration":
+        if node is not None:
+            for child in node.children:
+                if child.type == "struct":
+                    return "struct"
+                if child.type == "enum":
+                    return "enum"
+                if child.type == "extension":
+                    return "extension"
+            return "class"
 
     # Kotlin: refine class_declaration based on keyword children
     if language == "kotlin" and node_type == "class_declaration":
