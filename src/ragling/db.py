@@ -2,12 +2,37 @@
 
 import logging
 import sqlite3
+import time
 
 import sqlite_vec  # type: ignore[import-untyped]
 
 from ragling.config import Config
 
 logger = logging.getLogger(__name__)
+
+_WAL_RETRIES = 5
+_WAL_BASE_DELAY = 0.05
+
+
+def _set_wal_mode(conn: sqlite3.Connection) -> None:
+    """Set WAL journal mode with retry for concurrent first-time access.
+
+    ``PRAGMA journal_mode=WAL`` on a fresh database requires an exclusive
+    lock and ignores ``busy_timeout``.  When multiple connections race to
+    initialise the same new database file, the loser gets
+    ``OperationalError: database is locked``.  Retrying with exponential
+    back-off lets the first connection finish before the second tries again.
+    """
+    for attempt in range(_WAL_RETRIES):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError:
+            if attempt < _WAL_RETRIES - 1:
+                time.sleep(_WAL_BASE_DELAY * (2**attempt))
+            else:
+                raise
+
 
 SCHEMA_VERSION = 2
 
@@ -35,8 +60,8 @@ def get_connection(config: Config) -> sqlite3.Connection:
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
 
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+    _set_wal_mode(conn)
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
 

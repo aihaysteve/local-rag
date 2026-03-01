@@ -15,33 +15,57 @@ from ragling.indexers.base import file_hash as _file_hash
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA = """\
-CREATE TABLE IF NOT EXISTS sources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_path TEXT NOT NULL,
-    content_hash TEXT NOT NULL,
-    file_size INTEGER,
-    file_modified_at TEXT,
-    discovered_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(source_path)
-);
+_WAL_RETRIES = 5
+_WAL_BASE_DELAY = 0.05
 
-CREATE TABLE IF NOT EXISTS converted_documents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    content_hash TEXT NOT NULL,
-    config_hash TEXT NOT NULL DEFAULT '',
-    docling_json TEXT NOT NULL,
-    format TEXT NOT NULL,
-    page_count INTEGER,
-    conversion_time_ms INTEGER,
-    converted_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(source_id, content_hash, config_hash)
-);
 
-CREATE INDEX IF NOT EXISTS idx_sources_hash ON sources(content_hash);
-CREATE INDEX IF NOT EXISTS idx_converted_source ON converted_documents(source_id);
-"""
+def _set_wal_mode(conn: sqlite3.Connection) -> None:
+    """Set WAL journal mode with retry for concurrent first-time access.
+
+    ``PRAGMA journal_mode=WAL`` on a fresh database requires an exclusive
+    lock and ignores ``busy_timeout``.  When multiple connections race to
+    initialise the same new database file, the loser gets
+    ``OperationalError: database is locked``.  Retrying with exponential
+    back-off lets the first connection finish before the second tries again.
+    """
+    for attempt in range(_WAL_RETRIES):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError:
+            if attempt < _WAL_RETRIES - 1:
+                time.sleep(_WAL_BASE_DELAY * (2**attempt))
+            else:
+                raise
+
+
+_SCHEMA_STATEMENTS = [
+    """\
+    CREATE TABLE IF NOT EXISTS sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        file_size INTEGER,
+        file_modified_at TEXT,
+        discovered_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(source_path)
+    )""",
+    """\
+    CREATE TABLE IF NOT EXISTS converted_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        content_hash TEXT NOT NULL,
+        config_hash TEXT NOT NULL DEFAULT '',
+        docling_json TEXT NOT NULL,
+        format TEXT NOT NULL,
+        page_count INTEGER,
+        conversion_time_ms INTEGER,
+        converted_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(source_id, content_hash, config_hash)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sources_hash ON sources(content_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_converted_source ON converted_documents(source_id)",
+]
 
 
 class DocStore:
@@ -65,11 +89,12 @@ class DocStore:
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._conn = sqlite3.connect(str(db_path))
-        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
+        _set_wal_mode(self._conn)
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
+        for stmt in _SCHEMA_STATEMENTS:
+            self._conn.execute(stmt)
         self._conn.commit()
         self._migrate_config_hash()
 
