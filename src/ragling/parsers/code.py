@@ -87,8 +87,6 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".htm": "html",
     ".css": "css",
     ".scss": "scss",
-    ".md": "markdown",
-    ".txt": "plaintext",
     ".csv": "csv",
     ".rst": "rst",
 }

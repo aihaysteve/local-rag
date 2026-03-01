@@ -96,8 +96,8 @@ class TestCodeExtensionMap:
     def test_scss_is_code_file(self) -> None:
         assert is_code_file(Path("theme.scss")) is True
 
-    def test_markdown_is_code_file(self) -> None:
-        assert is_code_file(Path("readme.md")) is True
+    def test_markdown_is_not_code_file(self) -> None:
+        assert is_code_file(Path("readme.md")) is False
 
     def test_csv_is_code_file(self) -> None:
         assert is_code_file(Path("data.csv")) is True
@@ -108,8 +108,8 @@ class TestCodeExtensionMap:
     def test_pdf_is_not_code_file(self) -> None:
         assert is_code_file(Path("document.pdf")) is False
 
-    def test_txt_is_code_file(self) -> None:
-        assert is_code_file(Path("notes.txt")) is True
+    def test_txt_is_not_code_file(self) -> None:
+        assert is_code_file(Path("notes.txt")) is False
 
     def test_docx_is_not_code_file(self) -> None:
         assert is_code_file(Path("report.docx")) is False
@@ -234,11 +234,11 @@ class TestGetLanguage:
     def test_scss_returns_scss(self) -> None:
         assert get_language(Path("theme.scss")) == "scss"
 
-    def test_markdown_returns_markdown(self) -> None:
-        assert get_language(Path("readme.md")) == "markdown"
+    def test_markdown_returns_none(self) -> None:
+        assert get_language(Path("readme.md")) is None
 
-    def test_txt_returns_plaintext(self) -> None:
-        assert get_language(Path("notes.txt")) == "plaintext"
+    def test_txt_returns_none(self) -> None:
+        assert get_language(Path("notes.txt")) is None
 
     def test_csv_returns_csv(self) -> None:
         assert get_language(Path("data.csv")) == "csv"
