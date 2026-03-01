@@ -254,6 +254,7 @@ class TestStartSystemWatcher:
         config = Config(
             emclient_db_path=tmp_path / "emclient.db",
             embedding_dimensions=4,
+            disabled_collections=frozenset({"calibre", "rss"}),
         )
         queue = MagicMock()
 
@@ -262,8 +263,12 @@ class TestStartSystemWatcher:
 
         observer, _watcher = start_system_watcher(config, queue)
         assert observer.is_alive()
-        observer.stop()
-        observer.join(timeout=5)
+        # Observer is a daemon thread (set in production code), so it will be
+        # cleaned up when the process exits. Calling observer.stop() followed
+        # by observer.join() can hang indefinitely because watchdog's internal
+        # threads don't shut down cleanly. Just unschedule watches so the
+        # observer has nothing to do — the daemon thread exits with the process.
+        observer.unschedule_all()
 
 
 # ---------------------------------------------------------------------------
