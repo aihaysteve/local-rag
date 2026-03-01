@@ -1209,10 +1209,12 @@ class TestRagBatchSearch:
         fn = tools["rag_batch_search"].fn
 
         with patch("ragling.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
-            result = fn(queries=[
-                {"query": "hello"},
-                {"query": "world", "collection": "code", "top_k": 5},
-            ])
+            result = fn(
+                queries=[
+                    {"query": "hello"},
+                    {"query": "world", "collection": "code", "top_k": 5},
+                ]
+            )
 
         mock_pbs.assert_called_once()
         call_args = mock_pbs.call_args
@@ -1264,10 +1266,12 @@ class TestRagBatchSearch:
         ]
 
         with patch("ragling.search.perform_batch_search", return_value=mock_results):
-            result = fn(queries=[
-                {"query": "first"},
-                {"query": "second"},
-            ])
+            result = fn(
+                queries=[
+                    {"query": "first"},
+                    {"query": "second"},
+                ]
+            )
 
         assert len(result["results"]) == 2
         assert len(result["results"][0]) == 1
@@ -1337,4 +1341,3 @@ class TestRagBatchSearch:
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is None
-

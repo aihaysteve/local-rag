@@ -667,7 +667,9 @@ def create_server(
         response: dict[str, Any] = {"results": all_result_dicts}
         if indexing_status:
             status_dict = indexing_status.to_dict()
-            response["indexing"] = status_dict if status_dict and status_dict.get("active") else None
+            response["indexing"] = (
+                status_dict if status_dict and status_dict.get("active") else None
+            )
         else:
             response["indexing"] = None
         return response

@@ -1315,7 +1315,9 @@ class TestFtsSearchEmptyShortCircuit:
 class TestPerformBatchSearch:
     """Tests for perform_batch_search."""
 
-    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    @patch(
+        "ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+    )
     @patch("ragling.search.get_connection")
     @patch("ragling.search.init_db")
     @patch("ragling.search.search", return_value=[])
@@ -1328,7 +1330,9 @@ class TestPerformBatchSearch:
         assert len(results) == 2
         assert mock_search.call_count == 2
 
-    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    @patch(
+        "ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+    )
     @patch("ragling.search.get_connection")
     @patch("ragling.search.init_db")
     @patch("ragling.search.search", return_value=[])
@@ -1367,7 +1371,9 @@ class TestPerformBatchSearch:
         with pytest.raises(ValueError, match="embedding dimension mismatch"):
             perform_batch_search(queries, config=Config(embedding_dimensions=4))
 
-    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+    @patch(
+        "ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+    )
     @patch("ragling.search.get_connection")
     @patch("ragling.search.init_db")
     @patch("ragling.search.search", return_value=[])
