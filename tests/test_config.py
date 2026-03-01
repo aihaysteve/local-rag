@@ -1,6 +1,7 @@
 """Tests for ragling.config module."""
 
 import json
+import logging
 from pathlib import Path
 from types import MappingProxyType
 
@@ -404,3 +405,37 @@ class TestEnrichmentConfig:
         ec = EnrichmentConfig()
         with pytest.raises(AttributeError):
             ec.image_description = False  # type: ignore[misc]
+
+
+class TestMalformedConfigFallback:
+    """load_config should fall back to defaults on malformed or unreadable config."""
+
+    def test_malformed_json_falls_back_to_defaults(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{not valid json!!!")
+        config = load_config(config_file)
+        # Key fields should have default values
+        assert config.embedding_model == "bge-m3"
+        assert config.group_name == "default"
+        assert config.obsidian_vaults == ()
+
+    def test_malformed_json_logs_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{corrupt")
+        with caplog.at_level(logging.ERROR, logger="ragling.config"):
+            load_config(config_file)
+        assert any("Failed to load config" in msg for msg in caplog.messages)
+
+    def test_unreadable_config_falls_back_to_defaults(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{}")
+        config_file.chmod(0o000)
+        try:
+            config = load_config(config_file)
+            assert config.embedding_model == "bge-m3"
+            assert config.group_name == "default"
+            assert config.obsidian_vaults == ()
+        finally:
+            config_file.chmod(0o644)

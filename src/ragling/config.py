@@ -180,8 +180,12 @@ def load_config(path: Path | None = None) -> Config:
 
     if config_path.exists():
         logger.info("Loading config from %s", config_path)
-        with open(config_path) as f:
-            data = json.load(f)
+        try:
+            with open(config_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Failed to load config from %s: %s — using defaults", config_path, e)
+            data = {}
     else:
         logger.info("No config file found at %s, using defaults", config_path)
         data = {}
