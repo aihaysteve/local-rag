@@ -78,11 +78,24 @@ _CODE_EXTENSION_MAP: dict[str, str] = {
     ".php": "php",
     ".ex": "elixir",
     ".exs": "elixir",
+    ".json": "json",
+    ".toml": "toml",
+    ".sql": "sql",
+    ".xml": "xml",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".md": "markdown",
+    ".txt": "plaintext",
+    ".csv": "csv",
+    ".rst": "rst",
 }
 
 # Filename-based language detection (no extension match)
 _CODE_FILENAME_MAP: dict[str, str] = {
     "Dockerfile": "dockerfile",
+    "Makefile": "make",
 }
 
 # Node types that trigger splitting per language
@@ -175,6 +188,18 @@ _SPLIT_NODE_TYPES: dict[str, set[str]] = {
         "enum_declaration",
     },
     "elixir": {"call"},  # filtered by _get_elixir_call_keyword in main loop
+    "json": set(),  # single object root, no meaningful splitting
+    "toml": {"table"},
+    "sql": {"statement"},
+    "xml": set(),  # single element root, no meaningful splitting
+    "html": set(),  # single element root, no meaningful splitting
+    "css": {"rule_set", "media_statement", "keyframes_statement", "import_statement"},
+    "scss": {"rule_set", "media_statement", "keyframes_statement", "import_statement"},
+    "markdown": {"section"},
+    "plaintext": set(),  # no tree-sitter grammar
+    "csv": set(),  # rows too granular for RAG chunks
+    "rst": {"section"},
+    "make": {"rule"},
 }
 
 # Dart: node types that represent a signature which must be merged with the
@@ -507,6 +532,61 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
                                 return ggc.text.decode("utf-8", errors="replace")
         return node.type
 
+    if language == "toml":
+        # table: [section_name] — extract from bare_key or dotted_key child
+        for child in node.children:
+            if child.type in ("bare_key", "dotted_key"):
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+
+    if language == "sql":
+        # statement wraps inner nodes like create_table, select, insert
+        # Extract the first keyword + identifier from the inner node text
+        inner_text = (node.text or b"").decode("utf-8", errors="replace").strip()
+        # Take up to the first parenthesis or semicolon, then first ~3 words
+        truncated = inner_text.split("(")[0].split(";")[0].strip()
+        words = truncated.split()[:3]
+        return " ".join(words) if words else node.type
+
+    if language in ("css", "scss"):
+        if node.type == "rule_set":
+            for child in node.children:
+                if child.type == "selectors":
+                    return child.text.decode("utf-8", errors="replace").strip()
+            return node.type
+        if node.type in ("media_statement", "keyframes_statement", "import_statement"):
+            # Use the first line of text as the name
+            text = (node.text or b"").decode("utf-8", errors="replace")
+            first_line = text.split("{")[0].strip().split(";")[0].strip()
+            return first_line
+        return node.type
+
+    if language == "markdown":
+        # section: extract heading text from atx_heading > inline
+        for child in node.children:
+            if child.type == "atx_heading":
+                for gc in child.children:
+                    if gc.type == "inline":
+                        return gc.text.decode("utf-8", errors="replace").strip()
+        return node.type
+
+    if language == "make":
+        # rule: extract target name from targets > word
+        for child in node.children:
+            if child.type == "targets":
+                for gc in child.children:
+                    if gc.type == "word":
+                        return gc.text.decode("utf-8", errors="replace").strip()
+                return child.text.decode("utf-8", errors="replace").strip()
+        return node.type
+
+    if language == "rst":
+        # section: extract title text
+        for child in node.children:
+            if child.type == "title":
+                return child.text.decode("utf-8", errors="replace").strip()
+        return node.type
+
     # Fallback: look for any identifier child
     for child in node.children:
         if child.type == "identifier":
@@ -576,6 +656,15 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
         "type_alias": "type",
         "function_signature": "function",
         "getter_signature": "getter",
+        # Data/config formats
+        "table": "table",  # TOML
+        "statement": "statement",  # SQL
+        "rule_set": "rule",  # CSS/SCSS
+        "media_statement": "media",  # CSS/SCSS
+        "keyframes_statement": "keyframes",  # CSS/SCSS
+        "import_statement": "import",  # CSS/SCSS
+        "section": "section",  # Markdown, RST
+        "rule": "rule",  # Make
     }
     result = type_map.get(node_type, "block")
 
@@ -676,6 +765,29 @@ def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeD
     Returns:
         CodeDocument with parsed blocks, or None if parsing fails.
     """
+    # Plaintext files have no tree-sitter grammar — read as a single block
+    if language == "plaintext":
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            logger.error("Cannot read file %s: %s", file_path, e)
+            return None
+        doc = CodeDocument(file_path=relative_path, language=language)
+        if text.strip():
+            line_count = text.count("\n") + (0 if text.endswith("\n") else 1)
+            doc.blocks.append(
+                CodeBlock(
+                    text=text,
+                    language=language,
+                    symbol_name="(file)",
+                    symbol_type="module_top",
+                    start_line=1,
+                    end_line=line_count,
+                    file_path=relative_path,
+                )
+            )
+        return doc
+
     try:
         from tree_sitter_language_pack import get_parser
     except ImportError:
