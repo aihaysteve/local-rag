@@ -24,7 +24,7 @@ never raise exceptions to callers, returning `None` or empty collections instead
 - `epub.py` — EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
 - `email.py` — eM Client SQLite database parsing (.NET ticks, address types, FTI)
 - `calibre.py` — Calibre library metadata loading from metadata.db
-- `code.py` — Tree-sitter structural code parsing (48 extensions, 36 languages)
+- `code.py` — Tree-sitter structural code parsing (48 extensions, 34 languages)
 - `rss.py` — NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
 - `spec.py` — SPEC.md section-level chunking into typed Chunk objects
 
@@ -104,8 +104,7 @@ uv run pytest tests/test_parsers.py tests/test_code_parser.py tests/test_spec_pa
 | INV-6 | `TestTags::test_tag_not_in_code_block` | `#tag` inside code fences ignored |
 | INV-7 | -- | No direct test; EPUB spine ordering tested implicitly via `_parse_opf_spine` |
 | INV-8 | -- | No direct test; SHA-256 fallback ID generation in `_row_to_email` untested |
-| FAIL-2 | `TestSwiftParsing::test_empty_file_produces_no_blocks` | Empty file returns CodeDocument with no blocks |
-| FAIL-2 | `TestZigParsing::test_empty_file_produces_no_blocks` | Empty Zig file returns CodeDocument with no blocks |
+| FAIL-2 | -- | No direct test; tree-sitter parse failure on corrupted syntax untested (empty-file tests cover a valid edge case, not the failure mode) |
 | FAIL-4 | `TestNormalizeSectionType::test_unknown_heading` | Unknown heading returns "other" section_type |
 | FAIL-5 | `TestFrontmatter::test_handles_invalid_yaml` | Invalid YAML returns empty frontmatter dict |
 
