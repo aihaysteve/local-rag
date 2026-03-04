@@ -173,7 +173,7 @@ def _parse_and_chunk(
         )
 
     # SPEC.md: parse with dedicated spec parser for section-level chunking
-    if source_type in ("spec", "markdown") and is_spec_file(path):
+    if is_spec_file(path) and source_type in ("spec", "markdown"):
         text = path.read_text(encoding="utf-8", errors="replace")
         spec_path = source_path or path.name
         return parse_spec(text, spec_path, chunk_size_tokens=config.chunk_size_tokens)
