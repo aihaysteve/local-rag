@@ -17,6 +17,8 @@ DEFAULT_DB_PATH = DEFAULT_CONFIG_DIR / "rag.db"
 DEFAULT_SHARED_DB_PATH = DEFAULT_CONFIG_DIR / "doc_store.sqlite"
 DEFAULT_GROUP_DB_DIR = DEFAULT_CONFIG_DIR / "groups"
 
+RESERVED_COLLECTION_NAMES = frozenset({"obsidian", "email", "calibre", "rss", "global"})
+
 
 @dataclass
 class AsrConfig:
@@ -178,7 +180,15 @@ def load_config(path: Path | None = None) -> Config:
     Returns:
         Loaded Config instance with all paths expanded.
     """
-    config_path = path or DEFAULT_CONFIG_PATH
+    if path is not None:
+        config_path = path
+    else:
+        cwd_config = Path.cwd() / "ragling.json"
+        if cwd_config.is_file():
+            logger.info("Found ragling.json in current directory: %s", cwd_config)
+            config_path = cwd_config
+        else:
+            config_path = DEFAULT_CONFIG_PATH
 
     # Ensure config directory exists
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -227,10 +237,9 @@ def load_config(path: Path | None = None) -> Config:
         code_groups_raw[cg_name] = tuple(_expand_path(p) for p in paths)
     code_groups: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(code_groups_raw)
 
-    _system_names = {"obsidian", "email", "calibre", "rss", "global"}
     watch_raw: dict[str, tuple[Path, ...]] = {}
     for w_name, w_paths in data.get("watch", {}).items():
-        if w_name in _system_names:
+        if w_name in RESERVED_COLLECTION_NAMES:
             raise ValueError(f"watch name '{w_name}' conflicts with system collection name")
         if w_name in code_groups_raw:
             raise ValueError(
