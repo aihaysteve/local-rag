@@ -16,5 +16,5 @@ Index of all SPEC.md files in the ragling codebase.
 | Concern | Relevant Specs | Notes |
 |---|---|---|
 | WAL mode and concurrent access | Core (INV-3), Indexers | All SQLite databases use WAL; retry logic shared between db.py and doc_store.py |
-| Single-writer threading | Core (INV-4), Indexers | IndexingQueue worker is the only thread that writes to index DB; indexers must not open their own write connections |
+| Single-writer threading | Core (INV-4) | IndexingQueue worker is the only thread that writes to index DB; indexers rely on this contract but have no own invariant for it |
 | Content-addressed caching | Core (INV-5), Parsers | DocStore deduplicates by SHA-256 hash + config_hash; parsers produce the conversion result that gets cached |

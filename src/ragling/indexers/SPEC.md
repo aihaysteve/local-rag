@@ -68,8 +68,6 @@ are excluded to prevent duplicate indexing.
 | `GitRepoIndexer` | `indexing_queue.py`, `ProjectIndexer` | Indexes code files (tree-sitter) and optionally commit history |
 | `RSSIndexer` | `indexing_queue.py` | Indexes RSS articles from NetNewsWire with watermark-based incrementality |
 | `ProjectIndexer` | `indexing_queue.py` | Auto-discovers vaults/repos, delegates to specialized indexers, indexes leftovers |
-| `_parse_and_chunk()` | `ObsidianIndexer`, `ProjectIndexer` | Shared dispatch: routes files to correct parser based on source type |
-| `_EXTENSION_MAP` | `ObsidianIndexer`, `ProjectIndexer` | Maps file extensions to source type strings |
 
 ## Invariants
 
@@ -143,7 +141,7 @@ uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_d
 | Parsers (markdown, epub, code, email, rss, calibre, spec) | internal | `src/ragling/parsers/SPEC.md` |
 | `db.py` (get_or_create_collection, delete_collection) | internal | `src/ragling/SPEC.md` |
 | `embeddings.py` (get_embeddings, serialize_float32) | internal | `src/ragling/SPEC.md` |
-| `chunker.py` (Chunk, _split_into_windows) | internal | `src/ragling/SPEC.md` |
+| `chunker.py` (Chunk) | internal | `src/ragling/SPEC.md` |
 | `config.py` (Config) | internal | `src/ragling/SPEC.md` |
 | `doc_store.py` (DocStore) | internal | `src/ragling/SPEC.md` |
 | `docling_bridge.py` / `docling_convert.py` | internal | `src/ragling/SPEC.md` |
