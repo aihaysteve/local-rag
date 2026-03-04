@@ -1,6 +1,8 @@
 """Tests for ragling.parsers.spec — SPEC.md section-level parser."""
 
-from ragling.parsers.spec import normalize_section_type, parse_spec, split_spec_sections
+from pathlib import Path
+
+from ragling.parsers.spec import is_spec_file, normalize_section_type, parse_spec, split_spec_sections
 
 
 class TestNormalizeSectionType:
@@ -156,3 +158,35 @@ class TestParseSpec:
     def test_empty_spec_produces_no_chunks(self) -> None:
         chunks = parse_spec("", "empty/SPEC.md")
         assert chunks == []
+
+
+class TestParseSpecOversized:
+    """Tests for oversized section handling."""
+
+    def test_large_section_splits_into_windows(self) -> None:
+        long_body = " ".join(f"word{i}" for i in range(100))
+        text = f"# Auth\n\n## Core Mechanism\n{long_body}\n"
+        chunks = parse_spec(text, "auth/SPEC.md", chunk_size_tokens=50)
+        assert len(chunks) > 1
+
+    def test_split_chunks_keep_same_metadata(self) -> None:
+        long_body = " ".join(f"word{i}" for i in range(100))
+        text = f"# Auth\n\n## Core Mechanism\n{long_body}\n"
+        chunks = parse_spec(text, "auth/SPEC.md", chunk_size_tokens=50)
+        for chunk in chunks:
+            assert chunk.metadata["section_type"] == "core_mechanism"
+            assert chunk.metadata["subsystem_name"] == "Auth"
+
+    def test_split_chunks_keep_context_prefix(self) -> None:
+        long_body = " ".join(f"word{i}" for i in range(100))
+        text = f"# Auth\n\n## Core Mechanism\n{long_body}\n"
+        chunks = parse_spec(text, "auth/SPEC.md", chunk_size_tokens=50)
+        for chunk in chunks:
+            assert chunk.text.startswith("[auth/SPEC.md] [spec:core_mechanism] Auth\n")
+
+    def test_split_chunks_have_sequential_indexes(self) -> None:
+        long_body = " ".join(f"word{i}" for i in range(100))
+        text = f"# Auth\n\n## Core Mechanism\n{long_body}\n"
+        chunks = parse_spec(text, "auth/SPEC.md", chunk_size_tokens=50)
+        for i, chunk in enumerate(chunks):
+            assert chunk.chunk_index == i
