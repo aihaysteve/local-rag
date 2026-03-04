@@ -163,7 +163,8 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
     Args:
         text: Raw SPEC.md content.
         relative_path: Path to the SPEC.md relative to the repo root.
-        chunk_size_tokens: Maximum words per chunk before splitting.
+        chunk_size_tokens: Approximate token budget per chunk (uses word
+            count as a proxy, consistent with the rest of the codebase).
 
     Returns:
         List of Chunk objects, one per section.
@@ -189,15 +190,24 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
         if section.heading != "(overview)":
             headings.append(section.heading)
 
-        def _make_metadata() -> dict[str, object]:
+        # Capture per-section values for metadata construction.  Using
+        # explicit variables avoids a closure over the loop variable.
+        sec_type = section.section_type
+        sec_headings = headings
+
+        def _make_metadata(
+            *, _sec_type: str = sec_type, _headings: list[str] = sec_headings
+        ) -> dict[str, object]:
             """Build a fresh metadata dict with independent mutable values."""
             return {
                 "subsystem_name": subsystem,
-                "section_type": section.section_type,
+                "section_type": _sec_type,
                 "spec_path": relative_path,
-                "headings": list(headings),
+                "headings": list(_headings),
             }
 
+        # Empty-body sections still produce a chunk — the prefix alone
+        # carries the subsystem/section_type signal for search retrieval.
         prefixed_text = prefix + section.body
 
         if _word_count(prefixed_text) <= chunk_size_tokens:
