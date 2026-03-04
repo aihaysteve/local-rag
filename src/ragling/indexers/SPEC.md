@@ -45,7 +45,6 @@ are excluded to prevent duplicate indexing.
 - `rss_indexer.py` — `RSSIndexer` for NetNewsWire RSS articles
 - `project.py` — `ProjectIndexer` with auto-discovery and delegation,
   `_parse_and_chunk()` shared dispatch, `_EXTENSION_MAP`
-- `__init__.py` — empty package marker
 
 ## Public Interface
 
@@ -68,6 +67,7 @@ are excluded to prevent duplicate indexing.
 | `GitRepoIndexer` | `indexing_queue.py`, `ProjectIndexer` | Indexes code files (tree-sitter) and optionally commit history |
 | `RSSIndexer` | `indexing_queue.py` | Indexes RSS articles from NetNewsWire with watermark-based incrementality |
 | `ProjectIndexer` | `indexing_queue.py` | Auto-discovers vaults/repos, delegates to specialized indexers, indexes leftovers |
+| `_SUPPORTED_EXTENSIONS` | `watcher.py` (Core) | Frozenset of all indexable file extensions (document + code); used to filter filesystem events |
 
 ## Invariants
 
