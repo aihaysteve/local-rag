@@ -243,7 +243,6 @@ uv run pytest tests/test_config.py tests/test_db.py tests/test_search.py \
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
 | Indexers | internal | `src/ragling/indexers/SPEC.md` |
-| Parsers | internal | `src/ragling/parsers/SPEC.md` |
 | sqlite-vec | external | N/A — SQLite extension for vector similarity search |
 | Ollama | external | N/A — local LLM/embedding server |
 | FastMCP | external | N/A — MCP server framework |
