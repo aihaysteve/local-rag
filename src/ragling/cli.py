@@ -1052,6 +1052,11 @@ def init(name: str | None, ragling_dir: Path | None) -> None:
             f"Use --name to choose a different name."
         )
 
+    if ragling_dir is not None and not (ragling_dir / "pyproject.toml").exists():
+        raise click.ClickException(
+            f"No pyproject.toml found at {ragling_dir}. "
+            f"Is this the correct ragling installation path?"
+        )
     ragling_path = ragling_dir or _detect_ragling_dir()
 
     # Create ragling.json

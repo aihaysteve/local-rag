@@ -11,7 +11,7 @@ Set up ragling to index and search your project's documents, code, and data.
 ```bash
 brew install ollama uv
 ollama pull bge-m3
-git clone git@github.com:aihaysteve/local-rag.git ~/ragling
+git clone https://github.com/aihaysteve/local-rag.git ~/ragling
 ```
 
 ## Quick Setup
