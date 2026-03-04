@@ -50,6 +50,13 @@ This creates two files:
 
 The command also checks whether Ollama is running and `bge-m3` is available.
 
+Both files contain machine-specific absolute paths, so add them to `.gitignore`:
+
+```
+ragling.json
+.mcp.json
+```
+
 ### Options
 
 | Flag | Description |

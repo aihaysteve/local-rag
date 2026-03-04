@@ -875,3 +875,28 @@ class TestInitCommand:
         config_idx = args.index("--config")
         config_path = args[config_idx + 1]
         assert Path(config_path).is_absolute()
+
+    def test_init_suggests_gitignore(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """init suggests adding ragling.json and .mcp.json to .gitignore."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        assert "ragling.json" in result.output
+        assert ".mcp.json" in result.output
+        assert ".gitignore" in result.output
+
+    def test_init_no_gitignore_tip_when_already_present(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init skips .gitignore tip when entries already present."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        (project_dir / ".gitignore").write_text("ragling.json\n.mcp.json\n")
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        assert "Tip" not in result.output

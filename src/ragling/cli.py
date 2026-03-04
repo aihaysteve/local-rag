@@ -1096,6 +1096,21 @@ def init(name: str | None, ragling_dir: Path | None) -> None:
     else:
         console.print("[green]Added ragling to .mcp.json[/green]")
 
+    # Suggest .gitignore entries (both files contain machine-specific absolute paths)
+    gitignore_path = cwd / ".gitignore"
+    entries_to_suggest: list[str] = []
+    existing_gitignore = gitignore_path.read_text() if gitignore_path.exists() else ""
+    if "ragling.json" not in existing_gitignore:
+        entries_to_suggest.append("ragling.json")
+    if ".mcp.json" not in existing_gitignore:
+        entries_to_suggest.append(".mcp.json")
+    if entries_to_suggest:
+        console.print()
+        console.print(
+            "[yellow]Tip:[/yellow] Add to .gitignore (machine-specific paths): "
+            + ", ".join(f"[bold]{e}[/bold]" for e in entries_to_suggest)
+        )
+
     # Check Ollama
     ollama_running, model_available = _check_ollama_status()
     console.print()
