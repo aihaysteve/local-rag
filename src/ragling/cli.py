@@ -806,7 +806,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     # Config watching (both leader and follower need fresh config)
     import atexit
 
-    from ragling.config_watcher import ConfigWatcher
+    from ragling.watchers.config_watcher import ConfigWatcher
 
     config_path = ctx.obj.get("config_path")
 
@@ -828,7 +828,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
 
         from ragling.indexing_queue import IndexingQueue
         from ragling.sync import run_startup_sync, submit_file_change
-        from ragling.watcher import get_watch_paths, start_watcher
+        from ragling.watchers.watcher import get_watch_paths, start_watcher
 
         current_config = config_watcher.get_config()
         queue = IndexingQueue(current_config, indexing_status)
@@ -863,7 +863,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
         def _start_system_watcher_after_sync() -> None:
             sync_done.wait()
             try:
-                from ragling.system_watcher import start_system_watcher
+                from ragling.watchers.system_watcher import start_system_watcher
 
                 start_system_watcher(config_watcher.get_config(), queue)
                 logger.info("System collection watcher started")

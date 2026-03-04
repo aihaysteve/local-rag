@@ -397,9 +397,9 @@ class TestSSETLSWiring:
             patch("anyio.run", side_effect=fake_anyio_run),
             patch("ragling.indexing_queue.IndexingQueue", return_value=mock_queue),
             patch("ragling.sync.run_startup_sync"),
-            patch("ragling.watcher.get_watch_paths", return_value=[]),
+            patch("ragling.watchers.watcher.get_watch_paths", return_value=[]),
             patch("ragling.mcp_server.create_server", return_value=mock_mcp_server),
-            patch("ragling.config_watcher.ConfigWatcher"),
+            patch("ragling.watchers.config_watcher.ConfigWatcher"),
         ):
             from ragling.config import Config
 

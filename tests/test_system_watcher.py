@@ -1,4 +1,4 @@
-"""Tests for ragling.system_watcher module."""
+"""Tests for ragling.watchers.system_watcher module."""
 
 import threading
 import time
@@ -14,7 +14,7 @@ class TestSystemCollectionWatcher:
 
     def test_collects_db_paths_from_config(self, tmp_path: Path) -> None:
         """Watcher discovers all system DB paths from config."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         calibre_lib = tmp_path / "calibre"
@@ -38,7 +38,7 @@ class TestSystemCollectionWatcher:
 
     def test_skips_disabled_collections(self, tmp_path: Path) -> None:
         """Disabled collections are not watched."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         nnw_db = tmp_path / "nnw"
@@ -60,7 +60,7 @@ class TestSystemCollectionWatcher:
 
     def test_submits_job_on_change(self, tmp_path: Path) -> None:
         """When a DB file changes, an IndexJob is submitted to the queue."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -84,7 +84,7 @@ class TestSystemCollectionWatcher:
 
     def test_debounces_rapid_changes(self, tmp_path: Path) -> None:
         """Multiple rapid changes to the same DB are batched."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -109,7 +109,7 @@ class TestSystemCollectionWatcher:
 
     def test_maps_path_to_correct_collection(self, tmp_path: Path) -> None:
         """Each DB path maps to the correct collection and indexer type."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         calibre_lib = tmp_path / "calibre"
@@ -135,7 +135,7 @@ class TestSystemCollectionWatcher:
 
     def test_unknown_path_is_ignored(self, tmp_path: Path) -> None:
         """A path not matching any system DB is silently ignored."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -154,7 +154,7 @@ class TestSystemCollectionWatcher:
 
     def test_get_watch_directories_returns_parent_dirs(self, tmp_path: Path) -> None:
         """get_watch_directories returns parent directories of DB paths."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -173,7 +173,7 @@ class TestSystemCollectionWatcher:
 
     def test_stop_flushes_pending(self, tmp_path: Path) -> None:
         """Stopping the watcher flushes any pending changes."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -198,7 +198,7 @@ class TestSystemDbHandler:
     def test_handler_routes_file_modification(self, tmp_path: Path) -> None:
         from watchdog.events import FileModifiedEvent
 
-        from ragling.system_watcher import SystemCollectionWatcher, _SystemDbHandler
+        from ragling.watchers.system_watcher import SystemCollectionWatcher, _SystemDbHandler
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -225,7 +225,7 @@ class TestSystemDbHandler:
     def test_handler_ignores_unrelated_files(self, tmp_path: Path) -> None:
         from watchdog.events import FileModifiedEvent
 
-        from ragling.system_watcher import SystemCollectionWatcher, _SystemDbHandler
+        from ragling.watchers.system_watcher import SystemCollectionWatcher, _SystemDbHandler
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()
@@ -249,7 +249,7 @@ class TestStartSystemWatcher:
     """Tests for start_system_watcher convenience function."""
 
     def test_returns_observer_and_watcher(self, tmp_path: Path) -> None:
-        from ragling.system_watcher import start_system_watcher
+        from ragling.watchers.system_watcher import start_system_watcher
 
         config = Config(
             emclient_db_path=tmp_path / "emclient.db",
@@ -335,7 +335,7 @@ class TestSystemWatcherStartupOrdering:
 class TestConcurrentNotifyChange:
     def test_concurrent_notify_change_is_thread_safe(self, tmp_path: Path) -> None:
         """Multiple threads calling notify_change simultaneously don't corrupt state."""
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()

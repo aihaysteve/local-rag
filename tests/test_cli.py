@@ -414,7 +414,7 @@ class TestWatcherStartupCondition:
     def test_obsidian_only_config_triggers_watcher(self, tmp_path: Path) -> None:
         """A config with only obsidian_vaults should still start the watcher."""
         from ragling.config import Config
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         vault = tmp_path / "vault"
         vault.mkdir()
