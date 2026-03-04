@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ragling.parsers.spec import (
+    find_nearest_spec,
     is_spec_file,
     normalize_section_type,
     parse_spec,
@@ -214,3 +215,38 @@ class TestIsSpecFile:
 
     def test_not_spec_prefix(self) -> None:
         assert is_spec_file(Path("MY-SPEC.md")) is False
+
+
+class TestFindNearestSpec:
+    """Tests for .gitignore-style SPEC.md directory walking."""
+
+    def test_finds_spec_in_same_directory(self, tmp_path: Path) -> None:
+        (tmp_path / "SPEC.md").write_text("# Root\n")
+        result = find_nearest_spec(tmp_path / "foo.py", tmp_path)
+        assert result == "SPEC.md"
+
+    def test_finds_spec_in_parent(self, tmp_path: Path) -> None:
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (tmp_path / "SPEC.md").write_text("# Root\n")
+        result = find_nearest_spec(sub / "foo.py", tmp_path)
+        assert result == "SPEC.md"
+
+    def test_nearest_wins(self, tmp_path: Path) -> None:
+        sub = tmp_path / "features" / "auth"
+        sub.mkdir(parents=True)
+        (tmp_path / "SPEC.md").write_text("# Root\n")
+        (sub / "SPEC.md").write_text("# Auth\n")
+        result = find_nearest_spec(sub / "handlers.py", tmp_path)
+        assert result == "features/auth/SPEC.md"
+
+    def test_no_spec_returns_none(self, tmp_path: Path) -> None:
+        result = find_nearest_spec(tmp_path / "foo.py", tmp_path)
+        assert result is None
+
+    def test_does_not_walk_above_root(self, tmp_path: Path) -> None:
+        sub = tmp_path / "project"
+        sub.mkdir()
+        (tmp_path / "SPEC.md").write_text("# Root\n")
+        result = find_nearest_spec(sub / "foo.py", sub)
+        assert result is None

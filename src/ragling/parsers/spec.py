@@ -30,6 +30,38 @@ _SECTION_MAP: dict[str, str] = {
 }
 
 
+def find_nearest_spec(file_path: Path, repo_root: Path) -> str | None:
+    """Walk up from a file to find the nearest SPEC.md, stopping at repo root.
+
+    Mirrors .gitignore resolution — the nearest SPEC.md wins.
+
+    Args:
+        file_path: Path to the file being indexed.
+        repo_root: Root of the repository (stop boundary).
+
+    Returns:
+        Relative path to the SPEC.md from repo_root, or None if not found.
+    """
+    current = file_path.parent if file_path.is_file() or not file_path.exists() else file_path
+    repo_root = repo_root.resolve()
+    current = current.resolve()
+
+    while True:
+        spec_candidate = current / "SPEC.md"
+        if spec_candidate.exists():
+            return str(spec_candidate.relative_to(repo_root))
+
+        if current == repo_root:
+            break
+
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    return None
+
+
 def normalize_section_type(heading: str) -> str:
     """Normalize an H2 heading to a known section type.
 
