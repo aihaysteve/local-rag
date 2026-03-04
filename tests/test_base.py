@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 from ragling.indexers.base import IndexResult, file_hash, upsert_source_with_chunks
 

@@ -322,7 +322,7 @@ class TestMcpConfigOutputCaCert:
         import json
         from unittest.mock import patch
 
-        from ragling.tls import TLSConfig
+        from ragling.auth.tls import TLSConfig
 
         known_ca = tmp_path / "certs" / "ca.pem"
         known_tls = TLSConfig(
@@ -333,7 +333,7 @@ class TestMcpConfigOutputCaCert:
         )
 
         runner = CliRunner()
-        with patch("ragling.tls.ensure_tls_certs", return_value=known_tls):
+        with patch("ragling.auth.tls.ensure_tls_certs", return_value=known_tls):
             result = runner.invoke(main, ["mcp-config", "--port", "9999"])
 
         assert result.exit_code == 0
@@ -414,7 +414,7 @@ class TestWatcherStartupCondition:
     def test_obsidian_only_config_triggers_watcher(self, tmp_path: Path) -> None:
         """A config with only obsidian_vaults should still start the watcher."""
         from ragling.config import Config
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         vault = tmp_path / "vault"
         vault.mkdir()

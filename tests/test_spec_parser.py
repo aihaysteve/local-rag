@@ -240,6 +240,84 @@ class TestIsSpecFile:
         assert is_spec_file(Path("MY-SPEC.md")) is False
 
 
+class TestFencedCodeBlockHandling:
+    """Tests that headings inside fenced code blocks are ignored."""
+
+    def test_h1_inside_backtick_fence_ignored(self) -> None:
+        text = "# Auth\n\n## Purpose\nExample:\n```\n# This is a comment\n```\n"
+        subsystem, sections = split_spec_sections(text)
+        assert subsystem == "Auth"
+        assert len(sections) == 1
+        assert sections[0].heading == "Purpose"
+
+    def test_h2_inside_backtick_fence_ignored(self) -> None:
+        text = "# Auth\n\n## Purpose\nExample:\n```\n## Not a heading\n```\n"
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 1
+        assert sections[0].heading == "Purpose"
+        assert "## Not a heading" in sections[0].body
+
+    def test_h2_inside_tilde_fence_ignored(self) -> None:
+        text = "# Auth\n\n## Purpose\nExample:\n~~~\n## Not a heading\n~~~\n"
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 1
+
+    def test_real_heading_after_fence_detected(self) -> None:
+        text = (
+            "# Auth\n\n"
+            "## Purpose\nBefore code.\n"
+            "```\n## Fake heading\n```\n"
+            "## Dependencies\nAfter code.\n"
+        )
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 2
+        assert sections[0].heading == "Purpose"
+        assert sections[1].heading == "Dependencies"
+
+    def test_unclosed_fence_masks_remainder(self) -> None:
+        text = "# Auth\n\n## Purpose\nSome text.\n```\n## This is masked\n"
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 1
+        assert sections[0].heading == "Purpose"
+
+    def test_fenced_content_preserved_in_body(self) -> None:
+        text = "# Auth\n\n## Purpose\nExample:\n```bash\necho hello\n```\n"
+        _sub, sections = split_spec_sections(text)
+        assert "```bash" in sections[0].body
+        assert "echo hello" in sections[0].body
+
+    def test_multiple_fenced_blocks(self) -> None:
+        text = (
+            "# Auth\n\n"
+            "## Purpose\n"
+            "First block:\n```\n## fake1\n```\n"
+            "Middle text.\n"
+            "Second block:\n```\n## fake2\n```\n"
+            "## Dependencies\nReal section.\n"
+        )
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 2
+        assert sections[0].heading == "Purpose"
+        assert sections[1].heading == "Dependencies"
+
+    def test_fence_with_language_tag(self) -> None:
+        text = "# Auth\n\n## Purpose\n```python\n# comment\ndef foo(): pass\n```\n"
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 1
+
+    def test_nested_fence_longer_backticks(self) -> None:
+        text = "# Auth\n\n## Purpose\n````\n```\n## Not a heading\n```\n````\n"
+        _sub, sections = split_spec_sections(text)
+        assert len(sections) == 1
+
+    def test_parse_spec_preserves_fenced_content_in_chunks(self) -> None:
+        text = "# Auth\n\n## Purpose\nExample:\n```bash\n# not a heading\necho hello\n```\n"
+        chunks = parse_spec(text, "auth/SPEC.md")
+        assert len(chunks) == 1
+        assert "# not a heading" in chunks[0].text
+        assert "echo hello" in chunks[0].text
+
+
 class TestFindNearestSpec:
     """Tests for .gitignore-style SPEC.md directory walking."""
 

@@ -19,14 +19,14 @@ text, enrich metadata, return domain object. Errors are caught and logged — pa
 never raise exceptions to callers, returning `None` or empty collections instead.
 
 **Key files:**
-- `__init__.py` — `open_ro()` utility for read-only SQLite access
-- `markdown.py` — Obsidian-flavored markdown with frontmatter, wikilinks, tags
-- `epub.py` — EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
-- `email.py` — eM Client SQLite database parsing (.NET ticks, address types, FTI)
-- `calibre.py` — Calibre library metadata loading from metadata.db
-- `code.py` — Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages)
-- `rss.py` — NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
-- `spec.py` — SPEC.md section-level chunking into typed Chunk objects
+- `__init__.py` -- `open_ro()` utility for read-only SQLite access
+- `markdown.py` -- Obsidian-flavored markdown with frontmatter, wikilinks, tags
+- `epub.py` -- EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
+- `email.py` -- eM Client SQLite database parsing (.NET ticks, address types, FTI)
+- `calibre.py` -- Calibre library metadata loading from metadata.db
+- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages)
+- `rss.py` -- NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
+- `spec.py` -- SPEC.md section-level chunking into typed Chunk objects
 
 **Parser output types:**
 - `markdown.py` returns `MarkdownDocument` (title, body_text, frontmatter, tags, links)
@@ -120,7 +120,7 @@ which would violate INV-5.
 
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
-| `ragling.chunker` (Chunk, `_split_into_windows`, `_word_count`) | internal | `src/ragling/SPEC.md` — `spec.py` imports Chunk plus two private helpers for window splitting |
+| `ragling.document.chunker` (Chunk, `split_into_windows`, `word_count`) | internal | `src/ragling/document/SPEC.md` -- `spec.py` imports Chunk plus public helpers for window splitting and word counting |
 | PyYAML | external | N/A |
 | BeautifulSoup (bs4) | external | N/A |
 | tree-sitter-language-pack | external | N/A |

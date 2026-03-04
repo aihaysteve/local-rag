@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ragling.indexing_status import IndexingStatus
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
-from ragling.docling_bridge import epub_to_docling_doc, plaintext_to_docling_doc
-from ragling.docling_convert import chunk_with_hybrid, convert_and_chunk
+from ragling.document.docling_bridge import epub_to_docling_doc, plaintext_to_docling_doc
+from ragling.document.docling_convert import chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings
 from ragling.indexers.base import (
     BaseIndexer,

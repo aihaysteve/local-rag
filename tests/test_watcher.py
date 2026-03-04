@@ -1,4 +1,4 @@
-"""Tests for ragling.watcher module."""
+"""Tests for ragling.watchers.watcher module."""
 
 import time
 from pathlib import Path
@@ -13,12 +13,12 @@ from watchdog.events import (
 )
 
 from ragling.config import Config
-from ragling.watcher import DebouncedIndexQueue, _Handler
+from ragling.watchers.watcher import DebouncedIndexQueue, _Handler
 
 
 class TestDebouncedQueue:
     def test_queues_file_and_fires_after_delay(self) -> None:
-        from ragling.watcher import DebouncedIndexQueue
+        from ragling.watchers.watcher import DebouncedIndexQueue
 
         callback = MagicMock()
         queue = DebouncedIndexQueue(callback=callback, debounce_seconds=0.1)
@@ -33,7 +33,7 @@ class TestDebouncedQueue:
             queue.stop()
 
     def test_batches_rapid_changes(self) -> None:
-        from ragling.watcher import DebouncedIndexQueue
+        from ragling.watchers.watcher import DebouncedIndexQueue
 
         callback = MagicMock()
         queue = DebouncedIndexQueue(callback=callback, debounce_seconds=0.2)
@@ -52,7 +52,7 @@ class TestDebouncedQueue:
             queue.stop()
 
     def test_deduplicates_same_file(self) -> None:
-        from ragling.watcher import DebouncedIndexQueue
+        from ragling.watchers.watcher import DebouncedIndexQueue
 
         callback = MagicMock()
         queue = DebouncedIndexQueue(callback=callback, debounce_seconds=0.1)
@@ -71,7 +71,7 @@ class TestDebouncedQueue:
 
 class TestWatcherPaths:
     def test_computes_watch_paths_from_config(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         home = tmp_path / "groups"
         global_dir = tmp_path / "global"
@@ -84,7 +84,7 @@ class TestWatcherPaths:
         assert global_dir in paths
 
     def test_skips_nonexistent_paths(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         config = Config(
             home=tmp_path / "nonexistent",
@@ -98,7 +98,7 @@ class TestWatchPathsIncludesObsidianAndCode:
     """Tests that get_watch_paths includes obsidian vaults and code group repos."""
 
     def test_includes_obsidian_vaults(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -107,7 +107,7 @@ class TestWatchPathsIncludesObsidianAndCode:
         assert vault in paths
 
     def test_includes_code_group_repos(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -116,14 +116,14 @@ class TestWatchPathsIncludesObsidianAndCode:
         assert repo in paths
 
     def test_skips_nonexistent_obsidian_vaults(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         config = Config(obsidian_vaults=(tmp_path / "nonexistent",))
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
     def test_skips_nonexistent_code_repos(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         config = Config(code_groups=MappingProxyType({"org": (tmp_path / "nonexistent",)}))
         paths = get_watch_paths(config)
@@ -131,7 +131,7 @@ class TestWatchPathsIncludesObsidianAndCode:
 
     def test_deduplicates_overlapping_paths(self, tmp_path: Path) -> None:
         """Same path in home and obsidian should appear only once."""
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         shared_dir = tmp_path / "shared"
         shared_dir.mkdir()
@@ -143,7 +143,7 @@ class TestWatchPathsIncludesObsidianAndCode:
         assert paths.count(shared_dir) == 1
 
     def test_combines_all_path_types(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         home = tmp_path / "home"
         global_dir = tmp_path / "global"
@@ -172,7 +172,7 @@ class TestWatchPathsIncludesWatch:
     """Tests that get_watch_paths includes watch directories."""
 
     def test_includes_watch_directories(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         watch_dir = tmp_path / "proj"
         watch_dir.mkdir()
@@ -181,7 +181,7 @@ class TestWatchPathsIncludesWatch:
         assert watch_dir in paths
 
     def test_includes_watch_with_multiple_paths(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         dir1 = tmp_path / "papers"
         dir2 = tmp_path / "refs"
@@ -193,7 +193,7 @@ class TestWatchPathsIncludesWatch:
         assert dir2 in paths
 
     def test_skips_nonexistent_watch_directories(self, tmp_path: Path) -> None:
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         config = Config(watch=MappingProxyType({"proj": (tmp_path / "nonexistent",)}))
         paths = get_watch_paths(config)
@@ -201,7 +201,7 @@ class TestWatchPathsIncludesWatch:
 
     def test_deduplicates_watch_with_code_groups(self, tmp_path: Path) -> None:
         """Same path in watch and code_groups appears only once."""
-        from ragling.watcher import get_watch_paths
+        from ragling.watchers.watcher import get_watch_paths
 
         shared = tmp_path / "repo"
         shared.mkdir()

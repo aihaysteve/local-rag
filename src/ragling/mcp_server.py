@@ -11,7 +11,7 @@ from urllib.parse import quote
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 
-from ragling.auth import UserContext
+from ragling.auth.auth import UserContext
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
 from ragling.indexer_types import IndexerType
@@ -259,7 +259,7 @@ def _convert_document(
     # For other formats, try Docling conversion via doc_store cache
     try:
         from ragling.doc_store import DocStore
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         effective_config = config or load_config()
         doc_store = DocStore(effective_config.shared_db_path)
@@ -373,7 +373,7 @@ def create_server(
 
         from mcp.server.auth.settings import AuthSettings
 
-        from ragling.token_verifier import RaglingTokenVerifier
+        from ragling.auth.token_verifier import RaglingTokenVerifier
 
         mcp_kwargs["token_verifier"] = RaglingTokenVerifier(server_config)
         mcp_kwargs["auth"] = AuthSettings(
@@ -512,7 +512,7 @@ def create_server(
         import time
 
         from ragling.embeddings import OllamaConnectionError
-        from ragling.search import perform_search
+        from ragling.search.search import perform_search
 
         visible = _get_visible_collections(server_config)
         user_ctx = _get_user_context(server_config)
@@ -617,7 +617,7 @@ def create_server(
             input) and optional ``indexing_status``.
         """
         from ragling.embeddings import OllamaConnectionError
-        from ragling.search import BatchQuery, perform_batch_search
+        from ragling.search.search import BatchQuery, perform_batch_search
 
         if not queries:
             return _build_search_response([], indexing_status)

@@ -4,7 +4,7 @@
 
 class TestConverterConfigHash:
     def test_returns_hex_string(self) -> None:
-        from ragling.docling_convert import converter_config_hash
+        from ragling.document.docling_convert import converter_config_hash
 
         result = converter_config_hash(
             do_picture_description=True,
@@ -16,7 +16,7 @@ class TestConverterConfigHash:
         assert len(result) == 16  # truncated SHA-256
 
     def test_deterministic(self) -> None:
-        from ragling.docling_convert import converter_config_hash
+        from ragling.document.docling_convert import converter_config_hash
 
         a = converter_config_hash(
             do_picture_description=True,
@@ -33,7 +33,7 @@ class TestConverterConfigHash:
         assert a == b
 
     def test_different_config_different_hash(self) -> None:
-        from ragling.docling_convert import converter_config_hash
+        from ragling.document.docling_convert import converter_config_hash
 
         a = converter_config_hash(
             do_picture_description=True,
@@ -51,7 +51,7 @@ class TestConverterConfigHash:
 
     def test_default_hash_is_stable(self) -> None:
         """The default enriched config hash doesn't change between runs."""
-        from ragling.docling_convert import converter_config_hash
+        from ragling.document.docling_convert import converter_config_hash
 
         # This is the config we'll use in production
         result = converter_config_hash(
@@ -65,7 +65,7 @@ class TestConverterConfigHash:
 
     def test_vlm_backend_changes_hash(self) -> None:
         """Different VLM backends produce different hashes."""
-        from ragling.docling_convert import converter_config_hash
+        from ragling.document.docling_convert import converter_config_hash
 
         local_hash = converter_config_hash(
             do_picture_description=True,
@@ -89,7 +89,7 @@ def test_convert_and_chunk_uses_enrichment_config() -> None:
     from unittest.mock import MagicMock
 
     from ragling.config import Config, EnrichmentConfig
-    from ragling.docling_convert import convert_and_chunk, converter_config_hash
+    from ragling.document.docling_convert import convert_and_chunk, converter_config_hash
 
     enrichments = EnrichmentConfig(
         image_description=False,
@@ -129,7 +129,7 @@ def test_convert_and_chunk_passes_ollama_vlm_backend_in_hash() -> None:
     from unittest.mock import MagicMock
 
     from ragling.config import Config
-    from ragling.docling_convert import convert_and_chunk, converter_config_hash
+    from ragling.document.docling_convert import convert_and_chunk, converter_config_hash
 
     config = Config(ollama_host="http://gpu:11434")
 

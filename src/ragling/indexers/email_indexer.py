@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from ragling.indexing_status import IndexingStatus
 
 from ragling.config import Config
-from ragling.docling_bridge import email_to_docling_doc
-from ragling.docling_convert import chunk_with_hybrid
+from ragling.document.docling_bridge import email_to_docling_doc
+from ragling.document.docling_convert import chunk_with_hybrid
 from ragling.db import get_or_create_collection
 from ragling.embeddings import get_embeddings
 from ragling.indexers.base import BaseIndexer, IndexResult, upsert_source_with_chunks

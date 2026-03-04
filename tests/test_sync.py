@@ -563,7 +563,7 @@ class TestSystemCollectionReindex:
         """
         import time
 
-        from ragling.system_watcher import SystemCollectionWatcher
+        from ragling.watchers.system_watcher import SystemCollectionWatcher
 
         email_db = tmp_path / "emclient"
         email_db.mkdir()

@@ -43,7 +43,7 @@ class TestBuildSourceUriSpec:
 
 class TestApplyUserContextToResults:
     def test_applies_path_mappings_to_results(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(
@@ -63,7 +63,7 @@ class TestApplyUserContextToResults:
         assert mapped[0]["source_uri"] == "file:///workspace/group/notes.md"
 
     def test_no_mapping_leaves_paths_unchanged(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(username="kitchen", path_mappings={})
@@ -72,7 +72,7 @@ class TestApplyUserContextToResults:
         assert mapped[0]["source_path"] == "/host/other.md"
 
     def test_does_not_mutate_original_results(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(
@@ -84,7 +84,7 @@ class TestApplyUserContextToResults:
         assert original[0]["source_path"] == "/host/file.md"
 
     def test_preserves_other_fields(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(
@@ -366,7 +366,7 @@ class TestCreateServerSignature:
         """When users are configured, create_server sets up auth."""
         from ragling.config import Config, UserConfig
         from ragling.mcp_server import create_server
-        from ragling.token_verifier import RaglingTokenVerifier
+        from ragling.auth.token_verifier import RaglingTokenVerifier
 
         config = Config(
             users={"kitchen": UserConfig(api_key="test-key")},
@@ -468,7 +468,7 @@ class TestStaleFieldInResponse:
 
     def test_result_dict_includes_stale_field(self) -> None:
         """Verify the result dict construction includes 'stale' key."""
-        from ragling.search import SearchResult
+        from ragling.search.search import SearchResult
 
         r = SearchResult(
             content="test",
@@ -495,7 +495,7 @@ class TestStaleFieldInResponse:
 
     def test_result_dict_stale_defaults_false(self) -> None:
         """Verify stale defaults to False when not explicitly set."""
-        from ragling.search import SearchResult
+        from ragling.search.search import SearchResult
 
         r = SearchResult(
             content="test",
@@ -1352,7 +1352,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
+        with patch("ragling.search.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
             result = fn(
                 queries=[
                     {"query": "hello"},
@@ -1373,7 +1373,7 @@ class TestRagBatchSearch:
 
     def test_batch_search_returns_per_query_results(self, tmp_path: Path) -> None:
         from ragling.mcp_server import create_server
-        from ragling.search import SearchResult
+        from ragling.search.search import SearchResult
 
         config = Config(
             db_path=tmp_path / "test.db",
@@ -1409,7 +1409,7 @@ class TestRagBatchSearch:
             ],
         ]
 
-        with patch("ragling.search.perform_batch_search", return_value=mock_results):
+        with patch("ragling.search.search.perform_batch_search", return_value=mock_results):
             result = fn(
                 queries=[
                     {"query": "first"},
@@ -1437,7 +1437,7 @@ class TestRagBatchSearch:
         fn = tools["rag_batch_search"].fn
 
         with patch(
-            "ragling.search.perform_batch_search",
+            "ragling.search.search.perform_batch_search",
             side_effect=OllamaConnectionError("connection refused"),
         ):
             result = fn(queries=[{"query": "test"}])
@@ -1459,7 +1459,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.perform_batch_search", return_value=[[]]):
+        with patch("ragling.search.search.perform_batch_search", return_value=[[]]):
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is not None
@@ -1481,7 +1481,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.perform_batch_search", return_value=[[]]):
+        with patch("ragling.search.search.perform_batch_search", return_value=[[]]):
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is None

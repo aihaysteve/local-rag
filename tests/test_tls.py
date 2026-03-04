@@ -8,14 +8,14 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
-from ragling.tls import TLSConfig
+from ragling.auth.tls import TLSConfig
 
 
 class TestTLSConfig:
     """Tests for the TLSConfig dataclass."""
 
     def test_tls_config_holds_paths(self, tmp_path: Path) -> None:
-        from ragling.tls import TLSConfig
+        from ragling.auth.tls import TLSConfig
 
         cfg = TLSConfig(
             ca_cert=tmp_path / "ca.pem",
@@ -34,7 +34,7 @@ class TestEnsureTLSCerts:
 
     def test_generates_all_four_files(self, tmp_path: Path) -> None:
         """First call generates CA cert, CA key, server cert, server key."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_dir = tmp_path / "tls"
         cfg = ensure_tls_certs(tls_dir)
@@ -46,7 +46,7 @@ class TestEnsureTLSCerts:
 
     def test_creates_tls_directory(self, tmp_path: Path) -> None:
         """tls_dir is created if it doesn't exist."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_dir = tmp_path / "nested" / "tls"
         ensure_tls_certs(tls_dir)
@@ -55,7 +55,7 @@ class TestEnsureTLSCerts:
 
     def test_idempotent_does_not_regenerate(self, tmp_path: Path) -> None:
         """Calling ensure_tls_certs twice keeps the same files."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_dir = tmp_path / "tls"
         cfg1 = ensure_tls_certs(tls_dir)
@@ -68,7 +68,7 @@ class TestEnsureTLSCerts:
 
     def test_private_key_permissions(self, tmp_path: Path) -> None:
         """Private key files must have 0o600 permissions."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_dir = tmp_path / "tls"
         cfg = ensure_tls_certs(tls_dir)
@@ -80,7 +80,7 @@ class TestEnsureTLSCerts:
 
     def test_default_tls_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Default tls_dir is ~/.ragling/tls/."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         cfg = ensure_tls_certs()
@@ -92,7 +92,7 @@ class TestCAGeneration:
     """Tests for CA certificate properties."""
 
     def test_ca_is_self_signed(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
@@ -100,7 +100,7 @@ class TestCAGeneration:
         assert ca.issuer == ca.subject
 
     def test_ca_has_correct_cn(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
@@ -109,7 +109,7 @@ class TestCAGeneration:
         assert "ragling" in cn.lower()
 
     def test_ca_valid_10_years(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
@@ -121,7 +121,7 @@ class TestCAGeneration:
 
     def test_ca_is_ca(self, tmp_path: Path) -> None:
         """CA cert has BasicConstraints CA=True."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
@@ -137,7 +137,7 @@ class TestECKeyType:
         """CA private key should be an EC key, not RSA."""
         from cryptography.hazmat.primitives import serialization
 
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
@@ -147,7 +147,7 @@ class TestECKeyType:
         """Server private key should be an EC key, not RSA."""
         from cryptography.hazmat.primitives import serialization
 
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server_key = serialization.load_pem_private_key(cfg.server_key.read_bytes(), password=None)
@@ -157,7 +157,7 @@ class TestECKeyType:
         """CA key should use SECP256R1 (P-256) curve."""
         from cryptography.hazmat.primitives import serialization
 
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
@@ -168,7 +168,7 @@ class TestECKeyType:
         """Server key should use SECP256R1 (P-256) curve."""
         from cryptography.hazmat.primitives import serialization
 
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server_key = serialization.load_pem_private_key(cfg.server_key.read_bytes(), password=None)
@@ -181,7 +181,7 @@ class TestServerCertGeneration:
 
     def test_server_signed_by_ca(self, tmp_path: Path) -> None:
         """Server cert is signed by the CA, not self-signed."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         ca = x509.load_pem_x509_certificate(cfg.ca_cert.read_bytes())
@@ -191,7 +191,7 @@ class TestServerCertGeneration:
         assert server.subject != server.issuer
 
     def test_server_valid_1_year(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
@@ -201,7 +201,7 @@ class TestServerCertGeneration:
         assert 360 <= validity_days <= 370
 
     def test_server_san_includes_localhost(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
@@ -211,7 +211,7 @@ class TestServerCertGeneration:
         assert "localhost" in dns_names
 
     def test_server_san_includes_127_0_0_1(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
@@ -222,7 +222,7 @@ class TestServerCertGeneration:
 
     def test_server_is_not_ca(self, tmp_path: Path) -> None:
         """Server cert must NOT be a CA."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
@@ -235,7 +235,7 @@ class TestDockerSAN:
     """Tests for host.docker.internal in server certificate SAN."""
 
     def test_server_san_includes_docker_internal(self, tmp_path: Path) -> None:
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
         server = x509.load_pem_x509_certificate(cfg.server_cert.read_bytes())
@@ -250,7 +250,7 @@ class TestServerCertRenewal:
 
     def test_expired_server_cert_is_regenerated(self, tmp_path: Path) -> None:
         """When server cert exists but is expired, ensure_tls_certs regenerates it."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_dir = tmp_path / "tls"
         cfg = ensure_tls_certs(tls_dir)
@@ -275,7 +275,7 @@ class TestTLSHandshake:
 
     def test_ssl_context_loads_certs(self, tmp_path: Path) -> None:
         """ssl.SSLContext can load the generated server cert chain."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
 
@@ -285,7 +285,7 @@ class TestTLSHandshake:
 
     def test_client_verifies_with_ca(self, tmp_path: Path) -> None:
         """A client context trusting the CA can verify the server cert."""
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         cfg = ensure_tls_certs(tmp_path / "tls")
 
@@ -300,7 +300,7 @@ class TestNearExpiryWarning:
     def test_near_expiry_logs_warning(self, tmp_path: Path, caplog) -> None:  # type: ignore[no-untyped-def]
         import logging
 
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_dir = tmp_path / "tls"
         cfg = ensure_tls_certs(tls_dir)
@@ -308,7 +308,7 @@ class TestNearExpiryWarning:
         # Replace server cert with one expiring in 15 days
         _write_near_expiry_cert(cfg, days_remaining=15)
 
-        with caplog.at_level(logging.WARNING, logger="ragling.tls"):
+        with caplog.at_level(logging.WARNING, logger="ragling.auth.tls"):
             ensure_tls_certs(tls_dir)
 
         assert any("expires in" in r.message for r in caplog.records)
@@ -391,15 +391,15 @@ class TestSSETLSWiring:
         # Patch at the source module paths because cli.py uses local imports
         with (
             patch("ragling.cli.load_config") as mock_load_config,
-            patch("ragling.tls.ensure_tls_certs", return_value=tls_cfg),
+            patch("ragling.auth.tls.ensure_tls_certs", return_value=tls_cfg),
             patch("uvicorn.Config", side_effect=fake_uvicorn_config),
             patch("uvicorn.Server", return_value=mock_server_instance),
             patch("anyio.run", side_effect=fake_anyio_run),
             patch("ragling.indexing_queue.IndexingQueue", return_value=mock_queue),
             patch("ragling.sync.run_startup_sync"),
-            patch("ragling.watcher.get_watch_paths", return_value=[]),
+            patch("ragling.watchers.watcher.get_watch_paths", return_value=[]),
             patch("ragling.mcp_server.create_server", return_value=mock_mcp_server),
-            patch("ragling.config_watcher.ConfigWatcher"),
+            patch("ragling.watchers.config_watcher.ConfigWatcher"),
         ):
             from ragling.config import Config
 

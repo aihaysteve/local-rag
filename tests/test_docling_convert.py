@@ -8,7 +8,7 @@ import pytest
 
 from docling_core.types.doc import CodeItem, PictureItem, TableItem
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 from ragling.doc_store import DocStore
 
@@ -28,7 +28,7 @@ def sample_file(tmp_path: Path) -> Path:
 @pytest.fixture(autouse=True)
 def _clear_caches() -> Iterator[None]:
     """Clear lru_cache state before and after each test."""
-    from ragling.docling_convert import _get_tokenizer, _get_vlm_engine, get_converter
+    from ragling.document.docling_convert import _get_tokenizer, _get_vlm_engine, get_converter
 
     get_converter.cache_clear()
     _get_tokenizer.cache_clear()
@@ -42,7 +42,7 @@ def _clear_caches() -> Iterator[None]:
 class TestConvertAndChunk:
     def test_returns_list_of_chunks(self, store: DocStore, sample_file: Path) -> None:
         """convert_and_chunk returns a list of Chunk dataclass instances."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         mock_chunk = MagicMock()
         mock_chunk.meta.headings = ["Section 1"]
@@ -59,10 +59,10 @@ class TestConvertAndChunk:
         mock_converter.convert.return_value = mock_result
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -74,7 +74,7 @@ class TestConvertAndChunk:
         assert chunks[0].chunk_index == 0
 
     def test_chunk_metadata_includes_source_path(self, store: DocStore, sample_file: Path) -> None:
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         mock_chunk = MagicMock()
         mock_chunk.meta.headings = ["H1"]
@@ -88,10 +88,10 @@ class TestConvertAndChunk:
         mock_converter.convert.return_value = mock_result
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -102,7 +102,7 @@ class TestConvertAndChunk:
     def test_multiple_chunks_have_sequential_indices(
         self, store: DocStore, sample_file: Path
     ) -> None:
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         chunks_data = [MagicMock() for _ in range(3)]
         for i, mc in enumerate(chunks_data):
@@ -117,10 +117,10 @@ class TestConvertAndChunk:
         mock_converter.convert.return_value = mock_result
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -133,17 +133,17 @@ class TestGetConverter:
     """Tests for the enriched converter configuration."""
 
     def test_get_converter_returns_document_converter(self) -> None:
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             converter = get_converter()
             assert converter is mock_cls.return_value
 
     def test_get_converter_configures_pdf_enrichments(self) -> None:
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter()
 
@@ -154,9 +154,9 @@ class TestGetConverter:
             assert "format_options" in (call_kwargs.kwargs or {})
 
     def test_get_converter_enables_picture_description(self) -> None:
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter()
             call_kwargs = mock_cls.call_args.kwargs
@@ -175,9 +175,9 @@ class TestGetConverter:
         """When ollama_host is provided, VLM engines use API_OLLAMA."""
         from docling.datamodel.base_models import InputFormat
 
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter(ollama_host="http://gpu-box:11434")
 
@@ -201,9 +201,9 @@ class TestGetConverter:
         """Ollama URL is constructed from the configured host."""
         from docling.datamodel.base_models import InputFormat
 
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter(ollama_host="http://gpu-box:11434")
 
@@ -217,9 +217,9 @@ class TestGetConverter:
         """Ollama VLM requests should use concurrency > 1."""
         from docling.datamodel.base_models import InputFormat
 
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter(ollama_host="http://gpu-box:11434")
 
@@ -232,9 +232,9 @@ class TestGetConverter:
         """Without ollama_host, VLM engines stay local (no API_OLLAMA)."""
         from docling.datamodel.base_models import InputFormat
 
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
             get_converter()
 
@@ -248,7 +248,7 @@ class TestDoclingFormats:
     """Test the DOCLING_FORMATS set."""
 
     def test_docling_formats_contains_expected(self) -> None:
-        from ragling.docling_convert import DOCLING_FORMATS
+        from ragling.document.docling_convert import DOCLING_FORMATS
 
         expected = {
             "pdf",
@@ -266,12 +266,12 @@ class TestDoclingFormats:
         assert DOCLING_FORMATS == expected
 
     def test_markdown_not_in_docling_formats(self) -> None:
-        from ragling.docling_convert import DOCLING_FORMATS
+        from ragling.document.docling_convert import DOCLING_FORMATS
 
         assert "markdown" not in DOCLING_FORMATS
 
     def test_code_not_in_docling_formats(self) -> None:
-        from ragling.docling_convert import DOCLING_FORMATS
+        from ragling.document.docling_convert import DOCLING_FORMATS
 
         assert "code" not in DOCLING_FORMATS
 
@@ -290,7 +290,7 @@ class TestEnrichmentMetadata:
         return mock_chunker
 
     def test_extracts_picture_description(self, store: DocStore, sample_file: Path) -> None:
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         # Create a mock PictureItem with VLM description
         picture_item = MagicMock()
@@ -304,9 +304,9 @@ class TestEnrichmentMetadata:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -316,7 +316,7 @@ class TestEnrichmentMetadata:
         )
 
     def test_extracts_caption(self, store: DocStore, sample_file: Path) -> None:
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         table_item = MagicMock()
         table_item.__class__ = TableItem
@@ -326,9 +326,9 @@ class TestEnrichmentMetadata:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -336,7 +336,7 @@ class TestEnrichmentMetadata:
         assert chunks[0].metadata["captions"] == ["Table 1: Results summary"]
 
     def test_extracts_code_language(self, store: DocStore, sample_file: Path) -> None:
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         code_item = MagicMock()
         code_item.__class__ = CodeItem
@@ -346,9 +346,9 @@ class TestEnrichmentMetadata:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(sample_file, store)
@@ -360,7 +360,7 @@ class TestChunkWithHybrid:
     """Tests for the shared chunk_with_hybrid function."""
 
     def test_returns_list_of_chunks(self) -> None:
-        from ragling.docling_convert import chunk_with_hybrid
+        from ragling.document.docling_convert import chunk_with_hybrid
 
         mc = MagicMock()
         mc.meta.headings = ["H1"]
@@ -370,8 +370,8 @@ class TestChunkWithHybrid:
         mock_chunker.contextualize.return_value = "contextualized text"
 
         with (
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             chunks = chunk_with_hybrid(
                 MagicMock(),
@@ -385,7 +385,7 @@ class TestChunkWithHybrid:
         assert chunks[0].metadata["source_path"] == "/tmp/test.md"
 
     def test_merges_extra_metadata(self) -> None:
-        from ragling.docling_convert import chunk_with_hybrid
+        from ragling.document.docling_convert import chunk_with_hybrid
 
         mc = MagicMock()
         mc.meta.headings = []
@@ -395,8 +395,8 @@ class TestChunkWithHybrid:
         mock_chunker.contextualize.return_value = "text"
 
         with (
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             chunks = chunk_with_hybrid(
                 MagicMock(),
@@ -413,7 +413,7 @@ class TestDescribeImage:
     """Tests for the describe_image() standalone image description helper."""
 
     def test_returns_description_string(self, tmp_path: Path) -> None:
-        from ragling.docling_convert import describe_image
+        from ragling.document.docling_convert import describe_image
 
         # Create a minimal image file
         from PIL import Image
@@ -427,13 +427,13 @@ class TestDescribeImage:
         mock_output.text = "A red square image"
         mock_engine.predict.return_value = mock_output
 
-        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine):
+        with patch("ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine):
             result = describe_image(img_path)
 
         assert result == "A red square image"
 
     def test_returns_empty_string_on_error(self, tmp_path: Path) -> None:
-        from ragling.docling_convert import describe_image
+        from ragling.document.docling_convert import describe_image
 
         from PIL import Image
 
@@ -444,13 +444,13 @@ class TestDescribeImage:
         mock_engine = MagicMock()
         mock_engine.predict.side_effect = RuntimeError("model failed")
 
-        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine):
+        with patch("ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine):
             result = describe_image(img_path)
 
         assert result == ""
 
     def test_returns_empty_string_for_missing_file(self, tmp_path: Path) -> None:
-        from ragling.docling_convert import describe_image
+        from ragling.document.docling_convert import describe_image
 
         result = describe_image(tmp_path / "nonexistent.png")
         assert result == ""
@@ -461,7 +461,7 @@ class TestConvertAndChunkImageFallback:
 
     def test_image_fallback_produces_chunks(self, store: DocStore, tmp_path: Path) -> None:
         """When Docling returns empty for an image, describe_image() fallback kicks in."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         # Create a real image file
         from PIL import Image
@@ -484,11 +484,11 @@ class TestConvertAndChunkImageFallback:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert.describe_image",
+                "ragling.document.docling_convert.describe_image",
                 return_value="Five kittens walking on grass",
             ),
         ):
@@ -502,7 +502,7 @@ class TestConvertAndChunkImageFallback:
         self, store: DocStore, tmp_path: Path
     ) -> None:
         """Non-image source types should not trigger the fallback."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         pdf_path = tmp_path / "doc.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 fake")
@@ -515,10 +515,10 @@ class TestConvertAndChunkImageFallback:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
-            patch("ragling.docling_convert.describe_image") as mock_describe,
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.describe_image") as mock_describe,
         ):
             mock_doc_cls.model_validate.return_value = empty_doc
             chunks = convert_and_chunk(pdf_path, store)
@@ -530,7 +530,7 @@ class TestConvertAndChunkImageFallback:
         self, store: DocStore, tmp_path: Path
     ) -> None:
         """When Docling successfully extracts text from an image, no fallback needed."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         from PIL import Image
 
@@ -547,10 +547,10 @@ class TestConvertAndChunkImageFallback:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
-            patch("ragling.docling_convert.describe_image") as mock_describe,
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.describe_image") as mock_describe,
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             chunks = convert_and_chunk(img_path, store, source_type="image")
@@ -564,7 +564,7 @@ class TestAnyUrlSerialization:
 
     def test_model_dump_called_with_json_mode(self, store: DocStore, sample_file: Path) -> None:
         """_do_convert must call model_dump(mode='json') to serialize AnyUrl to strings."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         mock_chunk = MagicMock()
         mock_chunk.meta.headings = ["Section"]
@@ -579,10 +579,10 @@ class TestAnyUrlSerialization:
         mock_converter.convert.return_value = mock_result
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             convert_and_chunk(sample_file, store)
@@ -600,7 +600,7 @@ class TestPdfFallback:
         """When Docling raises ConversionError for a PDF, pypdfium2 fallback kicks in."""
         from docling.exceptions import ConversionError
 
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         pdf_path = tmp_path / "broken.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 fake")
@@ -616,12 +616,12 @@ class TestPdfFallback:
         mock_converter.convert.side_effect = ConversionError("page-dimensions not found")
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert._extract_pdf_text_fallback",
+                "ragling.document.docling_convert._extract_pdf_text_fallback",
                 return_value="The Constitution of the United States",
             ),
         ):
@@ -634,7 +634,7 @@ class TestPdfFallback:
         """Fallback should log a warning so operators know Docling failed."""
         from docling.exceptions import ConversionError
 
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         pdf_path = tmp_path / "broken.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 fake")
@@ -650,15 +650,15 @@ class TestPdfFallback:
         mock_converter.convert.side_effect = ConversionError("page-dimensions")
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert._extract_pdf_text_fallback",
+                "ragling.document.docling_convert._extract_pdf_text_fallback",
                 return_value="Some text",
             ),
-            patch("ragling.docling_convert.logger") as mock_logger,
+            patch("ragling.document.docling_convert.logger") as mock_logger,
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             convert_and_chunk(pdf_path, store, source_type="pdf")
@@ -670,7 +670,7 @@ class TestPdfFallback:
         """ConversionError for non-PDF formats should propagate (no fallback)."""
         from docling.exceptions import ConversionError
 
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         html_path = tmp_path / "broken.html"
         html_path.write_text("<html>bad</html>")
@@ -679,7 +679,7 @@ class TestPdfFallback:
         mock_converter.convert.side_effect = ConversionError("conversion failed")
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
             pytest.raises(ConversionError),
         ):
             convert_and_chunk(html_path, store, source_type="html")
@@ -688,7 +688,7 @@ class TestPdfFallback:
         """If pypdfium2 also returns empty text, the original error should propagate."""
         from docling.exceptions import ConversionError
 
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         pdf_path = tmp_path / "empty.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 fake")
@@ -697,9 +697,9 @@ class TestPdfFallback:
         mock_converter.convert.side_effect = ConversionError("page-dimensions")
 
         with (
-            patch("ragling.docling_convert.get_converter", return_value=mock_converter),
+            patch("ragling.document.docling_convert.get_converter", return_value=mock_converter),
             patch(
-                "ragling.docling_convert._extract_pdf_text_fallback",
+                "ragling.document.docling_convert._extract_pdf_text_fallback",
                 return_value="",
             ),
             pytest.raises(ConversionError),
@@ -712,7 +712,7 @@ class TestExtractPdfTextFallback:
 
     def test_extracts_text_from_pdf(self, tmp_path: Path) -> None:
         """Should extract text page-by-page using pypdfium2."""
-        from ragling.docling_convert import _extract_pdf_text_fallback
+        from ragling.document.docling_convert import _extract_pdf_text_fallback
 
         # Use a real simple PDF created with pypdfium2
         import pypdfium2 as pdfium
@@ -727,7 +727,7 @@ class TestExtractPdfTextFallback:
 
     def test_returns_empty_for_nonexistent(self, tmp_path: Path) -> None:
         """Should return empty string for files that can't be opened."""
-        from ragling.docling_convert import _extract_pdf_text_fallback
+        from ragling.document.docling_convert import _extract_pdf_text_fallback
 
         result = _extract_pdf_text_fallback(tmp_path / "nonexistent.pdf")
         assert result == ""
@@ -735,7 +735,7 @@ class TestExtractPdfTextFallback:
 
 class TestConverterConfigHash:
     def test_includes_asr_model_in_hash(self) -> None:
-        from ragling.docling_convert import converter_config_hash
+        from ragling.document.docling_convert import converter_config_hash
 
         hash1 = converter_config_hash(
             do_picture_description=True,
@@ -756,12 +756,12 @@ class TestConverterConfigHash:
 
 class TestAsrModelConfiguration:
     def test_get_converter_uses_configured_model(self) -> None:
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
         with (
-            patch("ragling.docling_convert.DocumentConverter") as mock_cls,
-            patch("ragling.docling_convert._whisper_available", return_value=True),
-            patch("ragling.docling_convert._get_asr_model_spec") as mock_spec,
+            patch("ragling.document.docling_convert.DocumentConverter") as mock_cls,
+            patch("ragling.document.docling_convert._whisper_available", return_value=True),
+            patch("ragling.document.docling_convert._get_asr_model_spec") as mock_spec,
         ):
             mock_cls.return_value = MagicMock()
             mock_spec.return_value = MagicMock()
@@ -769,14 +769,14 @@ class TestAsrModelConfiguration:
             mock_spec.assert_called_once_with("turbo")
 
     def test_get_asr_model_spec_returns_valid_spec(self) -> None:
-        from ragling.docling_convert import _get_asr_model_spec
+        from ragling.document.docling_convert import _get_asr_model_spec
 
         spec = _get_asr_model_spec("small")
         # Should be some kind of ASR options object, not None
         assert spec is not None
 
     def test_get_asr_model_spec_falls_back_for_unknown(self) -> None:
-        from ragling.docling_convert import _get_asr_model_spec
+        from ragling.document.docling_convert import _get_asr_model_spec
 
         spec = _get_asr_model_spec("nonexistent_model")
         # Should fall back to "small" rather than crashing
@@ -786,11 +786,11 @@ class TestAsrModelConfiguration:
 
 class TestGetConverterAsr:
     def test_get_converter_includes_audio_format_option(self) -> None:
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
-        with patch("ragling.docling_convert.DocumentConverter") as mock_cls:
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
             mock_cls.return_value = MagicMock()
-            with patch("ragling.docling_convert._whisper_available", return_value=True):
+            with patch("ragling.document.docling_convert._whisper_available", return_value=True):
                 get_converter()
             call_kwargs = mock_cls.call_args.kwargs
             format_options = call_kwargs["format_options"]
@@ -801,11 +801,11 @@ class TestGetConverterAsr:
 
     def test_get_converter_skips_audio_when_whisper_missing(self) -> None:
         """When whisper is not installed, audio format should not be configured."""
-        from ragling.docling_convert import get_converter
+        from ragling.document.docling_convert import get_converter
 
         with (
-            patch("ragling.docling_convert.DocumentConverter") as mock_cls,
-            patch("ragling.docling_convert._whisper_available", return_value=False),
+            patch("ragling.document.docling_convert.DocumentConverter") as mock_cls,
+            patch("ragling.document.docling_convert._whisper_available", return_value=False),
         ):
             mock_cls.return_value = MagicMock()
             get_converter()
@@ -820,7 +820,7 @@ class TestGetConverterAsr:
 class TestAudioFormatRegistration:
     @pytest.mark.parametrize("ext", ["opus", "mkv", "mka"])
     def test_extra_extension_registered_as_audio(self, ext: str) -> None:
-        from ragling.docling_convert import ensure_audio_formats_registered
+        from ragling.document.docling_convert import ensure_audio_formats_registered
 
         ensure_audio_formats_registered()
 
@@ -829,7 +829,7 @@ class TestAudioFormatRegistration:
         assert ext in FormatToExtensions[InputFormat.AUDIO]
 
     def test_idempotent(self) -> None:
-        from ragling.docling_convert import ensure_audio_formats_registered
+        from ragling.document.docling_convert import ensure_audio_formats_registered
 
         ensure_audio_formats_registered()
         ensure_audio_formats_registered()  # should not raise or duplicate
@@ -844,16 +844,16 @@ class TestConfigHashPassthrough:
     """Tests that convert_and_chunk passes config_hash to doc_store."""
 
     def test_convert_and_chunk_passes_config_hash(self, store: DocStore, sample_file: Path) -> None:
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         mock_chunker = MagicMock()
         mock_chunker.chunk.return_value = []
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}) as mock_get,
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
             convert_and_chunk(sample_file, store)
@@ -867,7 +867,7 @@ class TestConfigHashPassthrough:
 class TestAudioMetadataIntegration:
     def test_audio_chunks_include_container_metadata(self, store: DocStore, tmp_path: Path) -> None:
         """When source_type is 'audio', chunks should include container metadata."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         audio_file = tmp_path / "recording.mp3"
         audio_file.write_bytes(b"fake audio content")
@@ -887,11 +887,11 @@ class TestAudioMetadataIntegration:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert.extract_audio_metadata",
+                "ragling.document.docling_convert.extract_audio_metadata",
                 return_value=mock_metadata,
             ),
         ):
@@ -906,7 +906,7 @@ class TestAudioMetadataIntegration:
         self, store: DocStore, sample_file: Path
     ) -> None:
         """PDF source_type should not trigger audio metadata extraction."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         mock_chunk = MagicMock()
         mock_chunk.meta.headings = []
@@ -917,11 +917,11 @@ class TestAudioMetadataIntegration:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert.extract_audio_metadata",
+                "ragling.document.docling_convert.extract_audio_metadata",
             ) as mock_extract,
         ):
             mock_doc_cls.model_validate.return_value = MagicMock()
@@ -935,7 +935,7 @@ class TestGetVlmEngine:
 
     def test_uses_ollama_when_host_set(self) -> None:
         """_get_vlm_engine returns an API engine when ollama_host is provided."""
-        from ragling.docling_convert import _get_vlm_engine
+        from ragling.document.docling_convert import _get_vlm_engine
 
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
@@ -946,7 +946,7 @@ class TestGetVlmEngine:
 
     def test_uses_local_when_no_host(self) -> None:
         """_get_vlm_engine uses local transformers when no ollama_host."""
-        from ragling.docling_convert import _get_vlm_engine
+        from ragling.document.docling_convert import _get_vlm_engine
 
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
@@ -957,7 +957,7 @@ class TestGetVlmEngine:
 
     def test_ollama_uses_granite_vision_preset(self) -> None:
         """When ollama_host is set, should use granite_vision preset."""
-        from ragling.docling_convert import _get_vlm_engine
+        from ragling.document.docling_convert import _get_vlm_engine
 
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
@@ -969,7 +969,7 @@ class TestGetVlmEngine:
 
     def test_ollama_url_constructed_correctly(self) -> None:
         """Ollama URL includes /v1/chat/completions path."""
-        from ragling.docling_convert import _get_vlm_engine
+        from ragling.document.docling_convert import _get_vlm_engine
 
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
@@ -981,7 +981,7 @@ class TestGetVlmEngine:
 
     def test_ollama_concurrency_is_one(self) -> None:
         """Standalone image description uses concurrency=1."""
-        from ragling.docling_convert import _get_vlm_engine
+        from ragling.document.docling_convert import _get_vlm_engine
 
         with patch("docling.models.inference_engines.vlm.create_vlm_engine") as mock_create:
             mock_create.return_value = MagicMock()
@@ -997,7 +997,7 @@ class TestDescribeImageOllama:
 
     def test_passes_ollama_host_to_vlm_engine(self, tmp_path: Path) -> None:
         """describe_image should pass ollama_host to _get_vlm_engine."""
-        from ragling.docling_convert import describe_image
+        from ragling.document.docling_convert import describe_image
 
         from PIL import Image
 
@@ -1010,13 +1010,15 @@ class TestDescribeImageOllama:
         mock_output.text = "A red square"
         mock_engine.predict.return_value = mock_output
 
-        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine) as mock_get:
+        with patch(
+            "ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine
+        ) as mock_get:
             describe_image(img_path, ollama_host="http://gpu:11434")
             mock_get.assert_called_once_with(ollama_host="http://gpu:11434")
 
     def test_passes_none_when_no_ollama_host(self, tmp_path: Path) -> None:
         """describe_image with no ollama_host passes None."""
-        from ragling.docling_convert import describe_image
+        from ragling.document.docling_convert import describe_image
 
         from PIL import Image
 
@@ -1029,7 +1031,9 @@ class TestDescribeImageOllama:
         mock_output.text = "A blue square"
         mock_engine.predict.return_value = mock_output
 
-        with patch("ragling.docling_convert._get_vlm_engine", return_value=mock_engine) as mock_get:
+        with patch(
+            "ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine
+        ) as mock_get:
             describe_image(img_path)
             mock_get.assert_called_once_with(ollama_host=None)
 
@@ -1039,7 +1043,7 @@ class TestConvertAndChunkImageFallbackOllama:
 
     def test_passes_ollama_host_from_config(self, store: DocStore, tmp_path: Path) -> None:
         """Image fallback should pass config.ollama_host to describe_image."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         from PIL import Image
 
@@ -1063,11 +1067,11 @@ class TestConvertAndChunkImageFallbackOllama:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert.describe_image", return_value="A green square"
+                "ragling.document.docling_convert.describe_image", return_value="A green square"
             ) as mock_desc,
         ):
             mock_doc_cls.model_validate.return_value = empty_doc
@@ -1077,7 +1081,7 @@ class TestConvertAndChunkImageFallbackOllama:
 
     def test_passes_none_when_no_config(self, store: DocStore, tmp_path: Path) -> None:
         """Image fallback without config passes ollama_host=None."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         from PIL import Image
 
@@ -1095,11 +1099,11 @@ class TestConvertAndChunkImageFallbackOllama:
 
         with (
             patch.object(store, "get_or_convert", return_value={"name": "mock"}),
-            patch("ragling.docling_convert.DoclingDocument") as mock_doc_cls,
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            patch("ragling.document.docling_convert.DoclingDocument") as mock_doc_cls,
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
             patch(
-                "ragling.docling_convert.describe_image", return_value="A red square"
+                "ragling.document.docling_convert.describe_image", return_value="A red square"
             ) as mock_desc,
         ):
             mock_doc_cls.model_validate.return_value = empty_doc
@@ -1111,7 +1115,7 @@ class TestConvertAndChunkImageFallbackOllama:
 class TestAudioGracefulDegradation:
     def test_audio_conversion_error_propagates(self, store: DocStore, tmp_path: Path) -> None:
         """Conversion errors for audio files propagate so callers can handle them."""
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         audio_file = tmp_path / "voice.mp3"
         audio_file.write_bytes(b"fake audio")
@@ -1160,7 +1164,7 @@ class TestRealFileConversion:
         md_file = tmp_path / "sample.md"
         md_file.write_text("# Sample\n\nThis is a test document for Docling conversion.")
 
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         store = DocStore(tmp_path / "doc_store.sqlite")
         chunks = convert_and_chunk(md_file, store, chunk_max_tokens=50)

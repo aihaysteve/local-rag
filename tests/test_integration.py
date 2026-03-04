@@ -62,11 +62,11 @@ class TestFullFlow:
 
         with patch("ragling.embeddings.get_embeddings", return_value=mock_embeddings):
             with patch("ragling.embeddings.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0]):
-                from ragling.auth import resolve_api_key
-                from ragling.chunker import Chunk
+                from ragling.auth.auth import resolve_api_key
+                from ragling.document.chunker import Chunk
                 from ragling.db import get_connection, get_or_create_collection, init_db
                 from ragling.indexers.base import upsert_source_with_chunks
-                from ragling.search import search
+                from ragling.search.search import search
 
                 conn = get_connection(config)
                 init_db(conn, config)
@@ -321,11 +321,11 @@ class TestFullPipelineEndToEnd:
 
     def test_index_and_search_text_file(self, tmp_path: Path) -> None:
         """Index a .txt file via ProjectIndexer, then find it via hybrid search."""
-        from ragling.chunker import Chunk
+        from ragling.document.chunker import Chunk
         from ragling.config import Config
         from ragling.db import get_connection, init_db
         from ragling.indexers.project import ProjectIndexer
-        from ragling.search import SearchResult, search
+        from ragling.search.search import SearchResult, search
 
         # 1. Create a text file on disk
         doc_dir = tmp_path / "docs"
@@ -420,11 +420,11 @@ class TestFullPipelineEndToEnd:
 
     def test_index_multiple_files_and_search(self, tmp_path: Path) -> None:
         """Index multiple files and verify search returns the most relevant one."""
-        from ragling.chunker import Chunk
+        from ragling.document.chunker import Chunk
         from ragling.config import Config
         from ragling.db import get_connection, init_db
         from ragling.indexers.project import ProjectIndexer
-        from ragling.search import search
+        from ragling.search.search import search
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
@@ -524,11 +524,11 @@ class TestFullPipelineEndToEnd:
 
     def test_reindex_updates_content(self, tmp_path: Path) -> None:
         """Re-indexing a modified file replaces old content in the DB."""
-        from ragling.chunker import Chunk
+        from ragling.document.chunker import Chunk
         from ragling.config import Config
         from ragling.db import get_connection, init_db
         from ragling.indexers.project import ProjectIndexer
-        from ragling.search import search
+        from ragling.search.search import search
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()

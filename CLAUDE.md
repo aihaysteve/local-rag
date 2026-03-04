@@ -31,7 +31,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, quality gates, and
 
 | Subsystem | Path | Purpose |
 |---|---|---|
-| Core | `src/ragling/` | Configuration, search, storage, indexing orchestration, MCP server, CLI |
+| Core | `src/ragling/` | Configuration, storage, embeddings, indexing orchestration, MCP server, CLI |
+| Document | `src/ragling/document/` | Document conversion, chunking, and format bridging |
+| Auth | `src/ragling/auth/` | API key resolution, TLS certificates, token verification |
+| Search | `src/ragling/search/` | Hybrid vector + full-text search with RRF |
+| Watchers | `src/ragling/watchers/` | File system, database, and config change monitoring |
 | Indexers | `src/ragling/indexers/` | Source-specific indexing pipelines |
 | Parsers | `src/ragling/parsers/` | Format-specific content extraction for indexing |
 | Skills | `.claude/skills/` | Reusable agent instruction documents |

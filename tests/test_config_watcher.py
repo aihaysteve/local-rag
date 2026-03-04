@@ -1,4 +1,4 @@
-"""Tests for ragling.config_watcher module."""
+"""Tests for ragling.watchers.config_watcher module."""
 
 import json
 import threading
@@ -14,7 +14,7 @@ class TestConfigWatcher:
 
     def test_initial_config_is_stored(self, tmp_path: Path) -> None:
         """ConfigWatcher stores the initial config."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config = Config(home=tmp_path)
         watcher = ConfigWatcher(config, config_path=tmp_path / "config.json")
@@ -22,7 +22,7 @@ class TestConfigWatcher:
 
     def test_reload_updates_config(self, tmp_path: Path) -> None:
         """Reloading after config file change produces a new Config."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))
@@ -42,7 +42,7 @@ class TestConfigWatcher:
 
     def test_reload_on_notify(self, tmp_path: Path) -> None:
         """notify_change triggers debounced reload."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))
@@ -58,7 +58,7 @@ class TestConfigWatcher:
 
     def test_debounces_rapid_changes(self, tmp_path: Path) -> None:
         """Multiple rapid config changes result in one reload."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "model-1"}))
@@ -88,7 +88,7 @@ class TestConfigWatcher:
 
     def test_callback_receives_new_config(self, tmp_path: Path) -> None:
         """on_reload callback is called with the new Config."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))
@@ -113,7 +113,7 @@ class TestConfigWatcher:
 
     def test_reload_preserves_old_config_on_parse_error(self, tmp_path: Path) -> None:
         """If new config is invalid JSON, old config is preserved."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))
@@ -133,7 +133,7 @@ class TestConfigWatcher:
         """get_config can be called from any thread safely."""
         import threading
 
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config = Config()
         watcher = ConfigWatcher(config, config_path=tmp_path / "config.json")
@@ -153,7 +153,7 @@ class TestConfigWatcher:
 
     def test_stop_cancels_pending_timer(self, tmp_path: Path) -> None:
         """Stopping the watcher cancels pending debounce timers."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))
@@ -180,7 +180,7 @@ class TestConfigReloadIntegration:
 
     def test_adding_vault_triggers_on_reload_callback(self, tmp_path: Path) -> None:
         """When config changes to add an obsidian vault, on_reload callback fires."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         # Initial config with no obsidian vaults
@@ -217,7 +217,7 @@ class TestConfigReloadIntegration:
 
     def test_disabling_collection_propagates_via_callback(self, tmp_path: Path) -> None:
         """Config change adding disabled_collections propagates via on_reload."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         # Initial config with no disabled collections
@@ -262,7 +262,7 @@ class TestConfigReloadIntegration:
 
     def test_on_reload_callback_can_wire_to_indexing_queue(self, tmp_path: Path) -> None:
         """The on_reload callback pattern works for wiring config changes to IndexingQueue."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))
@@ -297,7 +297,7 @@ class TestConfigReloadIntegration:
 class TestConcurrentConfigNotifyChange:
     def test_concurrent_notify_change_is_thread_safe(self, tmp_path: Path) -> None:
         """Multiple threads calling notify_change simultaneously are handled safely."""
-        from ragling.config_watcher import ConfigWatcher
+        from ragling.watchers.config_watcher import ConfigWatcher
 
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"embedding_model": "bge-m3"}))

@@ -8,8 +8,8 @@ to the per-group SQLite database. Every indexer extends `BaseIndexer` ABC
 and implements the `index()` method.
 
 The key design decision: two-pass indexing (scan for changes, then index
-changed sources) combined with three change-detection strategies — file
-hash, watermark timestamp, and HEAD SHA comparison — to keep incremental
+changed sources) combined with three change-detection strategies -- file
+hash, watermark timestamp, and HEAD SHA comparison -- to keep incremental
 re-indexing fast across heterogeneous source types.
 
 ## Core Mechanism
@@ -31,19 +31,19 @@ leftover files directly. Repos already covered by explicit `code_groups`
 are excluded to prevent duplicate indexing.
 
 **Key files:**
-- `base.py` — `BaseIndexer` ABC, `upsert_source_with_chunks()`,
+- `base.py` -- `BaseIndexer` ABC, `upsert_source_with_chunks()`,
   `delete_source()`, `prune_stale_sources()`, `IndexResult`, `file_hash()`
-- `auto_indexer.py` — `detect_directory_type()`,
+- `auto_indexer.py` -- `detect_directory_type()`,
   `detect_indexer_type_for_file()`, `collect_indexable_directories()`
-- `discovery.py` — `discover_sources()`, `reconcile_sub_collections()`,
+- `discovery.py` -- `discover_sources()`, `reconcile_sub_collections()`,
   `DiscoveredSource`, `DiscoveryResult`
-- `obsidian.py` — `ObsidianIndexer` for Obsidian vault files
-- `email_indexer.py` — `EmailIndexer` for eM Client emails
-- `calibre_indexer.py` — `CalibreIndexer` for Calibre ebooks
-- `git_indexer.py` — `GitRepoIndexer` for code repos (tree-sitter +
+- `obsidian.py` -- `ObsidianIndexer` for Obsidian vault files
+- `email_indexer.py` -- `EmailIndexer` for eM Client emails
+- `calibre_indexer.py` -- `CalibreIndexer` for Calibre ebooks
+- `git_indexer.py` -- `GitRepoIndexer` for code repos (tree-sitter +
   commit history)
-- `rss_indexer.py` — `RSSIndexer` for NetNewsWire RSS articles
-- `project.py` — `ProjectIndexer` with auto-discovery and delegation,
+- `rss_indexer.py` -- `RSSIndexer` for NetNewsWire RSS articles
+- `project.py` -- `ProjectIndexer` with auto-discovery and delegation,
   `_parse_and_chunk()` shared dispatch, `_EXTENSION_MAP`
 
 ## Public Interface
@@ -141,10 +141,9 @@ uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_d
 | Parsers (markdown, epub, code, email, rss, calibre, spec) | internal | `src/ragling/parsers/SPEC.md` |
 | `db.py` (get_or_create_collection, delete_collection) | internal | `src/ragling/SPEC.md` |
 | `embeddings.py` (get_embeddings, serialize_float32) | internal | `src/ragling/SPEC.md` |
-| `chunker.py` (Chunk) | internal | `src/ragling/SPEC.md` |
+| `ragling.document` (Chunk, convert_and_chunk, chunk_with_hybrid, bridges) | internal | `src/ragling/document/SPEC.md` |
 | `config.py` (Config) | internal | `src/ragling/SPEC.md` |
 | `doc_store.py` (DocStore) | internal | `src/ragling/SPEC.md` |
-| `docling_bridge.py` / `docling_convert.py` | internal | `src/ragling/SPEC.md` |
 | `indexing_status.py` (IndexingStatus) | internal | `src/ragling/SPEC.md` |
 | `indexer_types.py` (IndexerType) | internal | `src/ragling/SPEC.md` |
 | Ollama (embedding API) | external | N/A |

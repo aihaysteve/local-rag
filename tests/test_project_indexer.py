@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 from ragling.indexers.project import _EXTENSION_MAP, is_supported_extension
 
@@ -100,14 +100,14 @@ class TestAudioExtensionMap:
 class TestDoclingRouting:
     def test_docling_formats_imported(self) -> None:
         """DOCLING_FORMATS is accessible from project module."""
-        from ragling.docling_convert import DOCLING_FORMATS
+        from ragling.document.docling_convert import DOCLING_FORMATS
 
         assert "pdf" in DOCLING_FORMATS
         assert "markdown" not in DOCLING_FORMATS
 
     def test_all_docling_extensions_have_mapping(self) -> None:
         """Every format in DOCLING_FORMATS has at least one extension mapping to it."""
-        from ragling.docling_convert import DOCLING_FORMATS
+        from ragling.document.docling_convert import DOCLING_FORMATS
 
         mapped_formats = set(_EXTENSION_MAP.values())
         for fmt in DOCLING_FORMATS:

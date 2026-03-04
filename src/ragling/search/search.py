@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
 from ragling.embeddings import get_embedding, get_embeddings, serialize_float32
-from ragling.search_utils import escape_fts_query
+from ragling.search.search_utils import escape_fts_query
 
 logger = logging.getLogger(__name__)
 
