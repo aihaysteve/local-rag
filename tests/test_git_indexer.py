@@ -1019,3 +1019,57 @@ class TestSpecPathEnrichment:
         chunks = _code_blocks_to_chunks(doc, "main.py", config)
 
         assert "spec_path" not in chunks[0].metadata
+
+
+# ---------------------------------------------------------------------------
+# Tests: SPEC.md indexing integration
+# ---------------------------------------------------------------------------
+
+
+class TestSpecMdIndexing:
+    """Integration tests for SPEC.md files in git repos."""
+
+    @pytest.fixture
+    def repo_with_spec(self, tmp_path: Path) -> Path:
+        """A git repo with a SPEC.md and code files."""
+        repo = tmp_path / "repo"
+        auth = repo / "features" / "auth"
+        auth.mkdir(parents=True)
+        (auth / "SPEC.md").write_text(
+            "# Auth\n\n"
+            "## Purpose\nHandles user authentication.\n\n"
+            "## Invariants\n"
+            "| Invariant | Why |\n"
+            "|---|---|\n"
+            "| Tokens expire after 1h | Prevents stale sessions |\n\n"
+            "## Dependencies\nUses bcrypt library.\n"
+        )
+        (auth / "handlers.py").write_text(
+            "def login(user, password):\n    return authenticate(user, password)\n"
+        )
+        _run_git(repo, "init")
+        _run_git(repo, "config", "user.email", "test@test.com")
+        _run_git(repo, "config", "user.name", "Test")
+        _run_git(repo, "add", ".")
+        _run_git(repo, "commit", "-m", "initial with spec")
+        return repo
+
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    def test_code_file_has_spec_path_in_metadata(
+        self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
+    ) -> None:
+        """Code files under a SPEC.md directory get spec_path in chunk metadata."""
+        conn = _make_conn(tmp_path)
+        config = _make_config(tmp_path)
+        indexer = GitRepoIndexer(repo_with_spec, "test-spec")
+        indexer.index(conn, config)
+
+        rows = conn.execute(
+            "SELECT metadata FROM documents d JOIN sources s ON d.source_id = s.id "
+            "WHERE s.source_type = 'code'"
+        ).fetchall()
+        assert len(rows) > 0
+
+        for row in rows:
+            meta = json.loads(row["metadata"])
+            assert meta.get("spec_path") == "features/auth/SPEC.md"
