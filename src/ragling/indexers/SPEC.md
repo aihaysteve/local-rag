@@ -40,8 +40,11 @@ are excluded to prevent duplicate indexing.
 - `obsidian.py` -- `ObsidianIndexer` for Obsidian vault files
 - `email_indexer.py` -- `EmailIndexer` for eM Client emails
 - `calibre_indexer.py` -- `CalibreIndexer` for Calibre ebooks
+- `git_commands.py` -- pure git subprocess helpers: `run_git()`,
+  `is_git_repo()`, `get_head_sha()`, `git_ls_files()`, `CommitInfo`,
+  `FileChange`, and commit history/diff extraction functions
 - `git_indexer.py` -- `GitRepoIndexer` for code repos (tree-sitter +
-  commit history)
+  commit history); delegates git CLI operations to `git_commands.py`
 - `rss_indexer.py` -- `RSSIndexer` for NetNewsWire RSS articles
 - `project.py` -- `ProjectIndexer` with auto-discovery and delegation,
   `_parse_and_chunk()` shared dispatch, `_EXTENSION_MAP`
@@ -97,7 +100,7 @@ are excluded to prevent duplicate indexing.
 ## Testing
 
 ```bash
-uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
+uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_commands.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
 ```
 
 ### Coverage
