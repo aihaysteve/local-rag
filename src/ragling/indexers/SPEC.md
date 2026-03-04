@@ -67,7 +67,7 @@ are excluded to prevent duplicate indexing.
 | `GitRepoIndexer` | `indexing_queue.py`, `ProjectIndexer` | Indexes code files (tree-sitter) and optionally commit history |
 | `RSSIndexer` | `indexing_queue.py` | Indexes RSS articles from NetNewsWire with watermark-based incrementality |
 | `ProjectIndexer` | `indexing_queue.py` | Auto-discovers vaults/repos, delegates to specialized indexers, indexes leftovers |
-| `_SUPPORTED_EXTENSIONS` | `watcher.py` (Core) | Frozenset of all indexable file extensions (document + code); used to filter filesystem events |
+| `_SUPPORTED_EXTENSIONS` | Core (`watcher.py`) | Frozenset of all indexable file extensions (document + code); defined in `project.py`, imported by Core to filter filesystem events |
 
 ## Invariants
 
