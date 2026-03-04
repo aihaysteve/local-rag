@@ -181,7 +181,8 @@ def _get_allowed_paths(config: Config) -> list[Path]:
     """Collect all configured source directories for path validation.
 
     Gathers resolved absolute paths from all configured sources: obsidian vaults,
-    calibre libraries, code group repos, home directory, and global paths.
+    calibre libraries, code group repos, home directory, global paths, and watch
+    directories.
 
     Args:
         config: Application configuration.
@@ -206,6 +207,10 @@ def _get_allowed_paths(config: Config) -> list[Path]:
 
     for gp in config.global_paths:
         allowed.append(Path(gp).resolve())
+
+    for watch_paths in config.watch.values():
+        for watch_path in watch_paths:
+            allowed.append(Path(watch_path).resolve())
 
     return allowed
 
@@ -430,6 +435,11 @@ def create_server(
         **Project folders** (project) — User-created document collections.
           Source types: vary by content (markdown, pdf, docx, etc.).
           Useful filters: collection=<project-name>.
+
+        **Watch directories** — Auto-detected collections from configured directories.
+          Each directory is indexed as code or project based on its contents.
+          Source types: depend on auto-detection (code or project types).
+          Useful filters: collection=<watch-name>.
 
         ## Collection filtering
 
@@ -724,11 +734,12 @@ def create_server(
 
         For system collections ('obsidian', 'email', 'calibre', 'rss'), uses configured paths.
         For code groups (matching a key in config code_groups), indexes all repos in that group.
+        For watch collections (matching a key in config watch), indexes all paths in that entry.
         For project collections, a path argument is required.
 
         Args:
             collection: Collection name ('obsidian', 'email', 'calibre', 'rss', a code group
-                name, or a project name).
+                name, a watch collection name, or a project name).
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
         """
@@ -916,6 +927,19 @@ def create_server(
                 "repos": len(config.code_groups[collection]),
                 "indexing": indexing_status.to_dict() if indexing_status else None,
             }
+        elif collection in config.watch:
+            from ragling.indexers.auto_indexer import detect_directory_type
+
+            for watch_path in config.watch[collection]:
+                dir_type = detect_directory_type(watch_path)
+                job = IndexJob("directory", watch_path, collection, dir_type)
+                q.submit(job)
+            return {
+                "status": "submitted",
+                "collection": collection,
+                "paths": len(config.watch[collection]),
+                "indexing": indexing_status.to_dict() if indexing_status else None,
+            }
         elif path:
             job = IndexJob("directory", P(path), collection, IndexerType.PROJECT)
         else:
@@ -973,6 +997,32 @@ def create_server(
                 for repo_path in config.code_groups[collection]:
                     idx = GitRepoIndexer(repo_path, collection_name=collection)
                     r = idx.index(conn, config, index_history=True)
+                    total_indexed += r.indexed
+                    total_skipped += r.skipped
+                    total_errors += r.errors
+                    total_found += r.total_found
+                return {
+                    "collection": collection,
+                    "indexed": total_indexed,
+                    "skipped": total_skipped,
+                    "errors": total_errors,
+                    "total_found": total_found,
+                }
+            elif collection in config.watch:
+                from ragling.indexers.auto_indexer import detect_directory_type
+
+                total_indexed = 0
+                total_skipped = 0
+                total_errors = 0
+                total_found = 0
+                for watch_path in config.watch[collection]:
+                    dir_type = detect_directory_type(watch_path)
+                    if dir_type == IndexerType.CODE:
+                        git_idx = GitRepoIndexer(watch_path, collection_name=collection)
+                        r = git_idx.index(conn, config, index_history=True)
+                    else:
+                        proj_idx = ProjectIndexer(collection, [watch_path], doc_store=doc_store)
+                        r = proj_idx.index(conn, config)
                     total_indexed += r.indexed
                     total_skipped += r.skipped
                     total_errors += r.errors

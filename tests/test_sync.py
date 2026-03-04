@@ -93,6 +93,91 @@ class TestMapFileToCollectionObsidianAndCode:
         assert name == "kitchen"
 
 
+class TestMapFileToCollectionWatch:
+    """Tests for mapping files in watch directories."""
+
+    def test_file_in_watch_dir_maps_to_watch_name(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
+
+        watch_dir = tmp_path / "movie-rec"
+        watch_dir.mkdir()
+        config = Config(watch=MappingProxyType({"movie-rec": (watch_dir,)}))
+        name = map_file_to_collection(watch_dir / "notes.md", config)
+        assert name == "movie-rec"
+
+    def test_file_in_watch_with_multiple_paths(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
+
+        dir1 = tmp_path / "papers"
+        dir2 = tmp_path / "refs"
+        dir1.mkdir()
+        dir2.mkdir()
+        config = Config(watch=MappingProxyType({"research": (dir1, dir2)}))
+        name = map_file_to_collection(dir2 / "paper.pdf", config)
+        assert name == "research"
+
+    def test_file_outside_watch_returns_none(self, tmp_path: Path) -> None:
+        from ragling.sync import map_file_to_collection
+
+        watch_dir = tmp_path / "proj"
+        watch_dir.mkdir()
+        config = Config(watch=MappingProxyType({"proj": (watch_dir,)}))
+        name = map_file_to_collection(tmp_path / "other" / "file.md", config)
+        assert name is None
+
+    def test_code_groups_take_precedence_over_watch(self, tmp_path: Path) -> None:
+        """If a path is in both code_groups and watch, code_groups wins."""
+        from ragling.sync import map_file_to_collection
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        config = Config(
+            code_groups=MappingProxyType({"my-org": (repo,)}),
+            watch=MappingProxyType({"also-repo": (repo,)}),
+        )
+        name = map_file_to_collection(repo / "main.py", config)
+        assert name == "my-org"
+
+
+class TestSubmitFileChangeWatch:
+    """Tests for submit_file_change with watch directories."""
+
+    def test_existing_file_in_watch_submits_job(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
+
+        watch_dir = tmp_path / "proj"
+        watch_dir.mkdir()
+        test_file = watch_dir / "notes.md"
+        test_file.write_text("# Notes")
+
+        config = Config(watch=MappingProxyType({"proj": (watch_dir,)}))
+        queue = MagicMock()
+
+        submit_file_change(test_file, config, queue)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.collection_name == "proj"
+        assert job.path == watch_dir
+
+    def test_deleted_file_in_watch_submits_prune_job(self, tmp_path: Path) -> None:
+        from ragling.sync import submit_file_change
+
+        watch_dir = tmp_path / "proj"
+        watch_dir.mkdir()
+        deleted_file = watch_dir / "gone.md"
+
+        config = Config(watch=MappingProxyType({"proj": (watch_dir,)}))
+        queue = MagicMock()
+
+        submit_file_change(deleted_file, config, queue)
+
+        queue.submit.assert_called_once()
+        job = queue.submit.call_args[0][0]
+        assert job.indexer_type == "prune"
+        assert job.collection_name == "proj"
+
+
 class TestSubmitFileChangeWithMarkerDetection:
     """Tests for submit_file_change using detect_indexer_type_for_file."""
 
@@ -702,6 +787,116 @@ class TestSubmitFileChangeDisabledCollection:
 # ---------------------------------------------------------------------------
 # P2 #2 (S2.3): Startup sync thread name and daemon flag
 # ---------------------------------------------------------------------------
+
+
+class TestRunStartupSyncWatch:
+    """Tests for run_startup_sync submitting watch collection jobs."""
+
+    def test_submits_watch_directories(self, tmp_path: Path) -> None:
+        """Watch directories are submitted with auto-detected indexer_type."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "movie-rec"
+        watch_dir.mkdir()
+
+        config = Config(
+            watch=MappingProxyType({"movie-rec": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
+
+        queue.submit.assert_called()
+        job = queue.submit.call_args_list[0][0][0]
+        assert isinstance(job, IndexJob)
+        assert job.collection_name == "movie-rec"
+        assert job.indexer_type == "project"
+        assert job.path == watch_dir
+
+    def test_submits_watch_with_multiple_paths(self, tmp_path: Path) -> None:
+        """Watch entry with multiple paths submits a job for each."""
+        from ragling.sync import run_startup_sync
+
+        dir1 = tmp_path / "papers"
+        dir2 = tmp_path / "refs"
+        dir1.mkdir()
+        dir2.mkdir()
+
+        config = Config(
+            watch=MappingProxyType({"research": (dir1, dir2)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
+
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        assert len(jobs) == 2
+        assert all(j.collection_name == "research" for j in jobs)
+        assert {j.path for j in jobs} == {dir1, dir2}
+
+    def test_skips_disabled_watch_collection(self, tmp_path: Path) -> None:
+        """Disabled watch collections are not submitted."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "proj"
+        watch_dir.mkdir()
+
+        config = Config(
+            watch=MappingProxyType({"proj": (watch_dir,)}),
+            disabled_collections=frozenset({"proj", "email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        queue.submit.assert_not_called()
+
+    def test_skips_nonexistent_watch_directories(self, tmp_path: Path) -> None:
+        """Nonexistent watch directories are not submitted."""
+        from ragling.sync import run_startup_sync
+
+        config = Config(
+            watch=MappingProxyType({"proj": (tmp_path / "nonexistent",)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        queue.submit.assert_not_called()
+
+    def test_watch_uses_detect_directory_type(self, tmp_path: Path) -> None:
+        """Watch uses auto-detection, not hardcoded IndexerType."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "repo"
+        watch_dir.mkdir()
+
+        config = Config(
+            watch=MappingProxyType({"repo": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="code"):
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
+
+        job = queue.submit.call_args_list[0][0][0]
+        assert job.indexer_type == "code"
 
 
 class TestStartupSyncThreadProperties:

@@ -27,6 +27,13 @@
             "~/Repository/other-org/tf-modules"
         ]
     },
+    "watch": {
+        "movie-rec": "~/Projects/movie-rec",
+        "research": [
+            "~/Documents/papers",
+            "~/Documents/references"
+        ]
+    },
     "disabled_collections": [],
     "git_history_in_months": 6,
     "git_commit_subject_blacklist": [],

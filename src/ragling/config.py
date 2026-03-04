@@ -100,6 +100,9 @@ class Config:
     code_groups: MappingProxyType[str, tuple[Path, ...]] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    watch: MappingProxyType[str, tuple[Path, ...]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     disabled_collections: frozenset[str] = frozenset()
     git_history_in_months: int = 6
     git_commit_subject_blacklist: tuple[str, ...] = ()
@@ -146,6 +149,8 @@ class Config:
         """
         if "code_groups" in kwargs and isinstance(kwargs["code_groups"], dict):
             kwargs["code_groups"] = MappingProxyType(kwargs["code_groups"])
+        if "watch" in kwargs and isinstance(kwargs["watch"], dict):
+            kwargs["watch"] = MappingProxyType(kwargs["watch"])
         if "users" in kwargs and isinstance(kwargs["users"], dict):
             kwargs["users"] = MappingProxyType(kwargs["users"])
         return replace(self, **kwargs)
@@ -221,6 +226,22 @@ def load_config(path: Path | None = None) -> Config:
     for cg_name, paths in data.get("code_groups", {}).items():
         code_groups_raw[cg_name] = tuple(_expand_path(p) for p in paths)
     code_groups: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(code_groups_raw)
+
+    _system_names = {"obsidian", "email", "calibre", "rss", "global"}
+    watch_raw: dict[str, tuple[Path, ...]] = {}
+    for w_name, w_paths in data.get("watch", {}).items():
+        if w_name in _system_names:
+            raise ValueError(f"watch name '{w_name}' conflicts with system collection name")
+        if w_name in code_groups_raw:
+            raise ValueError(
+                f"watch name '{w_name}' conflicts with code_groups entry of the same name"
+            )
+        if isinstance(w_paths, str):
+            watch_raw[w_name] = (_expand_path(w_paths),)
+        else:
+            watch_raw[w_name] = tuple(_expand_path(p) for p in w_paths)
+    watch: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(watch_raw)
+
     disabled_collections = frozenset(data.get("disabled_collections", []))
 
     # Parse home
@@ -306,6 +327,7 @@ def load_config(path: Path | None = None) -> Config:
         calibre_libraries=calibre_libraries,
         netnewswire_db_path=netnewswire_db_path,
         code_groups=code_groups,
+        watch=watch,
         disabled_collections=disabled_collections,
         git_history_in_months=data.get("git_history_in_months", 6),
         git_commit_subject_blacklist=tuple(data.get("git_commit_subject_blacklist", [])),

@@ -79,7 +79,8 @@ class TestGetAllowedPaths:
         repo = tmp_path / "repo"
         home = tmp_path / "home"
         gp = tmp_path / "global"
-        for d in (vault, lib, repo, home, gp):
+        watch_dir = tmp_path / "watched"
+        for d in (vault, lib, repo, home, gp, watch_dir):
             d.mkdir()
 
         config = Config(
@@ -88,14 +89,16 @@ class TestGetAllowedPaths:
             code_groups=MappingProxyType({"grp": (repo,)}),
             home=home,
             global_paths=(gp,),
+            watch=MappingProxyType({"proj": (watch_dir,)}),
         )
         allowed = _get_allowed_paths(config)
-        assert len(allowed) == 5
+        assert len(allowed) == 6
         assert vault.resolve() in allowed
         assert lib.resolve() in allowed
         assert repo.resolve() in allowed
         assert home.resolve() in allowed
         assert gp.resolve() in allowed
+        assert watch_dir.resolve() in allowed
 
     def test_empty_config_returns_empty(self) -> None:
         from ragling.mcp_server import _get_allowed_paths
@@ -125,6 +128,18 @@ class TestGetAllowedPaths:
         assert repo_a.resolve() in allowed
         assert repo_b.resolve() in allowed
         assert repo_c.resolve() in allowed
+
+    def test_includes_watch_paths(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import _get_allowed_paths
+
+        dir1 = tmp_path / "proj"
+        dir2 = tmp_path / "papers"
+        dir1.mkdir()
+        dir2.mkdir()
+        config = Config(watch=MappingProxyType({"proj": (dir1,), "research": (dir2,)}))
+        allowed = _get_allowed_paths(config)
+        assert dir1.resolve() in allowed
+        assert dir2.resolve() in allowed
 
 
 class TestConvertDocumentPathRestriction:

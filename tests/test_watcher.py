@@ -149,7 +149,8 @@ class TestWatchPathsIncludesObsidianAndCode:
         global_dir = tmp_path / "global"
         vault = tmp_path / "vault"
         repo = tmp_path / "repo"
-        for d in (home, global_dir, vault, repo):
+        watch_dir = tmp_path / "watched"
+        for d in (home, global_dir, vault, repo, watch_dir):
             d.mkdir()
 
         config = Config(
@@ -157,12 +158,60 @@ class TestWatchPathsIncludesObsidianAndCode:
             global_paths=(global_dir,),
             obsidian_vaults=(vault,),
             code_groups=MappingProxyType({"org": (repo,)}),
+            watch=MappingProxyType({"proj": (watch_dir,)}),
         )
         paths = get_watch_paths(config)
         assert home in paths
         assert global_dir in paths
         assert vault in paths
         assert repo in paths
+        assert watch_dir in paths
+
+
+class TestWatchPathsIncludesWatch:
+    """Tests that get_watch_paths includes watch directories."""
+
+    def test_includes_watch_directories(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        watch_dir = tmp_path / "proj"
+        watch_dir.mkdir()
+        config = Config(watch=MappingProxyType({"proj": (watch_dir,)}))
+        paths = get_watch_paths(config)
+        assert watch_dir in paths
+
+    def test_includes_watch_with_multiple_paths(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        dir1 = tmp_path / "papers"
+        dir2 = tmp_path / "refs"
+        dir1.mkdir()
+        dir2.mkdir()
+        config = Config(watch=MappingProxyType({"research": (dir1, dir2)}))
+        paths = get_watch_paths(config)
+        assert dir1 in paths
+        assert dir2 in paths
+
+    def test_skips_nonexistent_watch_directories(self, tmp_path: Path) -> None:
+        from ragling.watcher import get_watch_paths
+
+        config = Config(watch=MappingProxyType({"proj": (tmp_path / "nonexistent",)}))
+        paths = get_watch_paths(config)
+        assert len(paths) == 0
+
+    def test_deduplicates_watch_with_code_groups(self, tmp_path: Path) -> None:
+        """Same path in watch and code_groups appears only once."""
+        from ragling.watcher import get_watch_paths
+
+        shared = tmp_path / "repo"
+        shared.mkdir()
+        config = Config(
+            code_groups=MappingProxyType({"org": (shared,)}),
+            watch=MappingProxyType({"also-repo": (shared,)}),
+        )
+        paths = get_watch_paths(config)
+        resolved_paths = [p.resolve() for p in paths]
+        assert resolved_paths.count(shared.resolve()) == 1
 
 
 class TestHandlerOnDeleted:
