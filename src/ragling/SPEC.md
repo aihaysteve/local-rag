@@ -105,6 +105,23 @@ exponential backoff (max 5 failures, max 300s backoff, cleanup every 10 minutes)
 1 year) with auto-renewal. `path_mapping.py` translates paths between host and
 container (longest prefix match).
 
+### Document conversion and chunking
+
+`docling_convert.py` wraps Docling's `DocumentConverter` for format conversion
+(PDF, DOCX, PPTX, XLSX, HTML, images, audio) and `HybridChunker` for
+structure-aware chunking. `get_converter()` is an `lru_cache` singleton
+configured per enrichment settings. `convert_and_chunk()` integrates with DocStore
+for content-addressed caching, with fallbacks for PDF (pypdfium2 text extraction)
+and standalone images (VLM description via SmolVLM or Ollama).
+`converter_config_hash()` produces a deterministic hash of pipeline settings so
+changing enrichments invalidates cached conversions.
+
+`docling_bridge.py` converts legacy parser output (markdown, epub, plaintext,
+email, RSS) into `DoclingDocument` objects so all formats can be chunked by
+`HybridChunker` with `contextualize()`. Each bridge function
+(`markdown_to_docling_doc`, `epub_to_docling_doc`, etc.) preserves heading
+hierarchy and paragraph structure.
+
 ### CLI
 
 `cli.py` provides the Click command group. The `serve` command implements the full
@@ -131,6 +148,8 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 - `system_watcher.py` — external database monitoring
 - `config_watcher.py` — config file reload
 - `path_mapping.py` — host/container path translation
+- `docling_convert.py` — Docling conversion, HybridChunker, VLM fallbacks
+- `docling_bridge.py` — legacy parser output to DoclingDocument bridge
 - `search_utils.py` — FTS query escaping
 - `query_logger.py` — JSONL query logging
 - `indexer_types.py` — IndexerType enum
@@ -148,6 +167,11 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 | `get_embedding()`, `get_embeddings()`, `serialize_float32()` | Indexers, search | Ollama embedding with retry; binary serialization for sqlite-vec |
 | `OllamaConnectionError` | MCP server, CLI | Raised when Ollama is unreachable |
 | `Chunk` | Indexers, parsers | Dataclass with text, title, metadata, chunk_index |
+| `convert_and_chunk()` | Indexers (Obsidian, Project, Calibre) | Docling conversion with DocStore caching + HybridChunker; returns `list[Chunk]` |
+| `chunk_with_hybrid()` | Indexers, `convert_and_chunk()` | Chunks a DoclingDocument via HybridChunker with `contextualize()`; returns `list[Chunk]` |
+| `converter_config_hash()` | Indexers | Deterministic hash of pipeline settings for DocStore cache keying |
+| `markdown_to_docling_doc()`, `epub_to_docling_doc()`, `plaintext_to_docling_doc()` | Indexers (Obsidian, Project) | Bridge functions converting legacy parser output to DoclingDocument |
+| `email_to_docling_doc()`, `rss_to_docling_doc()` | Indexers (Email, RSS) | Bridge functions for email and RSS content to DoclingDocument |
 | `IndexingQueue`, `IndexJob` | CLI (serve), sync, watcher | Single-writer queue; `submit()`, `submit_and_wait()`, `shutdown()` |
 | `IndexingStatus` | IndexingQueue, MCP server | Thread-safe progress; `to_dict()` returns status or None when idle |
 | `LeaderLock`, `lock_path_for_config()` | CLI (serve) | `try_acquire()` returns bool; kernel releases on process death |
