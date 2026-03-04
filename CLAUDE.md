@@ -8,7 +8,12 @@ Use `/ragling` — MCP tools, search patterns, collection types, and best practi
 
 ## Developing ragling
 
-Use `/contributing` — TDD workflow, required skills pipeline, quality gates, coding standards, and project constraints.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, quality gates, and skill reference. Key points:
+
+- **Quality gate:** `uv run pytest && uv run mypy src/ && uv run ruff check . && uv run ruff format --check .`
+- **TDD:** Strict red-green-refactor. No implementation code without a failing test.
+- **Skills pipeline:** `/brainstorming` → `/writing-plans` → `/executing-plans` → `/verification-before-completion` → `/requesting-code-review` → `/finishing-a-development-branch`
+- **PR target:** `aihaysteve/local-rag` (not upstream)
 
 ## NanoClaw integration
 
