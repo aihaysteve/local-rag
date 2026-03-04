@@ -165,6 +165,18 @@ class TestParseSpec:
         chunks = parse_spec("", "empty/SPEC.md")
         assert chunks == []
 
+    def test_empty_body_section_still_produces_chunk(self) -> None:
+        """Empty-body sections produce a prefix-only chunk for search retrieval.
+
+        The prefix carries subsystem/section_type signal even without body text,
+        so downstream search can still match on structured metadata.
+        """
+        text = "# Auth\n\n## Purpose\n\n## Dependencies\nUses bcrypt.\n"
+        chunks = parse_spec(text, "auth/SPEC.md")
+        assert len(chunks) == 2
+        assert chunks[0].metadata["section_type"] == "purpose"
+        assert chunks[0].text.startswith("[auth/SPEC.md] [spec:purpose] Auth\n")
+
 
 class TestParseSpecOversized:
     """Tests for oversized section handling."""
