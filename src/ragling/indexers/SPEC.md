@@ -141,14 +141,14 @@ uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_d
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
 | Parsers (markdown, epub, code, email, rss, calibre, spec) | internal | `src/ragling/parsers/SPEC.md` |
-| `db.py` (get_or_create_collection, delete_collection) | internal | N/A |
-| `embeddings.py` (get_embeddings, serialize_float32) | internal | N/A |
-| `chunker.py` (Chunk, _split_into_windows) | internal | N/A |
-| `config.py` (Config) | internal | N/A |
-| `doc_store.py` (DocStore) | internal | N/A |
-| `docling_bridge.py` / `docling_convert.py` | internal | N/A |
-| `indexing_status.py` (IndexingStatus) | internal | N/A |
-| `indexer_types.py` (IndexerType) | internal | N/A |
+| `db.py` (get_or_create_collection, delete_collection) | internal | `src/ragling/SPEC.md` |
+| `embeddings.py` (get_embeddings, serialize_float32) | internal | `src/ragling/SPEC.md` |
+| `chunker.py` (Chunk, _split_into_windows) | internal | `src/ragling/SPEC.md` |
+| `config.py` (Config) | internal | `src/ragling/SPEC.md` |
+| `doc_store.py` (DocStore) | internal | `src/ragling/SPEC.md` |
+| `docling_bridge.py` / `docling_convert.py` | internal | `src/ragling/SPEC.md` |
+| `indexing_status.py` (IndexingStatus) | internal | `src/ragling/SPEC.md` |
+| `indexer_types.py` (IndexerType) | internal | `src/ragling/SPEC.md` |
 | Ollama (embedding API) | external | N/A |
 | tree-sitter (code parsing) | external | N/A |
 | git CLI | external | N/A |
