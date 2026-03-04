@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ragling.indexing_status import IndexingStatus
 
-from ragling.chunker import Chunk, _split_into_windows, _word_count
+from ragling.chunker import Chunk, split_into_windows, word_count
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.embeddings import get_embeddings
@@ -304,9 +304,9 @@ def _commit_to_chunks(
         }
 
         prefixed_text = prefix + body
-        prefix_word_count = _word_count(prefix)
+        prefix_word_count = word_count(prefix)
 
-        if _word_count(prefixed_text) <= chunk_size:
+        if word_count(prefixed_text) <= chunk_size:
             chunks.append(
                 Chunk(
                     text=prefixed_text,
@@ -318,7 +318,7 @@ def _commit_to_chunks(
             chunk_idx += 1
         else:
             available = max(chunk_size - prefix_word_count, 50)
-            windows = _split_into_windows(body, available, overlap)
+            windows = split_into_windows(body, available, overlap)
             for window in windows:
                 chunks.append(
                     Chunk(
@@ -408,9 +408,9 @@ def _code_blocks_to_chunks(
             metadata["spec_path"] = resolved_spec_path
 
         prefixed_text = prefix + block.text
-        prefix_word_count = _word_count(prefix)
+        prefix_word_count = word_count(prefix)
 
-        if _word_count(prefixed_text) <= chunk_size:
+        if word_count(prefixed_text) <= chunk_size:
             chunks.append(
                 Chunk(
                     text=prefixed_text,
@@ -424,7 +424,7 @@ def _code_blocks_to_chunks(
             # Split the block text (without prefix) into windows,
             # then prepend the prefix to each window
             available = max(chunk_size - prefix_word_count, 50)
-            windows = _split_into_windows(block.text, available, overlap)
+            windows = split_into_windows(block.text, available, overlap)
             for window in windows:
                 chunks.append(
                     Chunk(

@@ -169,7 +169,7 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
     Returns:
         List of Chunk objects, one per section.
     """
-    from ragling.chunker import Chunk, _split_into_windows, _word_count
+    from ragling.chunker import Chunk, split_into_windows, word_count
 
     if not text.strip():
         return []
@@ -194,7 +194,7 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
         # carries the subsystem/section_type signal for search retrieval.
         prefixed_text = prefix + section.body
 
-        if _word_count(prefixed_text) <= chunk_size_tokens:
+        if word_count(prefixed_text) <= chunk_size_tokens:
             chunks.append(
                 Chunk(
                     text=prefixed_text,
@@ -211,10 +211,10 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
             chunk_idx += 1
         else:
             # Oversized section: split into windows, preserve metadata
-            prefix_words = _word_count(prefix)
+            prefix_words = word_count(prefix)
             available = max(chunk_size_tokens - prefix_words, 50)
             overlap = min(available // 4, 50)
-            windows = _split_into_windows(section.body, available, overlap)
+            windows = split_into_windows(section.body, available, overlap)
             for window in windows:
                 chunks.append(
                     Chunk(

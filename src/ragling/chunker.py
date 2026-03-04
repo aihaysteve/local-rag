@@ -17,12 +17,12 @@ class Chunk:
     chunk_index: int = 0
 
 
-def _word_count(text: str) -> int:
+def word_count(text: str) -> int:
     """Estimate token count using word splitting."""
     return len(text.split())
 
 
-def _split_into_windows(text: str, chunk_size: int, overlap: int) -> list[str]:
+def split_into_windows(text: str, chunk_size: int, overlap: int) -> list[str]:
     """Split text into overlapping word-based windows."""
     words = text.split()
     if not words:

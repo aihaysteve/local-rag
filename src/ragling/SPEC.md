@@ -49,7 +49,7 @@ instances share the doc store via WAL mode.
 ### Chunking
 
 `chunker.py` defines the Chunk dataclass (text, title, metadata, chunk_index) and
-`_split_into_windows()` for word-based overlapping window splitting.
+`split_into_windows()` for word-based overlapping window splitting.
 
 ### Embeddings
 
