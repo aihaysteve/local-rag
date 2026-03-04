@@ -152,6 +152,7 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 - `docling_bridge.py` — legacy parser output to DoclingDocument bridge
 - `search_utils.py` — FTS query escaping
 - `query_logger.py` — JSONL query logging
+- `audio_metadata.py` — audio/video container metadata extraction via mutagen
 - `indexer_types.py` — IndexerType enum
 
 ## Public Interface
@@ -232,41 +233,41 @@ uv run pytest tests/test_config.py tests/test_db.py tests/test_search.py \
 
 | Spec Item | Test | Description |
 |---|---|---|
-| INV-1 | `test_config.py::TestFrozenConfig::test_config_is_immutable` | Asserts `FrozenInstanceError` on direct attribute assignment |
-| INV-1 | `test_config.py::TestFrozenConfig::test_with_overrides_returns_new_instance` | Verifies `with_overrides()` returns a new Config, original unchanged |
-| INV-2 | `test_config.py::TestLoadConfig::test_malformed_json_returns_default` | Verifies default Config returned for malformed JSON |
+| INV-1 | `test_config.py::TestConfigImmutability::test_config_is_frozen` | Asserts `FrozenInstanceError` on direct attribute assignment |
+| INV-1 | `test_config.py::TestConfigImmutability::test_with_overrides_returns_new_instance` | Verifies `with_overrides()` returns a new Config, original unchanged |
+| INV-2 | `test_config.py::TestMalformedConfigFallback::test_malformed_json_falls_back_to_defaults` | Verifies default Config returned for malformed JSON |
 | INV-3 | `test_db.py::TestGetConnection::test_wal_mode_enabled` | Checks `PRAGMA journal_mode` returns `wal` |
-| INV-4 | `test_indexing_queue.py::TestSingleWriterDesign::test_worker_thread_is_the_only_writer` | Captures thread name during processing, asserts it is `index-worker` |
-| INV-5 | `test_doc_store.py::TestDocStore::test_cache_hit_returns_cached` | Verifies converter not called on second access with same hash |
-| INV-5 | `test_doc_store.py::TestDocStore::test_config_hash_produces_separate_cache_entries` | Different config_hash triggers reconversion |
-| INV-6 | `test_search.py::TestRRFMerge::test_rrf_scores_monotonically_decrease` | Asserts each score is >= the next in merged output |
-| INV-7 | `test_auth.py::TestResolveApiKey::test_timing_safe_comparison` | Verifies `hmac.compare_digest` is called (mocked) |
-| INV-8 | `test_leader.py::TestLeaderLock::test_acquire_and_contention` | Second lock on same file fails to acquire |
-| INV-8 | `test_leader.py::TestLeaderLock::test_release_allows_reacquire` | After close(), another process can acquire |
-| INV-9 | `test_embeddings.py::TestGetEmbedding::test_truncation_retry_on_failure` | Verifies retry with truncated text on first failure |
-| INV-9 | `test_embeddings.py::TestGetEmbeddings::test_batch_fallback_to_individual` | Batch failure falls back to per-text embedding |
+| INV-4 | `test_indexing_queue.py::TestSingleWriterDesign::test_indexer_runs_on_worker_thread` | Captures thread name during processing, asserts it is `index-worker` |
+| INV-5 | `test_doc_store.py::TestDocStoreInit::test_cache_hit_skips_converter` | Verifies converter not called on second access with same hash |
+| INV-5 | `test_doc_store.py::TestDocStoreInit::test_different_config_hash_triggers_reconversion` | Different config_hash triggers reconversion |
+| INV-6 | `test_search.py::TestRRFMerge::test_sorted_by_score_descending` | Asserts scores are sorted in descending order |
+| INV-7 | -- | No direct test; `hmac.compare_digest` usage in `resolve_api_key()` untested |
+| INV-8 | `test_leader.py::TestLeaderLock::test_second_lock_on_same_path_fails` | Second lock on same file fails to acquire |
+| INV-8 | `test_leader.py::TestLeaderLock::test_release_allows_reacquisition` | After close(), another process can acquire |
+| INV-9 | `test_embeddings.py::TestGetEmbeddingTruncationRetry::test_failure_retries_with_truncated_text` | Verifies retry with truncated text on first failure |
+| INV-9 | `test_embeddings.py::TestGetEmbeddingsBatchFallback::test_batch_failure_retries_individually` | Batch failure falls back to per-text embedding |
 | INV-10 | `test_watcher.py::TestHandlerExtensionFiltering::test_unsupported_extension_ignored_on_modified` | Unsupported extension does not enqueue |
 | INV-10 | `test_watcher.py::TestHandlerExtensionFiltering::test_filtering_is_case_insensitive` | Uppercase extension still matches |
 | INV-10 | `test_watcher.py::TestHandlerHiddenDirectoryFiltering::test_file_in_hidden_directory_not_enqueued` | Files in dotdirs skipped |
 | INV-10 | `test_watcher.py::TestHandlerGitStateFiles::test_git_head_change_is_enqueued` | `.git/HEAD` changes pass through |
 | INV-10 | `test_watcher.py::TestHandlerGitStateFiles::test_git_objects_change_is_not_enqueued` | `.git/objects/` changes filtered out |
 | INV-11 | `test_watcher.py::TestWatchPathsIncludesObsidianAndCode::test_deduplicates_overlapping_paths` | Same path in home and obsidian appears once |
-| INV-12 | `test_token_verifier.py::TestRaglingTokenVerifier::test_rate_limiting_after_failures` | Rejects immediately after MAX_FAILURES exceeded |
-| INV-12 | `test_token_verifier.py::TestRaglingTokenVerifier::test_backoff_increases_exponentially` | Backoff time doubles per failure |
-| FAIL-1 | `test_embeddings.py::TestGetEmbedding::test_connection_refused_error_message` | Verifies `OllamaConnectionError` raised with helpful message |
+| INV-12 | `test_token_verifier.py::TestRaglingTokenVerifier::test_rate_limiting_kicks_in_after_threshold_failures` | Rejects immediately after MAX_FAILURES exceeded |
+| INV-12 | `test_token_verifier.py::TestRaglingTokenVerifier::test_backoff_time_increases_exponentially` | Backoff time doubles per failure |
+| FAIL-1 | `test_embeddings.py::TestHostAwareErrorMessages::test_default_message_suggests_ollama_serve` | Verifies `OllamaConnectionError` raised with helpful message |
 | FAIL-2 | `test_db.py::TestGetConnection::test_wal_mode_enabled` | WAL retry logic exercised on connection setup |
-| FAIL-3 | `test_search.py::TestStaleResults::test_stale_when_file_deleted` | Deleted source file marked stale |
-| FAIL-3 | `test_search.py::TestStaleResults::test_stale_when_file_modified` | Modified source file marked stale |
-| FAIL-4 | `test_indexing_queue.py::TestIndexingQueue::test_worker_continues_after_error` | Error in one job does not stop the worker |
-| FAIL-5 | `test_leader.py::TestLeaderLock::test_retry_promotes_after_release` | Follower promoted after leader releases lock |
-| FAIL-6 | `test_config_watcher.py::TestConfigWatcher::test_debounce_batches_rapid_changes` | Rapid changes batched within debounce window |
-| FAIL-7 | `test_token_verifier.py::TestRaglingTokenVerifier::test_rate_limiting_after_failures` | Rate limiter blocks after threshold exceeded |
+| FAIL-3 | `test_search.py::TestMarkStaleResults::test_marks_missing_file_as_stale` | Deleted source file marked stale |
+| FAIL-3 | `test_search.py::TestMarkStaleResults::test_marks_modified_file_as_stale` | Modified source file marked stale |
+| FAIL-4 | `test_indexing_queue.py::TestIndexingQueue::test_worker_handles_exceptions` | Error in one job does not stop the worker |
+| FAIL-5 | `test_leader.py::TestLeaderLockRetry::test_retry_promotes_after_leader_releases` | Follower promoted after leader releases lock |
+| FAIL-6 | `test_config_watcher.py::TestConfigWatcher::test_debounces_rapid_changes` | Rapid changes batched within debounce window |
+| FAIL-7 | `test_token_verifier.py::TestRaglingTokenVerifier::test_rate_limiting_kicks_in_after_threshold_failures` | Rate limiter blocks after threshold exceeded |
 
 ## Dependencies
 
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
-| Indexers | internal | `src/ragling/indexers/SPEC.md` |
+| Indexers | internal (circular) | `src/ragling/indexers/SPEC.md` — Core dispatches to indexers via IndexingQueue; indexers depend on Core utilities. Mutual dependency by design. |
 | sqlite-vec | external | N/A — SQLite extension for vector similarity search |
 | Ollama | external | N/A — local LLM/embedding server |
 | FastMCP | external | N/A — MCP server framework |
