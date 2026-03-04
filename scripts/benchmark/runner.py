@@ -9,15 +9,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 from ragling.doc_store import DocStore
-from ragling.docling_bridge import (
+from ragling.document.docling_bridge import (
     epub_to_docling_doc,
     markdown_to_docling_doc,
     plaintext_to_docling_doc,
 )
-from ragling.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
+from ragling.document.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings
 from ragling.indexers.project import _EXTENSION_MAP
 from ragling.parsers.epub import parse_epub

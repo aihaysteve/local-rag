@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 
 
@@ -146,15 +146,15 @@ class TestDoclingConvertLogging:
 
     def test_zero_chunks_logs_debug(self, caplog: logging.LogRecord) -> None:
         """When HybridChunker produces 0 chunks, log at DEBUG level."""
-        from ragling.docling_convert import chunk_with_hybrid
+        from ragling.document.docling_convert import chunk_with_hybrid
 
         mock_chunker = MagicMock()
         mock_chunker.chunk.return_value = []
 
         with (
-            caplog.at_level(logging.DEBUG, logger="ragling.docling_convert"),
-            patch("ragling.docling_convert._get_tokenizer", return_value=MagicMock()),
-            patch("ragling.docling_convert.HybridChunker", return_value=mock_chunker),
+            caplog.at_level(logging.DEBUG, logger="ragling.document.docling_convert"),
+            patch("ragling.document.docling_convert._get_tokenizer", return_value=MagicMock()),
+            patch("ragling.document.docling_convert.HybridChunker", return_value=mock_chunker),
         ):
             result = chunk_with_hybrid(MagicMock(), title="test", source_path="/tmp/test")
 

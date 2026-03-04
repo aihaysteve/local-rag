@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 
 

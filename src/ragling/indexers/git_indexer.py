@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ragling.indexing_status import IndexingStatus
 
-from ragling.chunker import Chunk, split_into_windows, word_count
+from ragling.document.chunker import Chunk, split_into_windows, word_count
 from ragling.config import Config
 from ragling.db import get_or_create_collection
 from ragling.embeddings import get_embeddings

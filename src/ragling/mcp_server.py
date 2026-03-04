@@ -259,7 +259,7 @@ def _convert_document(
     # For other formats, try Docling conversion via doc_store cache
     try:
         from ragling.doc_store import DocStore
-        from ragling.docling_convert import convert_and_chunk
+        from ragling.document.docling_convert import convert_and_chunk
 
         effective_config = config or load_config()
         doc_store = DocStore(effective_config.shared_db_path)

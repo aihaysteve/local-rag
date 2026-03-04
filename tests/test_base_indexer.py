@@ -26,7 +26,7 @@ def _make_conn(tmp_path: Path) -> sqlite3.Connection:
 
 def _insert_source(conn: sqlite3.Connection, collection_id: int, source_path: str) -> int:
     """Insert a source with one document and one vector for testing."""
-    from ragling.chunker import Chunk
+    from ragling.document.chunker import Chunk
 
     return upsert_source_with_chunks(
         conn,

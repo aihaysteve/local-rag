@@ -1,6 +1,6 @@
 """Tests for ragling.chunker module."""
 
-from ragling.chunker import Chunk, split_into_windows, word_count
+from ragling.document.chunker import Chunk, split_into_windows, word_count
 
 
 class TestPublicAPI:
@@ -43,26 +43,26 @@ class TestSplitIntoWindows:
     """Tests for split_into_windows."""
 
     def test_short_text_single_window(self) -> None:
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         result = split_into_windows("a b c", 10, 2)
         assert result == ["a b c"]
 
     def test_long_text_multiple_windows(self) -> None:
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         text = " ".join(f"w{i}" for i in range(20))
         result = split_into_windows(text, 5, 1)
         assert len(result) > 1
 
     def test_empty_text_empty_result(self) -> None:
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         assert split_into_windows("", 10, 2) == []
 
     def test_overlap_equals_chunk_size_terminates(self) -> None:
         """When overlap == chunk_size, splitting must still terminate."""
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         text = " ".join(f"w{i}" for i in range(10))
         result = split_into_windows(text, 3, 3)
@@ -74,26 +74,26 @@ class TestSplitIntoWindows:
 
     def test_overlap_exceeds_chunk_size_terminates(self) -> None:
         """When overlap > chunk_size, splitting must still terminate."""
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         text = " ".join(f"w{i}" for i in range(10))
         result = split_into_windows(text, 3, 5)
         assert len(result) >= 1
 
     def test_single_word(self) -> None:
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         assert split_into_windows("hello", 3, 1) == ["hello"]
 
     def test_exact_chunk_boundary(self) -> None:
         """Text with exactly chunk_size words produces a single chunk."""
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         result = split_into_windows("a b c", 3, 1)
         assert result == ["a b c"]
 
     def test_zero_overlap(self) -> None:
-        from ragling.chunker import split_into_windows
+        from ragling.document.chunker import split_into_windows
 
         text = " ".join(f"w{i}" for i in range(6))
         result = split_into_windows(text, 3, 0)

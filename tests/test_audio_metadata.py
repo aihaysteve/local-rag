@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ragling.audio_metadata import extract_audio_metadata
+from ragling.document.audio_metadata import extract_audio_metadata
 
 
 @pytest.fixture()

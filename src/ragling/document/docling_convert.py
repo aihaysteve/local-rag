@@ -33,8 +33,8 @@ from docling_core.types.doc import CodeItem, DoclingDocument, PictureItem, Table
 from transformers import AutoTokenizer
 
 from docling.exceptions import ConversionError
-from ragling.audio_metadata import extract_audio_metadata
-from ragling.chunker import Chunk
+from ragling.document.audio_metadata import extract_audio_metadata
+from ragling.document.chunker import Chunk
 from ragling.doc_store import DocStore
 
 logger = logging.getLogger(__name__)
@@ -554,7 +554,7 @@ def convert_and_chunk(
             text = _extract_pdf_text_fallback(p)
             if not text.strip():
                 raise
-            from ragling.docling_bridge import plaintext_to_docling_doc
+            from ragling.document.docling_bridge import plaintext_to_docling_doc
 
             return plaintext_to_docling_doc(text, p.name).model_dump(mode="json")
 
@@ -582,7 +582,7 @@ def convert_and_chunk(
         description = describe_image(path, ollama_host=ollama_host)
         if description:
             logger.info("Image fallback: generated VLM description for %s", path)
-            from ragling.docling_bridge import plaintext_to_docling_doc
+            from ragling.document.docling_bridge import plaintext_to_docling_doc
 
             desc_doc = plaintext_to_docling_doc(description, path.name)
             chunks = chunk_with_hybrid(

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 from ragling.db import get_connection, get_or_create_collection, init_db
 from ragling.indexers.base import upsert_source_with_chunks

@@ -13,19 +13,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ragling.chunker import Chunk
+from ragling.document.chunker import Chunk
 from ragling.config import Config
 
 if TYPE_CHECKING:
     from ragling.indexing_status import IndexingStatus
 from ragling.db import get_or_create_collection
 from ragling.doc_store import DocStore
-from ragling.docling_bridge import (
+from ragling.document.docling_bridge import (
     epub_to_docling_doc,
     markdown_to_docling_doc,
     plaintext_to_docling_doc,
 )
-from ragling.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
+from ragling.document.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings
 from ragling.indexers.base import (
     BaseIndexer,

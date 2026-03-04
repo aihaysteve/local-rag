@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ragling.chunker import Chunk
+    from ragling.document.chunker import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +235,7 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
     Returns:
         List of Chunk objects, one per section.
     """
-    from ragling.chunker import Chunk, split_into_windows, word_count
+    from ragling.document.chunker import Chunk, split_into_windows, word_count
 
     if not text.strip():
         return []
