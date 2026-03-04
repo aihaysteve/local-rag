@@ -35,6 +35,7 @@ from ragling.parsers.code import (
     is_code_file,
     parse_code_file,
 )
+from ragling.parsers.spec import find_nearest_spec
 
 logger = logging.getLogger(__name__)
 
@@ -346,7 +347,13 @@ def _should_exclude(relative_path: str) -> bool:
     return False
 
 
-def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config) -> list[Chunk]:
+def _code_blocks_to_chunks(
+    doc: CodeDocument,
+    relative_path: str,
+    config: Config,
+    *,
+    repo_root: Path | None = None,
+) -> list[Chunk]:
     """Convert CodeDocument blocks into Chunks suitable for embedding.
 
     Each block gets a context prefix with file path, language, and symbol info.
@@ -356,6 +363,7 @@ def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config
         doc: Parsed code document.
         relative_path: Relative path within the repository.
         config: Application configuration.
+        repo_root: Optional repo root for SPEC.md lookups.
 
     Returns:
         List of Chunk objects.
@@ -364,6 +372,9 @@ def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config
     overlap = config.chunk_overlap_tokens
     chunks: list[Chunk] = []
     chunk_idx = 0
+
+    # Cache spec_path lookups per directory
+    _spec_cache: dict[str, str | None] = {}
 
     for block in doc.blocks:
         prefix = (
@@ -380,6 +391,15 @@ def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config
             "end_line": block.end_line,
             "file_path": block.file_path,
         }
+
+        # Add spec_path pointer if a governing SPEC.md exists
+        if repo_root is not None:
+            file_dir = str((repo_root / relative_path).parent)
+            if file_dir not in _spec_cache:
+                _spec_cache[file_dir] = find_nearest_spec(repo_root / relative_path, repo_root)
+            spec_path = _spec_cache[file_dir]
+            if spec_path:
+                metadata["spec_path"] = spec_path
 
         prefixed_text = prefix + block.text
         prefix_word_count = _word_count(prefix)
@@ -702,7 +722,7 @@ class GitRepoIndexer(BaseIndexer):
             return False
 
         # Convert blocks to chunks
-        chunks = _code_blocks_to_chunks(doc, relative_path, config)
+        chunks = _code_blocks_to_chunks(doc, relative_path, config, repo_root=self.repo_path)
         if not chunks:
             logger.warning("Code file parsed but produced 0 chunks: %s", relative_path)
             return False
