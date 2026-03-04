@@ -118,7 +118,7 @@ difficult to fixture without integration tests.
 
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
-| `ragling.chunker` (Chunk, _split_into_windows, _word_count) | internal | N/A |
+| `ragling.chunker` (Chunk, _split_into_windows, _word_count) | internal | `src/ragling/SPEC.md` |
 | PyYAML | external | N/A |
 | BeautifulSoup (bs4) | external | N/A |
 | tree-sitter-language-pack | external | N/A |
