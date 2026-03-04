@@ -742,6 +742,11 @@ class TestBackgroundFlag:
 class TestInitCommand:
     """Tests for the ragling init command."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_ollama(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Prevent real Ollama network calls in init tests."""
+        monkeypatch.setattr("ragling.cli._check_ollama_status", lambda: (False, False))
+
     def test_init_help(self) -> None:
         """init command is registered and shows help."""
         runner = CliRunner()
@@ -842,17 +847,16 @@ class TestInitCommand:
         result = runner.invoke(main, ["init", "--name", name, "--ragling-dir", "/fake/ragling"])
         assert result.exit_code != 0
 
-    def test_init_checks_ollama(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init output includes Ollama status information."""
-        from unittest.mock import patch
-
+    def test_init_checks_ollama_not_running(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init output includes Ollama status when not running."""
+        monkeypatch.setattr("ragling.cli._check_ollama_status", lambda: (False, False))
         runner = CliRunner()
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        # Mock urllib to simulate Ollama not running
-        with patch("urllib.request.urlopen", side_effect=OSError("Connection refused")):
-            result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
         assert result.exit_code == 0
         assert "ollama" in result.output.lower()
 

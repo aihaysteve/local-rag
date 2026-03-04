@@ -985,7 +985,13 @@ def mcp_config(port: int, tls_dir: Path | None) -> None:
 def _detect_ragling_dir() -> Path:
     """Detect the ragling installation directory from package source location."""
     # cli.py is at src/ragling/cli.py, project root is 3 levels up
-    return Path(__file__).resolve().parent.parent.parent
+    candidate = Path(__file__).resolve().parent.parent.parent
+    if not (candidate / "pyproject.toml").exists():
+        raise click.ClickException(
+            f"Could not detect ragling installation at {candidate}. "
+            f"Use --ragling-dir to specify the path."
+        )
+    return candidate
 
 
 def _check_ollama_status() -> tuple[bool, bool]:

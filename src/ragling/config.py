@@ -175,7 +175,8 @@ def load_config(path: Path | None = None) -> Config:
     """Load configuration from a JSON file, falling back to defaults.
 
     Args:
-        path: Path to config file. Defaults to ~/.ragling/config.json.
+        path: Path to config file. When None, checks for ragling.json in
+            the current directory first, then falls back to ~/.ragling/config.json.
 
     Returns:
         Loaded Config instance with all paths expanded.
