@@ -24,7 +24,7 @@ never raise exceptions to callers, returning `None` or empty collections instead
 - `epub.py` -- EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
 - `email.py` -- eM Client SQLite database parsing (.NET ticks, address types, FTI)
 - `calibre.py` -- Calibre library metadata loading from metadata.db
-- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages)
+- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages). Symbol name extraction and symbol type classification use registry-based dispatch for extensibility.
 - `rss.py` -- NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
 - `spec.py` -- SPEC.md section-level chunking into typed Chunk objects
 

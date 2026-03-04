@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -261,7 +261,449 @@ def get_language(path: Path) -> str | None:
     return _CODE_EXTENSION_MAP.get(path.suffix.lower())
 
 
-def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
+def _extract_hcl(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from HCL block."""
+    # HCL blocks: e.g. resource "aws_instance" "web" -> "resource aws_instance web"
+    parts = []
+    for child in node.children:
+        if child.type == "identifier":
+            parts.append(child.text.decode("utf-8", errors="replace"))
+        elif child.type == "string_lit":
+            text = child.text.decode("utf-8", errors="replace").strip('"')
+            parts.append(text)
+        elif child.type == "block":
+            break  # stop at nested block body
+        elif child.type == "{":
+            break
+    return " ".join(parts) if parts else node.type
+
+
+def _extract_python(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Python definition."""
+    # Handle decorated definitions by looking inside
+    target = node
+    if node.type == "decorated_definition":
+        for child in node.children:
+            if child.type in ("function_definition", "class_definition"):
+                target = child
+                break
+
+    for child in target.children:
+        if child.type == "identifier":
+            return child.text.decode("utf-8", errors="replace")
+    return target.type
+
+
+def _extract_go(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Go declaration."""
+    if node.type == "type_declaration":
+        for child in node.children:
+            if child.type == "type_spec":
+                for gc in child.children:
+                    if gc.type == "type_identifier":
+                        return gc.text.decode("utf-8", errors="replace")
+    for child in node.children:
+        if child.type in ("identifier", "field_identifier"):
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_ts_js(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from TypeScript/TSX/JavaScript declaration."""
+    if node.type == "export_statement":
+        # Look inside the exported declaration
+        for child in node.children:
+            if child.type in (
+                "function_declaration",
+                "class_declaration",
+                "interface_declaration",
+                "type_alias_declaration",
+                "enum_declaration",
+            ):
+                return _extract_symbol_name(child, "typescript", source_bytes)
+            if child.type == "lexical_declaration":
+                for gc in child.children:
+                    if gc.type == "variable_declarator":
+                        for ggc in gc.children:
+                            if ggc.type == "identifier":
+                                return ggc.text.decode("utf-8", errors="replace")
+        return "export"
+
+    for child in node.children:
+        if child.type in ("identifier", "type_identifier"):
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_rust(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Rust item."""
+    for child in node.children:
+        if child.type in ("identifier", "type_identifier"):
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_swift(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Swift declaration."""
+    # Swift: class, struct, enum, and extension all parse as class_declaration.
+    # For extensions the name lives in a user_type child (e.g. "Animal" in
+    # "extension Animal: Drawable"), otherwise it's a direct type_identifier.
+    # function_declaration uses simple_identifier for the function name.
+    # protocol_declaration uses type_identifier.
+    if node.type == "class_declaration":
+        # Check for extension — name is in user_type child
+        for child in node.children:
+            if child.type == "extension":
+                # The extended type is in the first user_type child
+                for sibling in node.children:
+                    if sibling.type == "user_type":
+                        for gc in sibling.children:
+                            if gc.type == "type_identifier":
+                                return gc.text.decode("utf-8", errors="replace")
+                return node.type
+        # class / struct / enum — name is type_identifier
+        for child in node.children:
+            if child.type == "type_identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+    if node.type == "protocol_declaration":
+        for child in node.children:
+            if child.type == "type_identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+    if node.type == "function_declaration":
+        for child in node.children:
+            if child.type == "simple_identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+    return node.type
+
+
+def _extract_kotlin(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Kotlin declaration."""
+    # Kotlin: class_declaration, function_declaration, object_declaration
+    # Name is in type_identifier (classes/objects) or simple_identifier (functions)
+    for child in node.children:
+        if child.type == "type_identifier":
+            return child.text.decode("utf-8", errors="replace")
+        if child.type == "simple_identifier":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_java_csharp(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Java or C# declaration."""
+    for child in node.children:
+        if child.type == "identifier":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_scala(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Scala definition."""
+    # type_definition uses type_identifier; all others use identifier
+    for child in node.children:
+        if child.type in ("identifier", "type_identifier"):
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_ruby(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Ruby definition."""
+    for child in node.children:
+        if child.type in ("identifier", "constant"):
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_lua(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Lua declaration."""
+    if node.type == "function_declaration":
+        for child in node.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "dot_index_expression":
+                # e.g. M.method -> "M.method"
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "method_index_expression":
+                # e.g. M:otherMethod -> "M:otherMethod"
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+    if node.type == "variable_declaration":
+        # local M = {} or local f = function(...)
+        for child in node.children:
+            if child.type == "assignment_statement":
+                for gc in child.children:
+                    if gc.type == "variable_list":
+                        for ggc in gc.children:
+                            if ggc.type == "identifier":
+                                return ggc.text.decode("utf-8", errors="replace")
+        return node.type
+    return node.type
+
+
+def _extract_perl(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Perl declaration."""
+    if node.type == "subroutine_declaration_statement":
+        # subroutine_declaration_statement -> bareword (sub name)
+        for child in node.children:
+            if child.type == "bareword":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+    if node.type == "package_statement":
+        # package_statement -> package (keyword) -> package (name)
+        # The second child of type "package" is the package name
+        found_keyword = False
+        for child in node.children:
+            if child.type == "package":
+                if not found_keyword:
+                    found_keyword = True  # skip the "package" keyword
+                else:
+                    return child.text.decode("utf-8", errors="replace")
+        return node.type
+    return node.type
+
+
+def _extract_dart(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Dart declaration."""
+    if node.type == "getter_signature":
+        # getter_signature: type_identifier, get, identifier
+        # We want the identifier AFTER the "get" keyword, not the return type.
+        for child in node.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return node.type
+    # For most Dart nodes (class_definition, enum_declaration, mixin_declaration,
+    # extension_declaration, extension_type_declaration, type_alias,
+    # function_signature), the first identifier child holds the name.
+    for child in node.children:
+        if child.type == "identifier":
+            return child.text.decode("utf-8", errors="replace")
+        if child.type == "type_identifier":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_elixir(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Elixir call node."""
+    # Elixir call nodes: the keyword is the first identifier child,
+    # the name is in the arguments child.
+    keyword = _get_elixir_call_keyword(node)
+    if keyword in ("defmodule", "defprotocol"):
+        # Name is an alias node inside arguments: defmodule MyApp.User do
+        for child in node.children:
+            if child.type == "arguments":
+                for arg in child.children:
+                    if arg.type == "alias":
+                        return arg.text.decode("utf-8", errors="replace")
+        return node.type
+    if keyword == "defimpl":
+        # First alias in arguments: defimpl Printable, for: MyApp.User do
+        for child in node.children:
+            if child.type == "arguments":
+                for arg in child.children:
+                    if arg.type == "alias":
+                        return arg.text.decode("utf-8", errors="replace")
+        return node.type
+    if keyword in ("def", "defp", "defmacro"):
+        # Function name is nested: arguments -> call -> identifier
+        for child in node.children:
+            if child.type == "arguments":
+                for arg in child.children:
+                    if arg.type == "call":
+                        for gc in arg.children:
+                            if gc.type == "identifier":
+                                return gc.text.decode("utf-8", errors="replace")
+                    # One-liner: def to_string(user), do: ...
+                    if arg.type == "identifier":
+                        return arg.text.decode("utf-8", errors="replace")
+        return node.type
+    # Non-structural call -- use fallback
+    return node.type
+
+
+def _extract_zig(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Zig declaration."""
+    if node.type == "TestDecl":
+        for child in node.children:
+            if child.type == "STRINGLITERALSINGLE":
+                return child.text.decode("utf-8", errors="replace").strip('"')
+        return "test"
+    if node.type == "ComptimeDecl":
+        return "(comptime)"
+    # Decl: look inside FnProto or VarDecl for IDENTIFIER
+    for child in node.children:
+        if child.type == "FnProto":
+            for gc in child.children:
+                if gc.type == "IDENTIFIER":
+                    return gc.text.decode("utf-8", errors="replace")
+        if child.type == "VarDecl":
+            for gc in child.children:
+                if gc.type == "IDENTIFIER":
+                    return gc.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_powershell(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from PowerShell statement."""
+    # function_statement: child function_name holds the name
+    # class_statement: child simple_name holds the name
+    for child in node.children:
+        if child.type == "function_name":
+            return child.text.decode("utf-8", errors="replace")
+        if child.type == "simple_name":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_r(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from R binary operator."""
+    # R: binary_operator nodes for function assignments
+    # Structure: identifier <- function_definition  or  identifier = function_definition
+    for child in node.children:
+        if child.type == "identifier":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_php(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from PHP declaration."""
+    # PHP: class_declaration, interface_declaration, trait_declaration,
+    # enum_declaration, function_definition all have a direct "name" child
+    for child in node.children:
+        if child.type == "name":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_c_cpp(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from C or C++ definition."""
+    # function_definition -> declarator -> identifier
+    for child in node.children:
+        if child.type in ("identifier", "type_identifier"):
+            return child.text.decode("utf-8", errors="replace")
+        if "declarator" in child.type:
+            for gc in child.children:
+                if gc.type in ("identifier", "field_identifier"):
+                    return gc.text.decode("utf-8", errors="replace")
+                if "declarator" in gc.type:
+                    for ggc in gc.children:
+                        if ggc.type in ("identifier", "field_identifier"):
+                            return ggc.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_toml(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from TOML table."""
+    # table: [section_name] — extract from bare_key or dotted_key child
+    for child in node.children:
+        if child.type in ("bare_key", "dotted_key"):
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+def _extract_sql(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from SQL statement."""
+    # statement wraps inner nodes like create_table, select, insert
+    # Extract the first keyword + identifier from the inner node text
+    inner_text = (node.text or b"").decode("utf-8", errors="replace").strip()
+    # Take up to the first parenthesis or semicolon, then first ~3 words
+    truncated = inner_text.split("(")[0].split(";")[0].strip()
+    words = truncated.split()[:3]
+    return " ".join(words) if words else node.type
+
+
+def _extract_css_scss(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from CSS or SCSS rule."""
+    if node.type == "rule_set":
+        for child in node.children:
+            if child.type == "selectors":
+                return child.text.decode("utf-8", errors="replace").strip()
+        return node.type
+    if node.type in ("media_statement", "keyframes_statement", "import_statement"):
+        # Use the first line of text as the name
+        text = (node.text or b"").decode("utf-8", errors="replace")
+        first_line = text.split("{")[0].strip().split(";")[0].strip()
+        return first_line
+    return node.type
+
+
+def _extract_markdown(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Markdown section."""
+    # section: extract heading text from atx_heading > inline
+    for child in node.children:
+        if child.type == "atx_heading":
+            for gc in child.children:
+                if gc.type == "inline":
+                    return gc.text.decode("utf-8", errors="replace").strip()
+    return node.type
+
+
+def _extract_make(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from Makefile rule."""
+    # rule: extract target name from targets > word
+    for child in node.children:
+        if child.type == "targets":
+            for gc in child.children:
+                if gc.type == "word":
+                    return gc.text.decode("utf-8", errors="replace").strip()
+            return child.text.decode("utf-8", errors="replace").strip()
+    return node.type
+
+
+def _extract_rst(node: Any, source_bytes: bytes) -> str:
+    """Extract symbol name from RST section."""
+    # section: extract title text
+    for child in node.children:
+        if child.type == "title":
+            return child.text.decode("utf-8", errors="replace").strip()
+    return node.type
+
+
+def _extract_fallback(node: Any, source_bytes: bytes) -> str:
+    """Fallback: look for any identifier child."""
+    for child in node.children:
+        if child.type == "identifier":
+            return child.text.decode("utf-8", errors="replace")
+    return node.type
+
+
+# Registry mapping language names to handler functions.
+_SYMBOL_NAME_EXTRACTORS: dict[str, Callable[[Any, bytes], str]] = {
+    "hcl": _extract_hcl,
+    "python": _extract_python,
+    "go": _extract_go,
+    "typescript": _extract_ts_js,
+    "tsx": _extract_ts_js,
+    "javascript": _extract_ts_js,
+    "rust": _extract_rust,
+    "swift": _extract_swift,
+    "kotlin": _extract_kotlin,
+    "java": _extract_java_csharp,
+    "csharp": _extract_java_csharp,
+    "scala": _extract_scala,
+    "ruby": _extract_ruby,
+    "lua": _extract_lua,
+    "perl": _extract_perl,
+    "dart": _extract_dart,
+    "elixir": _extract_elixir,
+    "zig": _extract_zig,
+    "powershell": _extract_powershell,
+    "r": _extract_r,
+    "php": _extract_php,
+    "c": _extract_c_cpp,
+    "cpp": _extract_c_cpp,
+    "toml": _extract_toml,
+    "sql": _extract_sql,
+    "css": _extract_css_scss,
+    "scss": _extract_css_scss,
+    "markdown": _extract_markdown,
+    "make": _extract_make,
+    "rst": _extract_rst,
+}
+
+
+def _extract_symbol_name(node: Any, language: str, source_bytes: bytes) -> str:
     """Extract a human-readable symbol name from a tree-sitter node.
 
     Args:
@@ -272,360 +714,198 @@ def _extract_symbol_name(node, language: str, source_bytes: bytes) -> str:
     Returns:
         Symbol name string.
     """
-    if language == "hcl":
-        # HCL blocks: e.g. resource "aws_instance" "web" -> "resource aws_instance web"
-        parts = []
+    handler = _SYMBOL_NAME_EXTRACTORS.get(language, _extract_fallback)
+    return handler(node, source_bytes)
+
+
+# Base mapping from tree-sitter node types to human-readable symbol types.
+_BASE_TYPE_MAP: dict[str, str] = {
+    "function_definition": "function",
+    "function_declaration": "function",
+    "function_item": "function",
+    "method_declaration": "method",
+    "method": "method",
+    "class_definition": "class",
+    "class_declaration": "class",
+    "class_specifier": "class",
+    "decorated_definition": "decorated",
+    "type_declaration": "type",
+    "type_alias_declaration": "type",
+    "interface_declaration": "interface",
+    "enum_declaration": "enum",
+    "enum_specifier": "enum",
+    "enum_item": "enum",
+    "struct_item": "struct",
+    "struct_specifier": "struct",
+    "impl_item": "impl",
+    "trait_item": "trait",
+    "protocol_declaration": "protocol",  # Swift
+    "trait_declaration": "trait",  # PHP
+    "mod_item": "module",
+    "module": "module",
+    "export_statement": "export",
+    "object_definition": "object",  # Scala
+    "trait_definition": "trait",  # Scala
+    "enum_definition": "enum",  # Scala
+    "val_definition": "val",  # Scala
+    "var_definition": "var",  # Scala
+    "type_definition": "type",  # Scala
+    "given_definition": "given",  # Scala
+    "block": "block",  # HCL
+    "Decl": "declaration",  # Zig -- refined by _symbol_type_zig
+    "TestDecl": "test",  # Zig
+    "ComptimeDecl": "comptime",  # Zig
+    "function_statement": "function",  # PowerShell (functions and filters)
+    "class_statement": "class",  # PowerShell
+    "variable_declaration": "variable",  # Lua -- refined by _symbol_type_lua
+    "subroutine_declaration_statement": "subroutine",  # Perl
+    "package_statement": "package",  # Perl
+    "object_declaration": "object",  # Kotlin
+    # Dart
+    "mixin_declaration": "mixin",
+    "extension_declaration": "extension",
+    "extension_type_declaration": "extension_type",
+    "type_alias": "type",
+    "function_signature": "function",
+    "getter_signature": "getter",
+    # Data/config formats
+    "table": "table",  # TOML
+    "statement": "statement",  # SQL
+    "rule_set": "rule",  # CSS/SCSS
+    "media_statement": "media",  # CSS/SCSS
+    "keyframes_statement": "keyframes",  # CSS/SCSS
+    "import_statement": "import",  # CSS/SCSS
+    "section": "section",  # Markdown, RST
+    "rule": "rule",  # Make
+}
+
+
+def _symbol_type_zig(node_type: str, node: Any) -> str | None:
+    """Refine Zig Decl based on inner structure."""
+    if node_type != "Decl":
+        return None
+    if node is not None:
         for child in node.children:
-            if child.type == "identifier":
-                parts.append(child.text.decode("utf-8", errors="replace"))
-            elif child.type == "string_lit":
-                text = child.text.decode("utf-8", errors="replace").strip('"')
-                parts.append(text)
-            elif child.type == "block":
-                break  # stop at nested block body
-            elif child.type == "{":
-                break
-        return " ".join(parts) if parts else node.type
+            if child.type == "FnProto":
+                return "function"
+            if child.type == "VarDecl":
+                # Peek at the assigned value to distinguish struct/enum/union/error
+                for gc in child.children:
+                    if gc.type == "ErrorUnionExpr":
+                        val = (gc.text or b"").decode("utf-8", errors="replace")
+                        if val.startswith("struct"):
+                            return "struct"
+                        if val.startswith("enum"):
+                            return "enum"
+                        if val.startswith("union"):
+                            return "union"
+                        if val.startswith("error"):
+                            return "error_set"
+                return "variable"
+    return None
 
-    if language == "python":
-        # Handle decorated definitions by looking inside
-        target = node
-        if node.type == "decorated_definition":
-            for child in node.children:
-                if child.type in ("function_definition", "class_definition"):
-                    target = child
-                    break
 
-        for child in target.children:
-            if child.type == "identifier":
-                return child.text.decode("utf-8", errors="replace")
-        return target.type
-
-    if language == "go":
-        if node.type == "type_declaration":
-            for child in node.children:
-                if child.type == "type_spec":
-                    for gc in child.children:
-                        if gc.type == "type_identifier":
-                            return gc.text.decode("utf-8", errors="replace")
+def _symbol_type_r(node_type: str, node: Any) -> str | None:
+    """Refine R binary_operator based on whether it assigns a function."""
+    if node_type != "binary_operator":
+        return None
+    if node is not None:
         for child in node.children:
-            if child.type in ("identifier", "field_identifier"):
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
+            if child.type == "function_definition":
+                return "function"
+    return "block"
 
-    if language in ("typescript", "tsx", "javascript"):
-        if node.type == "export_statement":
-            # Look inside the exported declaration
+
+def _symbol_type_lua(node_type: str, node: Any) -> str | None:
+    """Refine Lua function_declaration and variable_declaration."""
+    # Refine function_declaration for method-style (M.method / M:method)
+    if node_type == "function_declaration":
+        if node is not None:
             for child in node.children:
-                if child.type in (
-                    "function_declaration",
-                    "class_declaration",
-                    "interface_declaration",
-                    "type_alias_declaration",
-                    "enum_declaration",
-                ):
-                    return _extract_symbol_name(child, language, source_bytes)
-                if child.type == "lexical_declaration":
-                    for gc in child.children:
-                        if gc.type == "variable_declarator":
-                            for ggc in gc.children:
-                                if ggc.type == "identifier":
-                                    return ggc.text.decode("utf-8", errors="replace")
-            return "export"
-
-        for child in node.children:
-            if child.type in ("identifier", "type_identifier"):
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "rust":
-        for child in node.children:
-            if child.type in ("identifier", "type_identifier"):
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "swift":
-        # Swift: class, struct, enum, and extension all parse as class_declaration.
-        # For extensions the name lives in a user_type child (e.g. "Animal" in
-        # "extension Animal: Drawable"), otherwise it's a direct type_identifier.
-        # function_declaration uses simple_identifier for the function name.
-        # protocol_declaration uses type_identifier.
-        if node.type == "class_declaration":
-            # Check for extension — name is in user_type child
-            for child in node.children:
-                if child.type == "extension":
-                    # The extended type is in the first user_type child
-                    for sibling in node.children:
-                        if sibling.type == "user_type":
-                            for gc in sibling.children:
-                                if gc.type == "type_identifier":
-                                    return gc.text.decode("utf-8", errors="replace")
-                    return node.type
-            # class / struct / enum — name is type_identifier
-            for child in node.children:
-                if child.type == "type_identifier":
-                    return child.text.decode("utf-8", errors="replace")
-            return node.type
-        if node.type == "protocol_declaration":
-            for child in node.children:
-                if child.type == "type_identifier":
-                    return child.text.decode("utf-8", errors="replace")
-            return node.type
-        if node.type == "function_declaration":
-            for child in node.children:
-                if child.type == "simple_identifier":
-                    return child.text.decode("utf-8", errors="replace")
-            return node.type
-        return node.type
-
-    if language == "kotlin":
-        # Kotlin: class_declaration, function_declaration, object_declaration
-        # Name is in type_identifier (classes/objects) or simple_identifier (functions)
-        for child in node.children:
-            if child.type == "type_identifier":
-                return child.text.decode("utf-8", errors="replace")
-            if child.type == "simple_identifier":
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language in ("java", "csharp"):
-        for child in node.children:
-            if child.type == "identifier":
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "scala":
-        # type_definition uses type_identifier; all others use identifier
-        for child in node.children:
-            if child.type in ("identifier", "type_identifier"):
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "ruby":
-        for child in node.children:
-            if child.type in ("identifier", "constant"):
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "lua":
-        if node.type == "function_declaration":
-            for child in node.children:
-                if child.type == "identifier":
-                    return child.text.decode("utf-8", errors="replace")
-                if child.type == "dot_index_expression":
-                    # e.g. M.method -> "M.method"
-                    return child.text.decode("utf-8", errors="replace")
-                if child.type == "method_index_expression":
-                    # e.g. M:otherMethod -> "M:otherMethod"
-                    return child.text.decode("utf-8", errors="replace")
-            return node.type
-        if node.type == "variable_declaration":
-            # local M = {} or local f = function(...)
+                if child.type in ("dot_index_expression", "method_index_expression"):
+                    return "method"
+        return "function"
+    # Refine variable_declaration — distinguish variable from function assignment
+    if node_type == "variable_declaration":
+        if node is not None:
             for child in node.children:
                 if child.type == "assignment_statement":
                     for gc in child.children:
-                        if gc.type == "variable_list":
+                        if gc.type == "expression_list":
                             for ggc in gc.children:
-                                if ggc.type == "identifier":
-                                    return ggc.text.decode("utf-8", errors="replace")
-            return node.type
-        return node.type
+                                if ggc.type == "function_definition":
+                                    return "function"
+        return "variable"
+    return None
 
-    if language == "perl":
-        if node.type == "subroutine_declaration_statement":
-            # subroutine_declaration_statement -> bareword (sub name)
-            for child in node.children:
-                if child.type == "bareword":
-                    return child.text.decode("utf-8", errors="replace")
-            return node.type
-        if node.type == "package_statement":
-            # package_statement -> package (keyword) -> package (name)
-            # The second child of type "package" is the package name
-            found_keyword = False
-            for child in node.children:
-                if child.type == "package":
-                    if not found_keyword:
-                        found_keyword = True  # skip the "package" keyword
-                    else:
-                        return child.text.decode("utf-8", errors="replace")
-            return node.type
-        return node.type
 
-    if language == "dart":
-        if node.type == "getter_signature":
-            # getter_signature: type_identifier, get, identifier
-            # We want the identifier AFTER the "get" keyword, not the return type.
-            for child in node.children:
-                if child.type == "identifier":
-                    return child.text.decode("utf-8", errors="replace")
-            return node.type
-        # For most Dart nodes (class_definition, enum_declaration, mixin_declaration,
-        # extension_declaration, extension_type_declaration, type_alias,
-        # function_signature), the first identifier child holds the name.
+def _symbol_type_swift(node_type: str, node: Any) -> str | None:
+    """Refine Swift class_declaration based on keyword child."""
+    if node_type != "class_declaration":
+        return None
+    if node is not None:
         for child in node.children:
-            if child.type == "identifier":
-                return child.text.decode("utf-8", errors="replace")
-            if child.type == "type_identifier":
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
+            if child.type == "struct":
+                return "struct"
+            if child.type == "enum":
+                return "enum"
+            if child.type == "extension":
+                return "extension"
+        return "class"
+    return None
 
-    if language == "elixir":
-        # Elixir call nodes: the keyword is the first identifier child,
-        # the name is in the arguments child.
+
+def _symbol_type_kotlin(node_type: str, node: Any) -> str | None:
+    """Refine Kotlin class_declaration based on keyword children."""
+    if node_type != "class_declaration":
+        return None
+    if node is not None:
+        child_types = {c.type for c in node.children}
+        if "interface" in child_types:
+            return "interface"
+        if "enum" in child_types:
+            return "enum"
+        # Check modifiers for data class
+        for child in node.children:
+            if child.type == "modifiers":
+                for mod in child.children:
+                    if mod.type == "class_modifier":
+                        mod_text = (mod.text or b"").decode("utf-8", errors="replace")
+                        if mod_text == "data":
+                            return "data_class"
+        return "class"
+    return None
+
+
+def _symbol_type_elixir(node_type: str, node: Any) -> str | None:
+    """Refine Elixir call node type based on the keyword identifier."""
+    if node_type != "call":
+        return None
+    if node is not None:
         keyword = _get_elixir_call_keyword(node)
-        if keyword in ("defmodule", "defprotocol"):
-            # Name is an alias node inside arguments: defmodule MyApp.User do
-            for child in node.children:
-                if child.type == "arguments":
-                    for arg in child.children:
-                        if arg.type == "alias":
-                            return arg.text.decode("utf-8", errors="replace")
-            return node.type
-        if keyword == "defimpl":
-            # First alias in arguments: defimpl Printable, for: MyApp.User do
-            for child in node.children:
-                if child.type == "arguments":
-                    for arg in child.children:
-                        if arg.type == "alias":
-                            return arg.text.decode("utf-8", errors="replace")
-            return node.type
-        if keyword in ("def", "defp", "defmacro"):
-            # Function name is nested: arguments -> call -> identifier
-            for child in node.children:
-                if child.type == "arguments":
-                    for arg in child.children:
-                        if arg.type == "call":
-                            for gc in arg.children:
-                                if gc.type == "identifier":
-                                    return gc.text.decode("utf-8", errors="replace")
-                        # One-liner: def to_string(user), do: ...
-                        if arg.type == "identifier":
-                            return arg.text.decode("utf-8", errors="replace")
-            return node.type
-        # Non-structural call -- use fallback
-        return node.type
+        keyword_type_map: dict[str, str] = {
+            "defmodule": "module",
+            "def": "function",
+            "defp": "function",
+            "defmacro": "macro",
+            "defprotocol": "protocol",
+            "defimpl": "impl",
+        }
+        if keyword is not None:
+            return keyword_type_map.get(keyword, "block")
+    return "block"
 
-    if language == "zig":
-        if node.type == "TestDecl":
-            for child in node.children:
-                if child.type == "STRINGLITERALSINGLE":
-                    return child.text.decode("utf-8", errors="replace").strip('"')
-            return "test"
-        if node.type == "ComptimeDecl":
-            return "(comptime)"
-        # Decl: look inside FnProto or VarDecl for IDENTIFIER
-        for child in node.children:
-            if child.type == "FnProto":
-                for gc in child.children:
-                    if gc.type == "IDENTIFIER":
-                        return gc.text.decode("utf-8", errors="replace")
-            if child.type == "VarDecl":
-                for gc in child.children:
-                    if gc.type == "IDENTIFIER":
-                        return gc.text.decode("utf-8", errors="replace")
-        return node.type
 
-    if language == "powershell":
-        # function_statement: child function_name holds the name
-        # class_statement: child simple_name holds the name
-        for child in node.children:
-            if child.type == "function_name":
-                return child.text.decode("utf-8", errors="replace")
-            if child.type == "simple_name":
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "r":
-        # R: binary_operator nodes for function assignments
-        # Structure: identifier <- function_definition  or  identifier = function_definition
-        for child in node.children:
-            if child.type == "identifier":
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "php":
-        # PHP: class_declaration, interface_declaration, trait_declaration,
-        # enum_declaration, function_definition all have a direct "name" child
-        for child in node.children:
-            if child.type == "name":
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "c" or language == "cpp":
-        # function_definition -> declarator -> identifier
-        for child in node.children:
-            if child.type in ("identifier", "type_identifier"):
-                return child.text.decode("utf-8", errors="replace")
-            if "declarator" in child.type:
-                for gc in child.children:
-                    if gc.type in ("identifier", "field_identifier"):
-                        return gc.text.decode("utf-8", errors="replace")
-                    if "declarator" in gc.type:
-                        for ggc in gc.children:
-                            if ggc.type in ("identifier", "field_identifier"):
-                                return ggc.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "toml":
-        # table: [section_name] — extract from bare_key or dotted_key child
-        for child in node.children:
-            if child.type in ("bare_key", "dotted_key"):
-                return child.text.decode("utf-8", errors="replace")
-        return node.type
-
-    if language == "sql":
-        # statement wraps inner nodes like create_table, select, insert
-        # Extract the first keyword + identifier from the inner node text
-        inner_text = (node.text or b"").decode("utf-8", errors="replace").strip()
-        # Take up to the first parenthesis or semicolon, then first ~3 words
-        truncated = inner_text.split("(")[0].split(";")[0].strip()
-        words = truncated.split()[:3]
-        return " ".join(words) if words else node.type
-
-    if language in ("css", "scss"):
-        if node.type == "rule_set":
-            for child in node.children:
-                if child.type == "selectors":
-                    return child.text.decode("utf-8", errors="replace").strip()
-            return node.type
-        if node.type in ("media_statement", "keyframes_statement", "import_statement"):
-            # Use the first line of text as the name
-            text = (node.text or b"").decode("utf-8", errors="replace")
-            first_line = text.split("{")[0].strip().split(";")[0].strip()
-            return first_line
-        return node.type
-
-    if language == "markdown":
-        # section: extract heading text from atx_heading > inline
-        for child in node.children:
-            if child.type == "atx_heading":
-                for gc in child.children:
-                    if gc.type == "inline":
-                        return gc.text.decode("utf-8", errors="replace").strip()
-        return node.type
-
-    if language == "make":
-        # rule: extract target name from targets > word
-        for child in node.children:
-            if child.type == "targets":
-                for gc in child.children:
-                    if gc.type == "word":
-                        return gc.text.decode("utf-8", errors="replace").strip()
-                return child.text.decode("utf-8", errors="replace").strip()
-        return node.type
-
-    if language == "rst":
-        # section: extract title text
-        for child in node.children:
-            if child.type == "title":
-                return child.text.decode("utf-8", errors="replace").strip()
-        return node.type
-
-    # Fallback: look for any identifier child
-    for child in node.children:
-        if child.type == "identifier":
-            return child.text.decode("utf-8", errors="replace")
-    return node.type
+# Registry mapping language names to symbol type override functions.
+# Each override returns str | None — None means "fall through to base map".
+_SYMBOL_TYPE_OVERRIDES: dict[str, Callable[[str, Any], str | None]] = {
+    "zig": _symbol_type_zig,
+    "r": _symbol_type_r,
+    "lua": _symbol_type_lua,
+    "swift": _symbol_type_swift,
+    "kotlin": _symbol_type_kotlin,
+    "elixir": _symbol_type_elixir,
+}
 
 
 def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -> str:
@@ -642,163 +922,12 @@ def _node_symbol_type(node_type: str, language: str, node: Node | None = None) -
     Returns:
         Human-readable symbol type string (e.g. "function", "class", "struct").
     """
-    type_map = {
-        "function_definition": "function",
-        "function_declaration": "function",
-        "function_item": "function",
-        "method_declaration": "method",
-        "method": "method",
-        "class_definition": "class",
-        "class_declaration": "class",
-        "class_specifier": "class",
-        "decorated_definition": "decorated",
-        "type_declaration": "type",
-        "type_alias_declaration": "type",
-        "interface_declaration": "interface",
-        "enum_declaration": "enum",
-        "enum_specifier": "enum",
-        "enum_item": "enum",
-        "struct_item": "struct",
-        "struct_specifier": "struct",
-        "impl_item": "impl",
-        "trait_item": "trait",
-        "protocol_declaration": "protocol",  # Swift
-        "trait_declaration": "trait",  # PHP
-        "mod_item": "module",
-        "module": "module",
-        "export_statement": "export",
-        "object_definition": "object",  # Scala
-        "trait_definition": "trait",  # Scala
-        "enum_definition": "enum",  # Scala
-        "val_definition": "val",  # Scala
-        "var_definition": "var",  # Scala
-        "type_definition": "type",  # Scala
-        "given_definition": "given",  # Scala
-        "block": "block",  # HCL
-        "Decl": "declaration",  # Zig -- refined below for functions/types
-        "TestDecl": "test",  # Zig
-        "ComptimeDecl": "comptime",  # Zig
-        "function_statement": "function",  # PowerShell (functions and filters)
-        "class_statement": "class",  # PowerShell
-        "variable_declaration": "variable",  # Lua — refined below for function assignments
-        "subroutine_declaration_statement": "subroutine",  # Perl
-        "package_statement": "package",  # Perl
-        "object_declaration": "object",  # Kotlin
-        # Dart
-        "mixin_declaration": "mixin",
-        "extension_declaration": "extension",
-        "extension_type_declaration": "extension_type",
-        "type_alias": "type",
-        "function_signature": "function",
-        "getter_signature": "getter",
-        # Data/config formats
-        "table": "table",  # TOML
-        "statement": "statement",  # SQL
-        "rule_set": "rule",  # CSS/SCSS
-        "media_statement": "media",  # CSS/SCSS
-        "keyframes_statement": "keyframes",  # CSS/SCSS
-        "import_statement": "import",  # CSS/SCSS
-        "section": "section",  # Markdown, RST
-        "rule": "rule",  # Make
-    }
-    result = type_map.get(node_type, "block")
-
-    # Zig: refine Decl based on inner structure
-    if language == "zig" and node_type == "Decl":
-        if node is not None:
-            for child in node.children:
-                if child.type == "FnProto":
-                    return "function"
-                if child.type == "VarDecl":
-                    # Peek at the assigned value to distinguish struct/enum/union/error
-                    for gc in child.children:
-                        if gc.type == "ErrorUnionExpr":
-                            val = (gc.text or b"").decode("utf-8", errors="replace")
-                            if val.startswith("struct"):
-                                return "struct"
-                            if val.startswith("enum"):
-                                return "enum"
-                            if val.startswith("union"):
-                                return "union"
-                            if val.startswith("error"):
-                                return "error_set"
-                    return "variable"
-
-    # R: refine binary_operator based on whether it assigns a function
-    if language == "r" and node_type == "binary_operator":
-        if node is not None:
-            for child in node.children:
-                if child.type == "function_definition":
-                    return "function"
-        return "block"
-
-    # Lua: refine function_declaration for method-style (M.method / M:method)
-    if language == "lua" and node_type == "function_declaration":
-        if node is not None:
-            for child in node.children:
-                if child.type in ("dot_index_expression", "method_index_expression"):
-                    return "method"
-        return "function"
-
-    # Lua: refine variable_declaration — distinguish variable from function assignment
-    if language == "lua" and node_type == "variable_declaration":
-        if node is not None:
-            for child in node.children:
-                if child.type == "assignment_statement":
-                    for gc in child.children:
-                        if gc.type == "expression_list":
-                            for ggc in gc.children:
-                                if ggc.type == "function_definition":
-                                    return "function"
-        return "variable"
-
-    # Swift: refine class_declaration based on keyword child (class/struct/enum/extension)
-    if language == "swift" and node_type == "class_declaration":
-        if node is not None:
-            for child in node.children:
-                if child.type == "struct":
-                    return "struct"
-                if child.type == "enum":
-                    return "enum"
-                if child.type == "extension":
-                    return "extension"
-            return "class"
-
-    # Kotlin: refine class_declaration based on keyword children
-    if language == "kotlin" and node_type == "class_declaration":
-        if node is not None:
-            child_types = {c.type for c in node.children}
-            if "interface" in child_types:
-                return "interface"
-            if "enum" in child_types:
-                return "enum"
-            # Check modifiers for data class
-            for child in node.children:
-                if child.type == "modifiers":
-                    for mod in child.children:
-                        if mod.type == "class_modifier":
-                            mod_text = (mod.text or b"").decode("utf-8", errors="replace")
-                            if mod_text == "data":
-                                return "data_class"
-            return "class"
-
-    # Elixir: refine call node type based on the keyword identifier
-    if language == "elixir" and node_type == "call":
-        if node is not None:
-            keyword = _get_elixir_call_keyword(node)
-            keyword_type_map: dict[str, str] = {
-                "defmodule": "module",
-                "def": "function",
-                "defp": "function",
-                "defmacro": "macro",
-                "defprotocol": "protocol",
-                "defimpl": "impl",
-            }
-            if keyword is not None:
-                return keyword_type_map.get(keyword, "block")
-        return "block"
-
-    return result
+    override_fn = _SYMBOL_TYPE_OVERRIDES.get(language)
+    if override_fn is not None:
+        result = override_fn(node_type, node)
+        if result is not None:
+            return result
+    return _BASE_TYPE_MAP.get(node_type, "block")
 
 
 def parse_code_file(file_path: Path, language: str, relative_path: str) -> CodeDocument | None:

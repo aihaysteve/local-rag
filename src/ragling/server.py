@@ -177,7 +177,7 @@ class ServerOrchestrator:
         # Config watching (both leader and follower need fresh config)
         self._config_watcher = ConfigWatcher(
             self._config,
-            config_path=Path(self._config_path) if self._config_path else DEFAULT_CONFIG_PATH,
+            config_path=self._config_path if self._config_path else DEFAULT_CONFIG_PATH,
             on_reload=self.handle_config_reload,
         )
 
@@ -195,7 +195,9 @@ class ServerOrchestrator:
                 on_promote=self.start_leader_infrastructure,
             )
 
-        atexit.register(self.shutdown)
+        if not hasattr(self, "_shutdown_registered"):
+            atexit.register(self.shutdown)
+            self._shutdown_registered = True
 
         server = self.create_mcp_server()
 
