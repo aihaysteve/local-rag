@@ -10,6 +10,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ragling.chunker import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +107,77 @@ def split_spec_sections(text: str) -> tuple[str, list[SpecSection]]:
         )
 
     return subsystem, sections
+
+
+def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> list[Chunk]:
+    """Parse a SPEC.md file into section-level chunks with rich metadata.
+
+    Each H2 section becomes one chunk with a context prefix containing
+    the spec path, section type, and subsystem name.
+
+    Args:
+        text: Raw SPEC.md content.
+        relative_path: Path to the SPEC.md relative to the repo root.
+        chunk_size_tokens: Maximum words per chunk before splitting.
+
+    Returns:
+        List of Chunk objects, one per section.
+    """
+    from ragling.chunker import Chunk, _split_into_windows, _word_count
+
+    if not text.strip():
+        return []
+
+    subsystem, sections = split_spec_sections(text)
+    if not sections:
+        return []
+
+    chunks: list[Chunk] = []
+    chunk_idx = 0
+
+    for section in sections:
+        prefix = f"[{relative_path}] [spec:{section.section_type}] {subsystem}\n"
+
+        headings: list[str] = []
+        if subsystem:
+            headings.append(subsystem)
+        if section.heading != "(overview)":
+            headings.append(section.heading)
+
+        metadata = {
+            "subsystem_name": subsystem,
+            "section_type": section.section_type,
+            "spec_path": relative_path,
+            "headings": headings,
+        }
+
+        prefixed_text = prefix + section.body
+
+        if _word_count(prefixed_text) <= chunk_size_tokens:
+            chunks.append(
+                Chunk(
+                    text=prefixed_text,
+                    title=relative_path,
+                    metadata=metadata,
+                    chunk_index=chunk_idx,
+                )
+            )
+            chunk_idx += 1
+        else:
+            # Oversized section: split into windows, preserve metadata
+            prefix_words = _word_count(prefix)
+            available = max(chunk_size_tokens - prefix_words, 50)
+            overlap = min(available // 4, 50)
+            windows = _split_into_windows(section.body, available, overlap)
+            for window in windows:
+                chunks.append(
+                    Chunk(
+                        text=prefix + window,
+                        title=relative_path,
+                        metadata=metadata.copy(),
+                        chunk_index=chunk_idx,
+                    )
+                )
+                chunk_idx += 1
+
+    return chunks

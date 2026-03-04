@@ -1,6 +1,6 @@
 """Tests for ragling.parsers.spec — SPEC.md section-level parser."""
 
-from ragling.parsers.spec import normalize_section_type, split_spec_sections
+from ragling.parsers.spec import normalize_section_type, parse_spec, split_spec_sections
 
 
 class TestNormalizeSectionType:
@@ -97,3 +97,62 @@ class TestSplitSpecSections:
         assert len(sections) == 2
         assert sections[0].body == ""
         assert sections[0].heading == "Purpose"
+
+
+class TestParseSpec:
+    """Tests for the main parse_spec function that produces Chunk objects."""
+
+    def test_produces_one_chunk_per_section(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n\n## Dependencies\nUses bcrypt.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert len(chunks) == 2
+
+    def test_chunk_text_has_context_prefix(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert chunks[0].text.startswith("[features/auth/SPEC.md] [spec:purpose] Auth\n")
+
+    def test_chunk_text_includes_body(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert "Handles authentication." in chunks[0].text
+
+    def test_chunk_title_is_spec_path(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert chunks[0].title == "features/auth/SPEC.md"
+
+    def test_metadata_has_subsystem_name(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert chunks[0].metadata["subsystem_name"] == "Auth"
+
+    def test_metadata_has_section_type(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert chunks[0].metadata["section_type"] == "purpose"
+
+    def test_metadata_has_spec_path(self) -> None:
+        text = "# Auth\n\n## Purpose\nHandles authentication.\n"
+        chunks = parse_spec(text, "features/auth/SPEC.md")
+        assert chunks[0].metadata["spec_path"] == "features/auth/SPEC.md"
+
+    def test_metadata_has_headings(self) -> None:
+        text = "# Auth\n\n## Invariants\nSome invariants.\n"
+        chunks = parse_spec(text, "auth/SPEC.md")
+        assert chunks[0].metadata["headings"] == ["Auth", "Invariants"]
+
+    def test_chunk_indexes_sequential(self) -> None:
+        text = "# Auth\n\n## Purpose\nA.\n\n## Testing\nB.\n\n## Dependencies\nC.\n"
+        chunks = parse_spec(text, "auth/SPEC.md")
+        assert [c.chunk_index for c in chunks] == [0, 1, 2]
+
+    def test_overview_chunk_for_preamble(self) -> None:
+        text = "# Auth\n\nThis is the auth subsystem.\n\n## Purpose\nHandles auth.\n"
+        chunks = parse_spec(text, "auth/SPEC.md")
+        assert chunks[0].metadata["section_type"] == "overview"
+        assert "This is the auth subsystem." in chunks[0].text
+
+    def test_empty_spec_produces_no_chunks(self) -> None:
+        chunks = parse_spec("", "empty/SPEC.md")
+        assert chunks == []
