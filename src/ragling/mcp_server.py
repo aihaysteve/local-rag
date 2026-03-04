@@ -441,6 +441,12 @@ def create_server(
           Source types: depend on auto-detection (code or project types).
           Useful filters: collection=<watch-name>.
 
+        **SPEC.md subsystems** — Structured subsystem specifications extracted from SPEC.md files
+          found in code repositories and project directories.
+          Source types: spec.
+          Metadata: subsystem, repo.
+          Useful filters: source_type=spec for SPEC.md subsystem specifications.
+
         ## Collection filtering
 
         The ``collection`` parameter accepts either a collection name or a collection type:
@@ -492,7 +498,7 @@ def create_server(
                 or collection type ('system', 'project', 'code'). Omit to search everything.
             top_k: Number of results to return (default 10).
             source_type: Filter by source type: 'markdown', 'pdf', 'docx', 'epub', 'html',
-                'txt', 'email', 'code', 'commit', 'rss'.
+                'txt', 'email', 'code', 'commit', 'rss', 'spec'.
             date_from: Only results after this date (YYYY-MM-DD).
             date_to: Only results before this date (YYYY-MM-DD).
             sender: Filter by email sender (case-insensitive substring match).
