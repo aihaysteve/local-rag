@@ -97,6 +97,17 @@ Once connected, Claude searches your indexed knowledge using the `rag_search` to
 cp -r /path/to/ragling/.claude/skills/ragling your-project/.claude/skills/
 ```
 
+## Add Ragling to a Project
+
+To add ragling search to an existing project:
+
+```bash
+cd your-project
+uv run --directory /path/to/ragling ragling init
+```
+
+This creates `ragling.json` and `.mcp.json` in your project directory. See [Project Setup](project-setup.md) for details.
+
 ## Next Steps
 
 - [Configuration](configuration.md) — set up permanent paths for your sources

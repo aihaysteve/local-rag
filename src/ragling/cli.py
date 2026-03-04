@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ragling.config import DEFAULT_CONFIG_PATH, Config, load_config
+from ragling.config import DEFAULT_CONFIG_PATH, RESERVED_COLLECTION_NAMES, Config, load_config
 
 if TYPE_CHECKING:
     from ragling.indexing_queue import IndexingQueue
@@ -977,3 +977,154 @@ def mcp_config(port: int, tls_dir: Path | None) -> None:
         }
     }
     click.echo(json.dumps(config_data, indent=2))
+
+
+# ── Init command ───────────────────────────────────────────────────────
+
+
+def _detect_ragling_dir() -> Path:
+    """Detect the ragling installation directory from package source location."""
+    # cli.py is at src/ragling/cli.py, project root is 3 levels up
+    candidate = Path(__file__).resolve().parent.parent.parent
+    if not (candidate / "pyproject.toml").exists():
+        raise click.ClickException(
+            f"Could not detect ragling installation at {candidate}. "
+            f"Use --ragling-dir to specify the path."
+        )
+    return candidate
+
+
+def _check_ollama_status() -> tuple[bool, bool]:
+    """Check if Ollama is running and if bge-m3 is available.
+
+    Returns:
+        Tuple of (ollama_running, model_available).
+    """
+    import subprocess
+    import urllib.request
+
+    # Check if Ollama is running
+    try:
+        with urllib.request.urlopen("http://localhost:11434", timeout=3):
+            ollama_running = True
+    except OSError:
+        return False, False
+
+    # Check if bge-m3 is pulled
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        model_available = "bge-m3" in result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        model_available = False
+
+    return ollama_running, model_available
+
+
+@main.command()
+@click.option(
+    "--name", "-n", default=None, help="Project name. Defaults to current directory name."
+)
+@click.option(
+    "--ragling-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to ragling installation. Auto-detected if omitted.",
+)
+def init(name: str | None, ragling_dir: Path | None) -> None:
+    """Initialize ragling for the current project.
+
+    Creates ragling.json and .mcp.json in the current directory.
+    """
+    import json
+
+    cwd = Path.cwd()
+    project_name = name or cwd.name
+
+    # Validate project name
+    if project_name in RESERVED_COLLECTION_NAMES:
+        raise click.ClickException(
+            f"'{project_name}' is a reserved collection name. "
+            f"Use --name to choose a different name."
+        )
+
+    if ragling_dir is not None and not (ragling_dir / "pyproject.toml").exists():
+        raise click.ClickException(
+            f"No pyproject.toml found at {ragling_dir}. "
+            f"Is this the correct ragling installation path?"
+        )
+    ragling_path = ragling_dir or _detect_ragling_dir()
+
+    # Create ragling.json
+    ragling_config_path = cwd / "ragling.json"
+    if ragling_config_path.exists():
+        console.print("[yellow]ragling.json already exists, skipping.[/yellow]")
+    else:
+        config_data = {"watch": {project_name: "."}}
+        ragling_config_path.write_text(json.dumps(config_data, indent=2) + "\n")
+        console.print(f"[green]Created ragling.json[/green] (watch: {project_name})")
+
+    # Create/merge .mcp.json
+    mcp_path = cwd / ".mcp.json"
+    mcp_entry = {
+        "command": "uv",
+        "args": [
+            "run",
+            "--directory",
+            str(ragling_path),
+            "ragling",
+            "--config",
+            str(ragling_config_path.resolve()),
+            "serve",
+        ],
+    }
+
+    if mcp_path.exists():
+        try:
+            mcp_data = json.loads(mcp_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            mcp_data = {}
+    else:
+        mcp_data = {}
+
+    mcp_data.setdefault("mcpServers", {})
+    had_ragling = "ragling" in mcp_data["mcpServers"]
+    mcp_data["mcpServers"]["ragling"] = mcp_entry
+    mcp_path.write_text(json.dumps(mcp_data, indent=2) + "\n")
+
+    if had_ragling:
+        console.print("[green]Updated ragling entry in .mcp.json[/green]")
+    else:
+        console.print("[green]Added ragling to .mcp.json[/green]")
+
+    # Suggest .gitignore entries (both files contain machine-specific absolute paths)
+    gitignore_path = cwd / ".gitignore"
+    entries_to_suggest: list[str] = []
+    existing_gitignore = gitignore_path.read_text() if gitignore_path.exists() else ""
+    if "ragling.json" not in existing_gitignore:
+        entries_to_suggest.append("ragling.json")
+    if ".mcp.json" not in existing_gitignore:
+        entries_to_suggest.append(".mcp.json")
+    if entries_to_suggest:
+        console.print()
+        console.print(
+            "[yellow]Tip:[/yellow] Add to .gitignore (machine-specific paths): "
+            + ", ".join(f"[bold]{e}[/bold]" for e in entries_to_suggest)
+        )
+
+    # Check Ollama
+    ollama_running, model_available = _check_ollama_status()
+    console.print()
+    if ollama_running and model_available:
+        console.print("[green]Ollama:[/green] running, bge-m3 available")
+    elif ollama_running:
+        console.print("[yellow]Ollama:[/yellow] running, but bge-m3 not found")
+        console.print("  Run: [bold]ollama pull bge-m3[/bold]")
+    else:
+        console.print("[yellow]Ollama:[/yellow] not running")
+        console.print("  Install: [bold]brew install ollama[/bold]")
+        console.print("  Then:    [bold]ollama pull bge-m3[/bold]")

@@ -535,3 +535,42 @@ class TestWatchConfig:
         )
         with pytest.raises(ValueError, match="code_groups"):
             load_config(config_file)
+
+
+class TestConfigAutoDiscovery:
+    """Tests for ragling.json auto-discovery in CWD."""
+
+    def test_discovers_ragling_json_in_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config(None) should use ragling.json from CWD when present."""
+        config_file = tmp_path / "ragling.json"
+        config_file.write_text(json.dumps({"embedding_model": "test-model"}))
+        monkeypatch.chdir(tmp_path)
+        config = load_config(None)
+        assert config.embedding_model == "test-model"
+
+    def test_falls_back_to_default_when_no_ragling_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config(None) should fall back to ~/.ragling/config.json when no ragling.json in CWD."""
+        monkeypatch.chdir(tmp_path)
+        # No ragling.json in tmp_path — should use defaults (or global config)
+        config = load_config(None)
+        assert config.embedding_model == "bge-m3"  # default value
+
+    def test_explicit_path_overrides_auto_discovery(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit path argument should take precedence over CWD ragling.json."""
+        # ragling.json in CWD with one value
+        cwd_config = tmp_path / "ragling.json"
+        cwd_config.write_text(json.dumps({"embedding_model": "cwd-model"}))
+        monkeypatch.chdir(tmp_path)
+
+        # Explicit config with a different value
+        explicit_config = tmp_path / "explicit.json"
+        explicit_config.write_text(json.dumps({"embedding_model": "explicit-model"}))
+
+        config = load_config(explicit_config)
+        assert config.embedding_model == "explicit-model"
