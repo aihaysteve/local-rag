@@ -66,3 +66,8 @@ to be renamed — document the existing name and the recommended name if differe
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
 | Module or subsystem | internal/external | Path to its SPEC.md, or N/A |
+
+---
+
+After creating a new SPEC.md, register it in [`docs/specs/MANIFEST.md`](specs/MANIFEST.md)
+and add any cross-cutting concerns to the table there.
