@@ -24,6 +24,23 @@ class TestBuildSourceUri:
         assert result is None
 
 
+class TestBuildSourceUriSpec:
+    """Tests for spec source_type URI building."""
+
+    def test_spec_returns_file_uri(self) -> None:
+        from ragling.mcp_server import _build_source_uri
+
+        uri = _build_source_uri(
+            source_path="/Users/dev/project/features/auth/SPEC.md",
+            source_type="spec",
+            metadata={"subsystem_name": "Auth"},
+            collection="my-project",
+        )
+        assert uri is not None
+        assert uri.startswith("file://")
+        assert "SPEC.md" in uri
+
+
 class TestApplyUserContextToResults:
     def test_applies_path_mappings_to_results(self) -> None:
         from ragling.auth import UserContext

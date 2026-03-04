@@ -857,3 +857,74 @@ class TestProjectIndexerStatusReporting:
 
         assert result.indexed == 1
         conn.close()
+
+
+class TestSpecMdRouting:
+    """Tests for SPEC.md files being routed to the spec parser."""
+
+    def test_spec_md_uses_spec_parser(self, tmp_path: Path) -> None:
+        spec = tmp_path / "SPEC.md"
+        spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n\n## Dependencies\nUses bcrypt.\n")
+
+        from ragling.config import Config
+        from ragling.indexers.project import _parse_and_chunk
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        chunks = _parse_and_chunk(spec, "spec", config)
+
+        assert len(chunks) == 2
+        assert chunks[0].metadata["subsystem_name"] == "Auth"
+        assert chunks[0].metadata["section_type"] == "purpose"
+
+    def test_spec_md_detected_as_markdown_still_routes_to_spec_parser(self, tmp_path: Path) -> None:
+        """Even if source_type is 'markdown', SPEC.md should use spec parser."""
+        spec = tmp_path / "SPEC.md"
+        spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n")
+
+        from ragling.config import Config
+        from ragling.indexers.project import _parse_and_chunk
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        chunks = _parse_and_chunk(spec, "markdown", config)
+
+        assert chunks[0].metadata["subsystem_name"] == "Auth"
+
+    def test_spec_md_uses_source_path_for_context(self, tmp_path: Path) -> None:
+        """source_path is used as relative_path in spec metadata, not bare filename."""
+        spec = tmp_path / "SPEC.md"
+        spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n")
+
+        from ragling.config import Config
+        from ragling.indexers.project import _parse_and_chunk
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        full_path = str(spec.resolve())
+        chunks = _parse_and_chunk(spec, "spec", config, source_path=full_path)
+
+        assert chunks[0].metadata["spec_path"] == full_path
+        assert full_path in chunks[0].text  # context prefix uses full path
+
+    def test_spec_md_falls_back_to_filename_without_source_path(self, tmp_path: Path) -> None:
+        """Without source_path, falls back to filename for backward compat."""
+        spec = tmp_path / "SPEC.md"
+        spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n")
+
+        from ragling.config import Config
+        from ragling.indexers.project import _parse_and_chunk
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        chunks = _parse_and_chunk(spec, "spec", config)
+
+        assert chunks[0].metadata["spec_path"] == "SPEC.md"
+
+    def test_regular_md_still_uses_markdown_pipeline(self, tmp_path: Path) -> None:
+        readme = tmp_path / "README.md"
+        readme.write_text("# Hello\n\nThis is a readme.\n")
+
+        from ragling.config import Config
+        from ragling.indexers.project import _parse_and_chunk
+
+        config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
+        chunks = _parse_and_chunk(readme, "markdown", config)
+
+        assert "subsystem_name" not in chunks[0].metadata

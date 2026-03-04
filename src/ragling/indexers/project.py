@@ -39,6 +39,7 @@ from ragling.parsers.code import get_supported_extensions as _get_code_extension
 from ragling.parsers.code import is_code_file
 from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
+from ragling.parsers.spec import is_spec_file, parse_spec
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +140,19 @@ def _parse_and_chunk(
     source_type: str,
     config: Config,
     doc_store: DocStore | None = None,
+    source_path: str | None = None,
 ) -> list[Chunk]:
-    """Parse a file and return chunks based on its type."""
+    """Parse a file and return chunks based on its type.
+
+    Args:
+        path: Path to the file.
+        source_type: Detected source type (e.g. "markdown", "spec").
+        config: Application configuration.
+        doc_store: Optional shared document store for Docling conversion.
+        source_path: Optional source path for context in chunk metadata.
+            Used as the relative_path for SPEC.md parsing. Falls back to
+            the filename if not provided.
+    """
     # Route Docling-handled formats through Docling when doc_store is available
     if source_type in DOCLING_FORMATS:
         if doc_store is None:
@@ -159,6 +171,12 @@ def _parse_and_chunk(
             asr_model=config.asr.model,
             config=config,
         )
+
+    # SPEC.md: parse with dedicated spec parser for section-level chunking
+    if is_spec_file(path) and source_type in ("spec", "markdown"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        spec_path = source_path or path.name
+        return parse_spec(text, spec_path, chunk_size_tokens=config.chunk_size_tokens)
 
     # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker
     if source_type == "markdown":
@@ -604,7 +622,10 @@ class ProjectIndexer(BaseIndexer):
         source_path = str(file_path.resolve())
         file_h = precomputed_hash or file_hash(file_path)
         ext = file_path.suffix.lower()
-        source_type = _EXTENSION_MAP.get(ext, "plaintext")
+        if is_spec_file(file_path):
+            source_type = "spec"
+        else:
+            source_type = _EXTENSION_MAP.get(ext, "plaintext")
 
         # Check if already indexed with same hash (skip when hash was pre-checked)
         if not force and precomputed_hash is None:
@@ -617,7 +638,13 @@ class ProjectIndexer(BaseIndexer):
                 return False
 
         # Parse and chunk
-        chunks = _parse_and_chunk(file_path, source_type, config, doc_store=self.doc_store)
+        chunks = _parse_and_chunk(
+            file_path,
+            source_type,
+            config,
+            doc_store=self.doc_store,
+            source_path=source_path,
+        )
         if not chunks:
             logger.warning("No content extracted from %s, skipping", file_path)
             return False

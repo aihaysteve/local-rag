@@ -35,6 +35,7 @@ from ragling.parsers.code import (
     is_code_file,
     parse_code_file,
 )
+from ragling.parsers.spec import find_nearest_spec, is_spec_file, parse_spec
 
 logger = logging.getLogger(__name__)
 
@@ -346,7 +347,14 @@ def _should_exclude(relative_path: str) -> bool:
     return False
 
 
-def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config) -> list[Chunk]:
+def _code_blocks_to_chunks(
+    doc: CodeDocument,
+    relative_path: str,
+    config: Config,
+    *,
+    repo_root: Path | None = None,
+    spec_cache: dict[str, str | None] | None = None,
+) -> list[Chunk]:
     """Convert CodeDocument blocks into Chunks suitable for embedding.
 
     Each block gets a context prefix with file path, language, and symbol info.
@@ -356,6 +364,10 @@ def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config
         doc: Parsed code document.
         relative_path: Relative path within the repository.
         config: Application configuration.
+        repo_root: Optional repo root for SPEC.md lookups.
+        spec_cache: Optional shared cache for spec_path lookups, keyed by
+            directory path. Passing a shared dict across files avoids
+            redundant filesystem walks for files in the same directory.
 
     Returns:
         List of Chunk objects.
@@ -364,6 +376,17 @@ def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config
     overlap = config.chunk_overlap_tokens
     chunks: list[Chunk] = []
     chunk_idx = 0
+
+    # Resolve spec_path once per file (all blocks share the same directory)
+    resolved_spec_path: str | None = None
+    if repo_root is not None:
+        file_dir = str((repo_root / relative_path).parent)
+        if spec_cache is not None and file_dir in spec_cache:
+            resolved_spec_path = spec_cache[file_dir]
+        else:
+            resolved_spec_path = find_nearest_spec(repo_root / relative_path, repo_root)
+            if spec_cache is not None:
+                spec_cache[file_dir] = resolved_spec_path
 
     for block in doc.blocks:
         prefix = (
@@ -380,6 +403,9 @@ def _code_blocks_to_chunks(doc: CodeDocument, relative_path: str, config: Config
             "end_line": block.end_line,
             "file_path": block.file_path,
         }
+
+        if resolved_spec_path:
+            metadata["spec_path"] = resolved_spec_path
 
         prefixed_text = prefix + block.text
         prefix_word_count = _word_count(prefix)
@@ -588,10 +614,18 @@ class GitRepoIndexer(BaseIndexer):
             status.set_file_total(self.collection_name, len(changed_files), total_bytes)
 
         # Index pass: process changed files with per-file status ticks
+        # Shared cache avoids redundant SPEC.md walks for files in the same directory
+        spec_cache: dict[str, str | None] = {}
         for rel_path, file_h, file_size in changed_files:
             try:
                 was_indexed = self._index_file(
-                    conn, config, rel_path, collection_id, force, precomputed_hash=file_h
+                    conn,
+                    config,
+                    rel_path,
+                    collection_id,
+                    force,
+                    precomputed_hash=file_h,
+                    spec_cache=spec_cache,
                 )
                 if was_indexed:
                     indexed += 1
@@ -647,7 +681,7 @@ class GitRepoIndexer(BaseIndexer):
         if _should_exclude(relative_path):
             return False
         path = Path(relative_path)
-        return is_code_file(path)
+        return is_code_file(path) or is_spec_file(path)
 
     def _index_file(
         self,
@@ -657,6 +691,7 @@ class GitRepoIndexer(BaseIndexer):
         collection_id: int,
         force: bool,
         precomputed_hash: str | None = None,
+        spec_cache: dict[str, str | None] | None = None,
     ) -> bool:
         """Index a single file from the repository.
 
@@ -668,6 +703,7 @@ class GitRepoIndexer(BaseIndexer):
             force: If True, re-index regardless of change detection.
             precomputed_hash: Pre-computed SHA256 hash (avoids recomputation
                 when the scan pass already computed it).
+            spec_cache: Shared cache for spec_path lookups across files.
 
         Returns:
             True if the file was indexed, False if skipped (unchanged).
@@ -690,21 +726,30 @@ class GitRepoIndexer(BaseIndexer):
                 logger.debug("Unchanged, skipping: %s", relative_path)
                 return False
 
-        # Parse code file
-        language = get_language(file_path)
-        if not language:
-            logger.debug("No language detected for %s, skipping", relative_path)
-            return False
+        # Route SPEC.md files to the dedicated spec parser
+        if is_spec_file(file_path):
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+            chunks = parse_spec(text, relative_path, chunk_size_tokens=config.chunk_size_tokens)
+            source_type = "spec"
+        else:
+            # Parse code file
+            language = get_language(file_path)
+            if not language:
+                logger.debug("No language detected for %s, skipping", relative_path)
+                return False
 
-        doc = parse_code_file(file_path, language, relative_path)
-        if not doc or not doc.blocks:
-            logger.warning("No content extracted from %s, skipping", relative_path)
-            return False
+            doc = parse_code_file(file_path, language, relative_path)
+            if not doc or not doc.blocks:
+                logger.warning("No content extracted from %s, skipping", relative_path)
+                return False
 
-        # Convert blocks to chunks
-        chunks = _code_blocks_to_chunks(doc, relative_path, config)
+            chunks = _code_blocks_to_chunks(
+                doc, relative_path, config, repo_root=self.repo_path, spec_cache=spec_cache
+            )
+            source_type = "code"
+
         if not chunks:
-            logger.warning("Code file parsed but produced 0 chunks: %s", relative_path)
+            logger.warning("File parsed but produced 0 chunks: %s", relative_path)
             return False
 
         # Generate embeddings
@@ -717,7 +762,7 @@ class GitRepoIndexer(BaseIndexer):
             conn,
             collection_id=collection_id,
             source_path=source_path,
-            source_type="code",
+            source_type=source_type,
             chunks=chunks,
             embeddings=embeddings,
             file_hash=file_h,

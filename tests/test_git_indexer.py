@@ -16,11 +16,13 @@ from ragling.db import get_connection, init_db
 from ragling.indexers.base import IndexResult
 from ragling.indexers.git_indexer import (
     GitRepoIndexer,
+    _code_blocks_to_chunks,
     _git_ls_files,
     _make_watermarks,
     _parse_watermarks,
     _should_exclude,
 )
+from ragling.parsers.code import CodeBlock, CodeDocument
 
 # ---------------------------------------------------------------------------
 # Helpers & fixtures
@@ -931,3 +933,233 @@ class TestEdgeCases:
         sources = conn.execute("SELECT source_path FROM sources").fetchall()
         source_paths = [r["source_path"] for r in sources]
         assert not any("package-lock.json" in p for p in source_paths)
+
+
+# ---------------------------------------------------------------------------
+# Tests: spec_path metadata enrichment
+# ---------------------------------------------------------------------------
+
+
+class TestSpecPathEnrichment:
+    """Tests for spec_path metadata enrichment on code chunks."""
+
+    def test_code_chunks_get_spec_path(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        sub = repo / "features" / "auth"
+        sub.mkdir(parents=True)
+        (sub / "SPEC.md").write_text("# Auth\n")
+        (sub / "handlers.py").write_text("def login(): pass\n")
+
+        doc = CodeDocument(
+            file_path="features/auth/handlers.py",
+            language="python",
+            blocks=[
+                CodeBlock(
+                    text="def login(): pass",
+                    language="python",
+                    symbol_name="login",
+                    symbol_type="function",
+                    start_line=1,
+                    end_line=1,
+                    file_path="features/auth/handlers.py",
+                )
+            ],
+        )
+
+        config = _make_config(tmp_path)
+        chunks = _code_blocks_to_chunks(doc, "features/auth/handlers.py", config, repo_root=repo)
+
+        assert chunks[0].metadata["spec_path"] == "features/auth/SPEC.md"
+
+    def test_code_chunks_no_spec_path_when_missing(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("def main(): pass\n")
+
+        doc = CodeDocument(
+            file_path="main.py",
+            language="python",
+            blocks=[
+                CodeBlock(
+                    text="def main(): pass",
+                    language="python",
+                    symbol_name="main",
+                    symbol_type="function",
+                    start_line=1,
+                    end_line=1,
+                    file_path="main.py",
+                )
+            ],
+        )
+
+        config = _make_config(tmp_path)
+        chunks = _code_blocks_to_chunks(doc, "main.py", config, repo_root=repo)
+
+        assert "spec_path" not in chunks[0].metadata
+
+    def test_code_chunks_no_spec_path_when_no_repo_root(self, tmp_path: Path) -> None:
+        """Backward compat: no repo_root means no spec_path lookup."""
+        doc = CodeDocument(
+            file_path="main.py",
+            language="python",
+            blocks=[
+                CodeBlock(
+                    text="def main(): pass",
+                    language="python",
+                    symbol_name="main",
+                    symbol_type="function",
+                    start_line=1,
+                    end_line=1,
+                    file_path="main.py",
+                )
+            ],
+        )
+
+        config = _make_config(tmp_path)
+        chunks = _code_blocks_to_chunks(doc, "main.py", config)
+
+        assert "spec_path" not in chunks[0].metadata
+
+    def test_shared_spec_cache_reused_across_files(self, tmp_path: Path) -> None:
+        """A shared spec_cache avoids redundant filesystem walks."""
+        repo = tmp_path / "repo"
+        sub = repo / "features" / "auth"
+        sub.mkdir(parents=True)
+        (sub / "SPEC.md").write_text("# Auth\n")
+
+        def _make_doc(filename: str) -> CodeDocument:
+            return CodeDocument(
+                file_path=f"features/auth/{filename}",
+                language="python",
+                blocks=[
+                    CodeBlock(
+                        text="pass",
+                        language="python",
+                        symbol_name="f",
+                        symbol_type="function",
+                        start_line=1,
+                        end_line=1,
+                        file_path=f"features/auth/{filename}",
+                    )
+                ],
+            )
+
+        config = _make_config(tmp_path)
+        cache: dict[str, str | None] = {}
+
+        # First file populates cache
+        chunks1 = _code_blocks_to_chunks(
+            _make_doc("a.py"),
+            "features/auth/a.py",
+            config,
+            repo_root=repo,
+            spec_cache=cache,
+        )
+        assert chunks1[0].metadata["spec_path"] == "features/auth/SPEC.md"
+        assert len(cache) == 1
+
+        # Second file reuses cache (no additional filesystem walk)
+        chunks2 = _code_blocks_to_chunks(
+            _make_doc("b.py"),
+            "features/auth/b.py",
+            config,
+            repo_root=repo,
+            spec_cache=cache,
+        )
+        assert chunks2[0].metadata["spec_path"] == "features/auth/SPEC.md"
+        assert len(cache) == 1  # Still just 1 entry — cache was reused
+
+
+# ---------------------------------------------------------------------------
+# Tests: SPEC.md indexing integration
+# ---------------------------------------------------------------------------
+
+
+class TestSpecMdIndexing:
+    """Integration tests for SPEC.md files in git repos."""
+
+    @pytest.fixture
+    def repo_with_spec(self, tmp_path: Path) -> Path:
+        """A git repo with a SPEC.md and code files."""
+        repo = tmp_path / "repo"
+        auth = repo / "features" / "auth"
+        auth.mkdir(parents=True)
+        (auth / "SPEC.md").write_text(
+            "# Auth\n\n"
+            "## Purpose\nHandles user authentication.\n\n"
+            "## Invariants\n"
+            "| Invariant | Why |\n"
+            "|---|---|\n"
+            "| Tokens expire after 1h | Prevents stale sessions |\n\n"
+            "## Dependencies\nUses bcrypt library.\n"
+        )
+        (auth / "handlers.py").write_text(
+            "def login(user, password):\n    return authenticate(user, password)\n"
+        )
+        _run_git(repo, "init")
+        _run_git(repo, "config", "user.email", "test@test.com")
+        _run_git(repo, "config", "user.name", "Test")
+        _run_git(repo, "add", ".")
+        _run_git(repo, "commit", "-m", "initial with spec")
+        return repo
+
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    def test_code_file_has_spec_path_in_metadata(
+        self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
+    ) -> None:
+        """Code files under a SPEC.md directory get spec_path in chunk metadata."""
+        conn = _make_conn(tmp_path)
+        config = _make_config(tmp_path)
+        indexer = GitRepoIndexer(repo_with_spec, "test-spec")
+        indexer.index(conn, config)
+
+        rows = conn.execute(
+            "SELECT metadata FROM documents d JOIN sources s ON d.source_id = s.id "
+            "WHERE s.source_type = 'code'"
+        ).fetchall()
+        assert len(rows) > 0
+
+        for row in rows:
+            meta = json.loads(row["metadata"])
+            assert meta.get("spec_path") == "features/auth/SPEC.md"
+
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    def test_spec_md_indexed_as_spec_source_type(
+        self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
+    ) -> None:
+        """SPEC.md files should be indexed with source_type='spec'."""
+        conn = _make_conn(tmp_path)
+        config = _make_config(tmp_path)
+        indexer = GitRepoIndexer(repo_with_spec, "test-spec")
+        indexer.index(conn, config)
+
+        rows = conn.execute(
+            "SELECT source_path, source_type FROM sources WHERE source_type = 'spec'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert "SPEC.md" in rows[0]["source_path"]
+
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    def test_spec_chunks_have_section_metadata(
+        self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
+    ) -> None:
+        """SPEC.md chunks should have section-level metadata."""
+        conn = _make_conn(tmp_path)
+        config = _make_config(tmp_path)
+        indexer = GitRepoIndexer(repo_with_spec, "test-spec")
+        indexer.index(conn, config)
+
+        rows = conn.execute(
+            "SELECT metadata FROM documents d JOIN sources s ON d.source_id = s.id "
+            "WHERE s.source_type = 'spec'"
+        ).fetchall()
+        assert len(rows) > 0
+
+        section_types = set()
+        for row in rows:
+            meta = json.loads(row["metadata"])
+            assert meta["subsystem_name"] == "Auth"
+            assert "section_type" in meta
+            section_types.add(meta["section_type"])
+
+        assert "purpose" in section_types
