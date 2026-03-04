@@ -75,9 +75,11 @@ correct collection and indexer type.
 
 ### CLI
 
-`cli.py` provides the Click command group. The `serve` command implements the full
-startup sequence: leader election, IndexingQueue start, startup sync, file watchers,
-system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
+`cli.py` provides the Click command group. The `serve` command delegates to
+`ServerOrchestrator` for startup orchestration. `server.py` contains the
+`ServerOrchestrator` class that manages the full startup sequence: leader election,
+IndexingQueue start, startup sync, file watchers, system watcher, config watching,
+and shutdown. Supports stdio, SSE, and dual transport modes.
 
 **Key files:**
 - `config.py` -- frozen Config dataclass and `load_config()`
@@ -89,7 +91,8 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 - `leader.py` -- per-group leader election via flock
 - `sync.py` -- startup discovery and file routing
 - `mcp_server.py` -- FastMCP tool definitions
-- `cli.py` -- Click CLI commands and startup orchestration
+- `server.py` -- `ServerOrchestrator` class: startup orchestration (leader election, queue management, config watching, watcher startup, shutdown)
+- `cli.py` -- Click CLI commands; `serve` delegates to `ServerOrchestrator`
 - `path_mapping.py` -- host/container path translation
 - `query_logger.py` -- JSONL query logging
 - `indexer_types.py` -- IndexerType enum
@@ -106,9 +109,10 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 | `OllamaConnectionError` | MCP server, CLI | Raised when Ollama is unreachable |
 | `IndexingQueue`, `IndexJob` | CLI (serve), sync, watcher | Single-writer queue; `submit()`, `submit_and_wait()`, `shutdown()` |
 | `IndexingStatus` | IndexingQueue, MCP server | Thread-safe progress; `to_dict()` returns status or None when idle |
-| `LeaderLock`, `lock_path_for_config()` | CLI (serve) | `try_acquire()` returns bool; kernel releases on process death |
-| `create_server()` | CLI (serve) | Returns configured FastMCP instance |
-| `run_startup_sync()`, `submit_file_change()`, `map_file_to_collection()` | CLI (serve), watcher | Daemon thread discovery; file-to-collection routing |
+| `LeaderLock`, `lock_path_for_config()` | ServerOrchestrator | `try_acquire()` returns bool; kernel releases on process death |
+| `ServerOrchestrator` | CLI (serve) | Startup orchestration; `run()` manages leader election, queue, watchers, shutdown |
+| `create_server()` | ServerOrchestrator | Returns configured FastMCP instance |
+| `run_startup_sync()`, `submit_file_change()`, `map_file_to_collection()` | ServerOrchestrator, watcher | Daemon thread discovery; file-to-collection routing |
 | `apply_forward()`, `apply_reverse()`, `apply_forward_uri()` | MCP server | Longest-prefix path translation between host and container |
 | `log_query()` | MCP server | JSONL append with fsync |
 | `IndexerType` | IndexingQueue, sync, CLI | StrEnum: PROJECT, CODE, OBSIDIAN, EMAIL, CALIBRE, RSS, PRUNE |
@@ -140,7 +144,7 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 uv run pytest tests/test_config.py tests/test_db.py tests/test_doc_store.py \
   tests/test_embeddings.py tests/test_indexing_queue.py \
   tests/test_indexing_status.py tests/test_leader.py tests/test_sync.py \
-  tests/test_path_mapping.py -v
+  tests/test_path_mapping.py tests/test_server.py -v
 ```
 
 ### Coverage

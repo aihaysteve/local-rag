@@ -7,17 +7,12 @@ import signal
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
-
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ragling.config import DEFAULT_CONFIG_PATH, RESERVED_COLLECTION_NAMES, Config, load_config
-
-if TYPE_CHECKING:
-    from ragling.indexing_queue import IndexingQueue
+from ragling.config import RESERVED_COLLECTION_NAMES, Config, load_config
 
 console = Console()
 
@@ -783,167 +778,23 @@ def status(ctx: click.Context) -> None:
 @click.pass_context
 def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
     """Start the MCP server."""
-    from ragling.indexing_status import IndexingStatus
-    from ragling.leader import LeaderLock, lock_path_for_config
-    from ragling.mcp_server import create_server
-
     if no_stdio and not sse:
         click.echo("Error: Cannot disable both stdio and SSE.", err=True)
         ctx.exit(1)
         return
 
+    from ragling.server import ServerOrchestrator
+
     group = ctx.obj["group"]
     config = load_config(ctx.obj.get("config_path"))
-
-    indexing_status = IndexingStatus()
-
-    # Mutable container for dynamic queue resolution
-    _current_queue: list[IndexingQueue | None] = [None]
-
-    def _queue_getter() -> IndexingQueue | None:
-        return _current_queue[0]
-
-    # Config watching (both leader and follower need fresh config)
-    import atexit
-
-    from ragling.watchers.config_watcher import ConfigWatcher
-
     config_path = ctx.obj.get("config_path")
 
-    def _handle_config_reload(new_config: Config) -> None:
-        q = _current_queue[0]
-        if q is not None:
-            q.set_config(new_config)
-        logger.info("Config reloaded")
-
-    config_watcher = ConfigWatcher(
+    orchestrator = ServerOrchestrator(
         config,
-        config_path=Path(config_path) if config_path else DEFAULT_CONFIG_PATH,
-        on_reload=_handle_config_reload,
+        group=group,
+        config_path=Path(config_path) if config_path else None,
     )
-
-    def _start_leader_infrastructure() -> None:
-        """Start IndexingQueue, sync, and watchers (leader startup sequence)."""
-        import threading
-
-        from ragling.indexing_queue import IndexingQueue
-        from ragling.sync import run_startup_sync, submit_file_change
-        from ragling.watchers.watcher import get_watch_paths, start_watcher
-
-        current_config = config_watcher.get_config()
-        queue = IndexingQueue(current_config, indexing_status)
-        queue.start()
-        _current_queue[0] = queue
-
-        sync_done = threading.Event()
-        run_startup_sync(current_config, queue, done_event=sync_done)
-
-        if get_watch_paths(current_config):
-
-            def _on_files_changed(files: list[Path]) -> None:
-                logger.info("File changes detected: %d files", len(files))
-                for file_path in files:
-                    submit_file_change(file_path, config_watcher.get_config(), queue)
-
-            def _start_watcher_after_sync() -> None:
-                sync_done.wait()
-                try:
-                    observer = start_watcher(config_watcher.get_config(), _on_files_changed)
-                    if observer is not None:
-                        logger.info("File watcher started successfully")
-                    else:
-                        logger.warning("File watcher returned None (no directories to watch)")
-                except Exception:
-                    logger.exception("Failed to start file watcher")
-
-            threading.Thread(
-                target=_start_watcher_after_sync, name="watcher-wait", daemon=True
-            ).start()
-
-        def _start_system_watcher_after_sync() -> None:
-            sync_done.wait()
-            try:
-                from ragling.watchers.system_watcher import start_system_watcher
-
-                start_system_watcher(config_watcher.get_config(), queue)
-                logger.info("System collection watcher started")
-            except Exception:
-                logger.exception("Failed to start system collection watcher")
-
-        threading.Thread(
-            target=_start_system_watcher_after_sync,
-            name="sys-watcher-wait",
-            daemon=True,
-        ).start()
-
-    # Leader election
-    leader_config = config.with_overrides(group_name=group)
-    lock = LeaderLock(lock_path_for_config(leader_config))
-
-    if lock.try_acquire():
-        logger.info("Starting as leader for group '%s'", group)
-        _start_leader_infrastructure()
-    else:
-        logger.info("Starting as follower for group '%s' (search-only)", group)
-        lock.start_retry(
-            interval=30.0,
-            on_promote=_start_leader_infrastructure,
-        )
-
-    def _shutdown() -> None:
-        logger.info("Shutting down...")
-        lock.close()
-        q = _current_queue[0]
-        if q is not None:
-            q.shutdown()
-        config_watcher.stop()
-
-    atexit.register(_shutdown)
-
-    server = create_server(
-        group_name=group,
-        config=config,
-        indexing_status=indexing_status,
-        config_getter=config_watcher.get_config,
-        queue_getter=_queue_getter,
-        role_getter=lambda: "leader" if lock.is_leader else "follower",
-    )
-
-    if sse:
-        import anyio
-
-        import uvicorn
-
-        from ragling.auth.tls import ensure_tls_certs
-
-        tls_config = ensure_tls_certs()
-        server.settings.port = port
-        starlette_app = server.sse_app()
-
-        uv_config = uvicorn.Config(
-            starlette_app,
-            host=server.settings.host,
-            port=port,
-            log_level=server.settings.log_level.lower(),
-            ssl_certfile=str(tls_config.server_cert),
-            ssl_keyfile=str(tls_config.server_key),
-        )
-        uv_server = uvicorn.Server(uv_config)
-
-        if not no_stdio:
-            click.echo(f"Starting MCP server (stdio + HTTPS/SSE on port {port}, group: {group})...")
-
-            async def _run_both() -> None:
-                async with anyio.create_task_group() as tg:
-                    tg.start_soon(uv_server.serve)
-                    tg.start_soon(server.run_stdio_async)
-
-            anyio.run(_run_both)
-        else:
-            click.echo(f"Starting MCP server on port {port} (HTTPS/SSE only, group: {group})...")
-            anyio.run(uv_server.serve)
-    elif not no_stdio:
-        server.run(transport="stdio")
+    orchestrator.run(sse=sse, no_stdio=no_stdio, port=port)
 
 
 @main.command("mcp-config")
