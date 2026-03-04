@@ -249,11 +249,3 @@ uv run pytest tests/test_config.py tests/test_db.py tests/test_search.py \
 | watchdog | external | N/A — filesystem event monitoring |
 | Docling | external | N/A — document conversion (PDF, DOCX, etc.) |
 | Click | external | N/A — CLI framework |
-
----
-
-**Note:** This spec covers ~22 modules in `src/ragling/`. If further growth
-makes navigation difficult, natural split points are: Search (search.py,
-search_utils.py), Storage (db.py, doc_store.py), Orchestration
-(indexing_queue.py, indexing_status.py, sync.py, leader.py), and Transport
-(mcp_server.py, auth.py, token_verifier.py, tls.py, path_mapping.py).
