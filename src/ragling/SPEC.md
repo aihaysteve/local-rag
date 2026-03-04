@@ -253,8 +253,8 @@ uv run pytest tests/test_config.py tests/test_db.py tests/test_search.py \
 | INV-10 | `test_watcher.py::TestHandlerGitStateFiles::test_git_head_change_is_enqueued` | `.git/HEAD` changes pass through |
 | INV-10 | `test_watcher.py::TestHandlerGitStateFiles::test_git_objects_change_is_not_enqueued` | `.git/objects/` changes filtered out |
 | INV-11 | `test_watcher.py::TestWatchPathsIncludesObsidianAndCode::test_deduplicates_overlapping_paths` | Same path in home and obsidian appears once |
-| INV-12 | `test_token_verifier.py::TestRaglingTokenVerifier::test_rate_limiting_kicks_in_after_threshold_failures` | Rejects immediately after MAX_FAILURES exceeded |
-| INV-12 | `test_token_verifier.py::TestRaglingTokenVerifier::test_backoff_time_increases_exponentially` | Backoff time doubles per failure |
+| INV-12 | `test_token_verifier.py::TestRateLimiting::test_rate_limiting_kicks_in_after_threshold_failures` | Rejects immediately after MAX_FAILURES exceeded |
+| INV-12 | `test_token_verifier.py::TestRateLimiting::test_backoff_time_increases_exponentially` | Backoff time doubles per failure |
 | FAIL-1 | `test_embeddings.py::TestHostAwareErrorMessages::test_default_message_suggests_ollama_serve` | Verifies `OllamaConnectionError` raised with helpful message |
 | FAIL-2 | `test_db.py::TestGetConnection::test_wal_mode_enabled` | WAL retry logic exercised on connection setup |
 | FAIL-3 | `test_search.py::TestMarkStaleResults::test_marks_missing_file_as_stale` | Deleted source file marked stale |
@@ -262,7 +262,7 @@ uv run pytest tests/test_config.py tests/test_db.py tests/test_search.py \
 | FAIL-4 | `test_indexing_queue.py::TestIndexingQueue::test_worker_handles_exceptions` | Error in one job does not stop the worker |
 | FAIL-5 | `test_leader.py::TestLeaderLockRetry::test_retry_promotes_after_leader_releases` | Follower promoted after leader releases lock |
 | FAIL-6 | `test_config_watcher.py::TestConfigWatcher::test_debounces_rapid_changes` | Rapid changes batched within debounce window |
-| FAIL-7 | `test_token_verifier.py::TestRaglingTokenVerifier::test_rate_limiting_kicks_in_after_threshold_failures` | Rate limiter blocks after threshold exceeded |
+| FAIL-7 | `test_token_verifier.py::TestRateLimiting::test_rate_limiting_kicks_in_after_threshold_failures` | Rate limiter blocks after threshold exceeded |
 
 ## Dependencies
 
