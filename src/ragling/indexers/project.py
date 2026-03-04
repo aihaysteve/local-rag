@@ -39,6 +39,7 @@ from ragling.parsers.code import get_supported_extensions as _get_code_extension
 from ragling.parsers.code import is_code_file
 from ragling.parsers.epub import parse_epub
 from ragling.parsers.markdown import parse_markdown
+from ragling.parsers.spec import is_spec_file, parse_spec
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,11 @@ def _parse_and_chunk(
             asr_model=config.asr.model,
             config=config,
         )
+
+    # SPEC.md: parse with dedicated spec parser for section-level chunking
+    if source_type in ("spec", "markdown") and is_spec_file(path):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return parse_spec(text, path.name, chunk_size_tokens=config.chunk_size_tokens)
 
     # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker
     if source_type == "markdown":
@@ -604,7 +610,10 @@ class ProjectIndexer(BaseIndexer):
         source_path = str(file_path.resolve())
         file_h = precomputed_hash or file_hash(file_path)
         ext = file_path.suffix.lower()
-        source_type = _EXTENSION_MAP.get(ext, "plaintext")
+        if is_spec_file(file_path):
+            source_type = "spec"
+        else:
+            source_type = _EXTENSION_MAP.get(ext, "plaintext")
 
         # Check if already indexed with same hash (skip when hash was pre-checked)
         if not force and precomputed_hash is None:
