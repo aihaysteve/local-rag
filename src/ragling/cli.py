@@ -1005,8 +1005,8 @@ def _check_ollama_status() -> tuple[bool, bool]:
 
     # Check if Ollama is running
     try:
-        urllib.request.urlopen("http://localhost:11434", timeout=3)
-        ollama_running = True
+        with urllib.request.urlopen("http://localhost:11434", timeout=3):
+            ollama_running = True
     except OSError:
         return False, False
 
