@@ -1,6 +1,6 @@
-"""Tests for ragling.search_utils module."""
+"""Tests for ragling.search.search_utils module."""
 
-from ragling.search_utils import escape_fts_query
+from ragling.search.search_utils import escape_fts_query
 
 
 class TestEscapeFtsQuery:

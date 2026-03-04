@@ -468,7 +468,7 @@ class TestStaleFieldInResponse:
 
     def test_result_dict_includes_stale_field(self) -> None:
         """Verify the result dict construction includes 'stale' key."""
-        from ragling.search import SearchResult
+        from ragling.search.search import SearchResult
 
         r = SearchResult(
             content="test",
@@ -495,7 +495,7 @@ class TestStaleFieldInResponse:
 
     def test_result_dict_stale_defaults_false(self) -> None:
         """Verify stale defaults to False when not explicitly set."""
-        from ragling.search import SearchResult
+        from ragling.search.search import SearchResult
 
         r = SearchResult(
             content="test",
@@ -1352,7 +1352,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
+        with patch("ragling.search.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
             result = fn(
                 queries=[
                     {"query": "hello"},
@@ -1373,7 +1373,7 @@ class TestRagBatchSearch:
 
     def test_batch_search_returns_per_query_results(self, tmp_path: Path) -> None:
         from ragling.mcp_server import create_server
-        from ragling.search import SearchResult
+        from ragling.search.search import SearchResult
 
         config = Config(
             db_path=tmp_path / "test.db",
@@ -1409,7 +1409,7 @@ class TestRagBatchSearch:
             ],
         ]
 
-        with patch("ragling.search.perform_batch_search", return_value=mock_results):
+        with patch("ragling.search.search.perform_batch_search", return_value=mock_results):
             result = fn(
                 queries=[
                     {"query": "first"},
@@ -1437,7 +1437,7 @@ class TestRagBatchSearch:
         fn = tools["rag_batch_search"].fn
 
         with patch(
-            "ragling.search.perform_batch_search",
+            "ragling.search.search.perform_batch_search",
             side_effect=OllamaConnectionError("connection refused"),
         ):
             result = fn(queries=[{"query": "test"}])
@@ -1459,7 +1459,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.perform_batch_search", return_value=[[]]):
+        with patch("ragling.search.search.perform_batch_search", return_value=[[]]):
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is not None
@@ -1481,7 +1481,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.perform_batch_search", return_value=[[]]):
+        with patch("ragling.search.search.perform_batch_search", return_value=[[]]):
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is None

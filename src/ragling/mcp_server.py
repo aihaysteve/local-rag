@@ -512,7 +512,7 @@ def create_server(
         import time
 
         from ragling.embeddings import OllamaConnectionError
-        from ragling.search import perform_search
+        from ragling.search.search import perform_search
 
         visible = _get_visible_collections(server_config)
         user_ctx = _get_user_context(server_config)
@@ -617,7 +617,7 @@ def create_server(
             input) and optional ``indexing_status``.
         """
         from ragling.embeddings import OllamaConnectionError
-        from ragling.search import BatchQuery, perform_batch_search
+        from ragling.search.search import BatchQuery, perform_batch_search
 
         if not queries:
             return _build_search_response([], indexing_status)

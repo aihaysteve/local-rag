@@ -66,7 +66,7 @@ class TestFullFlow:
                 from ragling.document.chunker import Chunk
                 from ragling.db import get_connection, get_or_create_collection, init_db
                 from ragling.indexers.base import upsert_source_with_chunks
-                from ragling.search import search
+                from ragling.search.search import search
 
                 conn = get_connection(config)
                 init_db(conn, config)
@@ -325,7 +325,7 @@ class TestFullPipelineEndToEnd:
         from ragling.config import Config
         from ragling.db import get_connection, init_db
         from ragling.indexers.project import ProjectIndexer
-        from ragling.search import SearchResult, search
+        from ragling.search.search import SearchResult, search
 
         # 1. Create a text file on disk
         doc_dir = tmp_path / "docs"
@@ -424,7 +424,7 @@ class TestFullPipelineEndToEnd:
         from ragling.config import Config
         from ragling.db import get_connection, init_db
         from ragling.indexers.project import ProjectIndexer
-        from ragling.search import search
+        from ragling.search.search import search
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()
@@ -528,7 +528,7 @@ class TestFullPipelineEndToEnd:
         from ragling.config import Config
         from ragling.db import get_connection, init_db
         from ragling.indexers.project import ProjectIndexer
-        from ragling.search import search
+        from ragling.search.search import search
 
         doc_dir = tmp_path / "docs"
         doc_dir.mkdir()

@@ -502,7 +502,7 @@ def search(
 ) -> None:
     """Search across indexed collections."""
     from ragling.embeddings import OllamaConnectionError
-    from ragling.search import perform_search
+    from ragling.search.search import perform_search
 
     group = ctx.obj["group"]
     config = load_config(ctx.obj.get("config_path"))

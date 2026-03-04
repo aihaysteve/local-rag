@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ragling.config import Config
-from ragling.search import (
+from ragling.search.search import (
     BatchQuery,
     SearchFilters,
     SearchResult,
@@ -261,7 +261,7 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from ragling.search import escape_fts_query
+        from ragling.search.search import escape_fts_query
 
         query = escape_fts_query("kubernetes deployment")
         rows = conn.execute(
@@ -281,7 +281,7 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from ragling.search import escape_fts_query
+        from ragling.search.search import escape_fts_query
 
         query = escape_fts_query("postgresql replication")
         rows = conn.execute(
@@ -328,7 +328,7 @@ class TestSearchWithDatabase:
             [0.0, 1.0, 0.0, 0.0],
         )
 
-        from ragling.search import search
+        from ragling.search.search import search
 
         results = search(
             conn=conn,
@@ -359,7 +359,7 @@ class TestSearchWithDatabase:
             [0.9, 0.1, 0.0, 0.0],
         )
 
-        from ragling.search import search
+        from ragling.search.search import search
 
         results = search(
             conn=conn,
@@ -386,7 +386,7 @@ class TestSearchWithDatabase:
             source_type="markdown",
         )
 
-        from ragling.search import search
+        from ragling.search.search import search
 
         results = search(
             conn=conn,
@@ -436,7 +436,7 @@ class TestSearchWithDatabase:
             [0.8, 0.2, 0.0, 0.0],
         )
 
-        from ragling.search import search
+        from ragling.search.search import search
 
         results = search(
             conn=conn,
@@ -473,7 +473,7 @@ class TestSearchWithDatabase:
             [0.9, 0.1, 0.0, 0.0],
         )
 
-        from ragling.search import search
+        from ragling.search.search import search
 
         results = search(
             conn=conn,
@@ -499,7 +499,7 @@ class TestSearchWithDatabase:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from ragling.search import search
+        from ragling.search.search import search
 
         results = search(
             conn=conn,
@@ -546,7 +546,7 @@ class TestBatchLoadMetadata:
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
         id2 = _insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         meta = _batch_load_metadata(conn, [id1, id2])
         assert id1 in meta
@@ -557,7 +557,7 @@ class TestBatchLoadMetadata:
     def test_returns_empty_for_empty_ids(self, db):
         conn, _config = db
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         meta = _batch_load_metadata(conn, [])
         assert meta == {}
@@ -568,7 +568,7 @@ class TestBatchLoadMetadata:
             conn, "email-coll", "/mail/1", "Email", "body", [1, 0, 0, 0], source_type="email"
         )
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         meta = _batch_load_metadata(conn, [doc_id])
         row = meta[doc_id]
@@ -580,7 +580,7 @@ class TestBatchLoadMetadata:
         conn, _config = db
         doc_id = _insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         meta = _batch_load_metadata(conn, [doc_id])
         assert meta[doc_id]["file_modified_at"] == "2025-01-15T10:00:00"
@@ -589,7 +589,7 @@ class TestBatchLoadMetadata:
         conn, _config = db
         doc_id = _insert_document(conn, "obs", "/a.md", "A", "content", [1, 0, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         meta = _batch_load_metadata(conn, [doc_id, 99999])
         assert doc_id in meta
@@ -617,61 +617,61 @@ class TestCheckFilters:
         }
 
     def test_no_filters_passes(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row()
         assert _check_filters(row, SearchFilters()) is True
 
     def test_collection_name_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(collection_name="obsidian")
         assert _check_filters(row, SearchFilters(collection="obsidian")) is True
         assert _check_filters(row, SearchFilters(collection="email")) is False
 
     def test_collection_type_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(collection_type="code")
         assert _check_filters(row, SearchFilters(collection="code")) is True
         assert _check_filters(row, SearchFilters(collection="system")) is False
 
     def test_source_type_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(source_type="pdf")
         assert _check_filters(row, SearchFilters(source_type="pdf")) is True
         assert _check_filters(row, SearchFilters(source_type="markdown")) is False
 
     def test_visible_collection_ids_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(collection_id=5)
         assert _check_filters(row, SearchFilters(visible_collection_ids={5, 6})) is True
         assert _check_filters(row, SearchFilters(visible_collection_ids={1, 2})) is False
 
     def test_sender_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(metadata=json.dumps({"sender": "alice@example.com"}))
         assert _check_filters(row, SearchFilters(sender="alice")) is True
         assert _check_filters(row, SearchFilters(sender="bob")) is False
 
     def test_author_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(metadata=json.dumps({"authors": ["Alice Smith", "Bob Jones"]}))
         assert _check_filters(row, SearchFilters(author="alice")) is True
         assert _check_filters(row, SearchFilters(author="charlie")) is False
 
     def test_collection_prefix_matches_subcollections(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(collection_name="global/obsidian-vault")
         assert _check_filters(row, SearchFilters(collection="global")) is True
 
     def test_collection_prefix_requires_delimiter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         # "g" should NOT match "global" (not a prefix with delimiter)
         row = self._make_row(collection_name="global")
@@ -686,7 +686,7 @@ class TestCheckFilters:
         assert _check_filters(row, SearchFilters(collection="global/obsidian-vault")) is False
 
     def test_collection_type_filter_unaffected(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         # "code" is a collection type — should use type-based matching, not prefix
         row = self._make_row(collection_type="code", collection_name="my-code-group")
@@ -696,7 +696,7 @@ class TestCheckFilters:
         assert _check_filters(row, SearchFilters(collection="code")) is False
 
     def test_date_range_filter(self):
-        from ragling.search import _check_filters
+        from ragling.search.search import _check_filters
 
         row = self._make_row(metadata=json.dumps({"date": "2025-06-15"}))
         assert (
@@ -710,7 +710,7 @@ class TestMarkStaleResults:
     """Tests for _mark_stale_results."""
 
     def test_marks_missing_file_as_stale(self) -> None:
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         result = SearchResult(
             content="text",
@@ -726,7 +726,7 @@ class TestMarkStaleResults:
         assert result.stale is True
 
     def test_marks_modified_file_as_stale(self, tmp_path) -> None:
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         f = tmp_path / "test.md"
         f.write_text("content")
@@ -745,7 +745,7 @@ class TestMarkStaleResults:
         assert result.stale is True
 
     def test_fresh_file_not_stale(self, tmp_path) -> None:
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         f = tmp_path / "test.md"
         f.write_text("content")
@@ -765,7 +765,7 @@ class TestMarkStaleResults:
 
     def test_no_file_modified_at_not_stale(self, tmp_path) -> None:
         """If file_modified_at is unknown, don't mark as stale."""
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         f = tmp_path / "test.md"
         f.write_text("content")
@@ -795,7 +795,7 @@ class TestMarkStaleResults:
         assert result.stale is False
 
     def test_non_file_path_not_marked_stale(self) -> None:
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         results = [
             SearchResult(
@@ -812,7 +812,7 @@ class TestMarkStaleResults:
         assert results[0].stale is False
 
     def test_rss_url_not_marked_stale(self) -> None:
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         results = [
             SearchResult(
@@ -829,7 +829,7 @@ class TestMarkStaleResults:
         assert results[0].stale is False
 
     def test_deleted_file_marked_stale(self) -> None:
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         results = [
             SearchResult(
@@ -847,7 +847,7 @@ class TestMarkStaleResults:
 
     def test_stat_cache_prevents_redundant_calls(self, tmp_path: Path) -> None:
         """os.stat is called once per unique source_path, not per result."""
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         f = tmp_path / "shared.md"
         f.write_text("content")
@@ -874,7 +874,7 @@ class TestMarkStaleResults:
             call_count += 1
             return real_stat(path, *args, **kwargs)
 
-        with patch("ragling.search.os.stat", side_effect=counting_stat):
+        with patch("ragling.search.search.os.stat", side_effect=counting_stat):
             _mark_stale_results(results, {path_str: "2099-01-01T00:00:00"})
 
         assert call_count == 1
@@ -884,7 +884,7 @@ class TestMarkStaleResults:
 
     def test_permission_error_marks_stale(self) -> None:
         """File that exists but raises OSError on stat is marked stale."""
-        from ragling.search import _mark_stale_results
+        from ragling.search.search import _mark_stale_results
 
         result = SearchResult(
             content="text",
@@ -896,7 +896,9 @@ class TestMarkStaleResults:
             source_type="markdown",
         )
 
-        with patch("ragling.search.os.stat", side_effect=PermissionError("Permission denied")):
+        with patch(
+            "ragling.search.search.os.stat", side_effect=PermissionError("Permission denied")
+        ):
             _mark_stale_results([result], {"/some/protected/file.md": "2025-01-01T00:00:00"})
 
         assert result.stale is True
@@ -905,21 +907,21 @@ class TestMarkStaleResults:
 class TestPerformSearchParams:
     """Tests for perform_search config and visible_collections parameters."""
 
-    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
-    @patch("ragling.search.load_config")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
+    @patch("ragling.search.search.load_config")
     def test_uses_provided_config(self, mock_load, mock_search, mock_init, mock_conn, mock_embed):
         """perform_search uses provided config instead of calling load_config."""
         custom_config = Config(embedding_dimensions=4)
         perform_search("test query", config=custom_config)
         mock_load.assert_not_called()
 
-    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
     def test_passes_visible_collections(self, mock_search, mock_init, mock_conn, mock_embed):
         """perform_search passes visible_collections through to search."""
         perform_search(
@@ -930,10 +932,10 @@ class TestPerformSearchParams:
         _, kwargs = mock_search.call_args
         assert kwargs["visible_collections"] == ["kitchen", "global"]
 
-    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
     def test_defaults_visible_collections_to_none(
         self, mock_search, mock_init, mock_conn, mock_embed
     ):
@@ -942,10 +944,10 @@ class TestPerformSearchParams:
         _, kwargs = mock_search.call_args
         assert kwargs["visible_collections"] is None
 
-    @patch("ragling.search.get_embedding", return_value=[1.0, 0.0, 0.0])
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.load_config")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.load_config")
     def test_dimension_mismatch_raises_value_error(
         self, mock_load, mock_init, mock_conn, mock_embed
     ):
@@ -987,7 +989,7 @@ class TestMetadataCache:
         conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         cache: dict[int, sqlite3.Row] = {}
         result = _batch_load_metadata(conn, [id1], cache=cache)
@@ -1001,7 +1003,7 @@ class TestMetadataCache:
         conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         cache: dict[int, sqlite3.Row] = {}
         _batch_load_metadata(conn, [id1], cache=cache)
@@ -1023,7 +1025,7 @@ class TestMetadataCache:
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
         id2 = _insert_document(conn, "obs", "/b.md", "B", "content b", [0, 1, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         cache: dict[int, sqlite3.Row] = {}
         # Cache id1 only
@@ -1045,7 +1047,7 @@ class TestMetadataCache:
         conn, _config = db
         id1 = _insert_document(conn, "obs", "/a.md", "A", "content a", [1, 0, 0, 0])
 
-        from ragling.search import _batch_load_metadata
+        from ragling.search.search import _batch_load_metadata
 
         result = _batch_load_metadata(conn, [id1], cache=None)
         assert id1 in result
@@ -1057,13 +1059,13 @@ class TestCandidateLimit:
 
     def test_unfiltered_uses_3x_oversampling(self) -> None:
         """No filters: candidate limit is top_k * 3."""
-        from ragling.search import _candidate_limit
+        from ragling.search.search import _candidate_limit
 
         assert _candidate_limit(10, filters=None) == 30
 
     def test_filtered_uses_50x_oversampling(self) -> None:
         """Active filters: candidate limit is top_k * 50."""
-        from ragling.search import _candidate_limit
+        from ragling.search.search import _candidate_limit
 
         filters = SearchFilters(collection="obsidian")
         assert filters.is_active()
@@ -1071,13 +1073,13 @@ class TestCandidateLimit:
 
     def test_none_filters_treated_as_unfiltered(self) -> None:
         """None filters treated same as no filters."""
-        from ragling.search import _candidate_limit
+        from ragling.search.search import _candidate_limit
 
         assert _candidate_limit(5, filters=None) == 15
 
     def test_inactive_filters_treated_as_unfiltered(self) -> None:
         """SearchFilters with no fields set treated as unfiltered."""
-        from ragling.search import _candidate_limit
+        from ragling.search.search import _candidate_limit
 
         empty_filters = SearchFilters()
         assert not empty_filters.is_active()
@@ -1115,7 +1117,7 @@ class TestApplyFiltersEarlyTermination:
         """_apply_filters returns exactly top_k results when enough match."""
         conn, _config = db
 
-        from ragling.search import _apply_filters
+        from ragling.search.search import _apply_filters
 
         # Insert 10 docs in "wanted" collection and 10 in "other"
         wanted_ids = []
@@ -1150,7 +1152,7 @@ class TestApplyFiltersEarlyTermination:
         """_apply_filters stops once top_k matches are found (early break)."""
         conn, _config = db
 
-        from ragling.search import _apply_filters
+        from ragling.search.search import _apply_filters
 
         # Insert 20 matching docs
         all_ids = []
@@ -1175,12 +1177,12 @@ class TestFtsSearchErrorHandling:
 
     def test_operational_error_returns_empty_list(self, caplog) -> None:
         """sqlite3.OperationalError in FTS query returns [] and logs warning."""
-        from ragling.search import _fts_search
+        from ragling.search.search import _fts_search
 
         mock_conn = MagicMock()
         mock_conn.execute.side_effect = sqlite3.OperationalError("fts5: syntax error")
 
-        with caplog.at_level(logging.WARNING, logger="ragling.search"):
+        with caplog.at_level(logging.WARNING, logger="ragling.search.search"):
             result = _fts_search(
                 conn=mock_conn,
                 query_text="test query",
@@ -1235,7 +1237,7 @@ class TestSearchPipelineCacheCoherence:
             [1.0, 0.0, 0.0, 0.0],
         )
 
-        from ragling.search import _batch_load_metadata, search
+        from ragling.search.search import _batch_load_metadata, search
 
         call_log: list[list[int]] = []
         real_batch_load = _batch_load_metadata
@@ -1245,7 +1247,7 @@ class TestSearchPipelineCacheCoherence:
             call_log.append(list(doc_ids))
             return real_batch_load(conn, doc_ids, cache=cache)
 
-        with patch("ragling.search._batch_load_metadata", side_effect=tracking_batch_load):
+        with patch("ragling.search.search._batch_load_metadata", side_effect=tracking_batch_load):
             results = search(
                 conn=conn,
                 query_embedding=[0.9, 0.1, 0.0, 0.0],
@@ -1281,7 +1283,7 @@ class TestFtsSearchEmptyShortCircuit:
 
     def test_empty_string_does_not_execute_query(self) -> None:
         """_fts_search with empty query returns [] and never calls conn.execute."""
-        from ragling.search import _fts_search
+        from ragling.search.search import _fts_search
 
         mock_conn = MagicMock()
 
@@ -1297,7 +1299,7 @@ class TestFtsSearchEmptyShortCircuit:
 
     def test_whitespace_only_does_not_execute_query(self) -> None:
         """_fts_search with whitespace-only query returns [] and never calls conn.execute."""
-        from ragling.search import _fts_search
+        from ragling.search.search import _fts_search
 
         mock_conn = MagicMock()
 
@@ -1316,11 +1318,12 @@ class TestPerformBatchSearch:
     """Tests for perform_batch_search."""
 
     @patch(
-        "ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+        "ragling.search.search.get_embeddings",
+        return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
     )
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
     def test_calls_search_for_each_query(self, mock_search, mock_init, mock_conn, mock_embed):
         queries = [
             BatchQuery(query="first"),
@@ -1331,11 +1334,12 @@ class TestPerformBatchSearch:
         assert mock_search.call_count == 2
 
     @patch(
-        "ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+        "ragling.search.search.get_embeddings",
+        return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
     )
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
     def test_uses_batch_embeddings(self, mock_search, mock_init, mock_conn, mock_embed):
         """All query texts are embedded in a single batch call."""
         queries = [
@@ -1349,10 +1353,10 @@ class TestPerformBatchSearch:
         result = perform_batch_search([])
         assert result == []
 
-    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0]])
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0]])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
     def test_passes_filters_per_query(self, mock_search, mock_init, mock_conn, mock_embed):
         queries = [
             BatchQuery(query="test", collection="obsidian", source_type="pdf"),
@@ -1363,20 +1367,21 @@ class TestPerformBatchSearch:
         assert filters.collection == "obsidian"
         assert filters.source_type == "pdf"
 
-    @patch("ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0]])
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
+    @patch("ragling.search.search.get_embeddings", return_value=[[1.0, 0.0, 0.0]])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
     def test_dimension_mismatch_raises(self, mock_init, mock_conn, mock_embed):
         queries = [BatchQuery(query="test")]
         with pytest.raises(ValueError, match="embedding dimension mismatch"):
             perform_batch_search(queries, config=Config(embedding_dimensions=4))
 
     @patch(
-        "ragling.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+        "ragling.search.search.get_embeddings",
+        return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
     )
-    @patch("ragling.search.get_connection")
-    @patch("ragling.search.init_db")
-    @patch("ragling.search.search", return_value=[])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
     def test_shares_single_connection(self, mock_search, mock_init, mock_conn, mock_embed):
         """All queries use the same DB connection."""
         queries = [BatchQuery(query="a"), BatchQuery(query="b")]
