@@ -1,4 +1,9 @@
-"""Document conversion, chunking, and format bridging."""
+"""Document conversion, chunking, and format bridging.
+
+Re-exports for external consumers.  Internal code imports from submodules
+directly (e.g. ``from ragling.document.chunker import ...``) so that test
+``patch()`` targets resolve to the defining module.
+"""
 
 from ragling.document.audio_metadata import extract_audio_metadata
 from ragling.document.chunker import Chunk, split_into_windows, word_count

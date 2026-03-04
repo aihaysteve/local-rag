@@ -1,4 +1,9 @@
-"""Hybrid vector + full-text search with Reciprocal Rank Fusion."""
+"""Hybrid vector + full-text search with Reciprocal Rank Fusion.
+
+Re-exports for external consumers.  Internal code imports from submodules
+directly (e.g. ``from ragling.search.search import ...``) so that test
+``patch()`` targets resolve to the defining module.
+"""
 
 from ragling.search.search import (
     BatchQuery,
