@@ -5,7 +5,7 @@
 Format-specific content extraction for indexing. Each parser converts an external
 data source into a structured domain object that indexers consume. Parsers validate
 input, extract text, clean content, enrich with metadata, and return typed objects.
-All parsers are read-only -- they never modify source data.
+All parsers are read-only — they never modify source data.
 
 The key design decision: parsers return domain-specific dataclasses (not raw text),
 letting indexers handle chunking and embedding. The one exception is `spec.py`,
@@ -15,18 +15,18 @@ naturally to chunk boundaries.
 ## Core Mechanism
 
 All parsers follow a consistent pattern: validate input, extract structure, clean
-text, enrich metadata, return domain object. Errors are caught and logged -- parsers
+text, enrich metadata, return domain object. Errors are caught and logged — parsers
 never raise exceptions to callers, returning `None` or empty collections instead.
 
 **Key files:**
-- `__init__.py` -- `open_ro()` utility for read-only SQLite access
-- `markdown.py` -- Obsidian-flavored markdown with frontmatter, wikilinks, tags
-- `epub.py` -- EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
-- `email.py` -- eM Client SQLite database parsing (.NET ticks, address types, FTI)
-- `calibre.py` -- Calibre library metadata loading from metadata.db
-- `code.py` -- Tree-sitter structural code parsing (48 extensions, 36 languages)
-- `rss.py` -- NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
-- `spec.py` -- SPEC.md section-level chunking into typed Chunk objects
+- `__init__.py` — `open_ro()` utility for read-only SQLite access
+- `markdown.py` — Obsidian-flavored markdown with frontmatter, wikilinks, tags
+- `epub.py` — EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
+- `email.py` — eM Client SQLite database parsing (.NET ticks, address types, FTI)
+- `calibre.py` — Calibre library metadata loading from metadata.db
+- `code.py` — Tree-sitter structural code parsing (48 extensions, 36 languages)
+- `rss.py` — NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
+- `spec.py` — SPEC.md section-level chunking into typed Chunk objects
 
 **Parser output types:**
 - `markdown.py` returns `MarkdownDocument` (title, body_text, frontmatter, tags, links)
@@ -62,7 +62,7 @@ never raise exceptions to callers, returning `None` or empty collections instead
 | INV-2 | UTF-8 decoding uses `errors="replace"` for binary content | Graceful handling of malformed bytes in EPUB chapters and code files |
 | INV-3 | Code blocks use 1-based line numbers (converted from tree-sitter's 0-based) | Matches human-readable file line numbers for search results and navigation |
 | INV-4 | SPEC.md H2 headings must match `_SECTION_MAP` keys for correct section_type | Unknown headings get section_type "other" instead of a known classification |
-| INV-5 | Parsers never raise exceptions to callers -- errors logged, empty/None returned | Indexers can process large batches without one bad file aborting the run |
+| INV-5 | Parsers never raise exceptions to callers — errors logged, empty/None returned | Indexers can process large batches without one bad file aborting the run |
 | INV-6 | Markdown tags are deduplicated; heading lines are never treated as tags | Prevents duplicate tag entries and false positives from `#` in headings |
 | INV-7 | EPUB chapters ordered by OPF spine (canonical reading order) | Chunks appear in the author's intended sequence, not filesystem order |
 | INV-8 | Email IDs generated via SHA-256 hash of sender, subject, date if missing | Ensures stable deduplication even when eM Client omits the messageId field |
