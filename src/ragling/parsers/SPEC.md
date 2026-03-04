@@ -120,7 +120,7 @@ which would violate INV-5.
 
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
-| `ragling.chunker` (Chunk, `split_into_windows`, `word_count`) | internal | `src/ragling/SPEC.md` — `spec.py` imports Chunk plus public helpers for window splitting and word counting |
+| `ragling.document.chunker` (Chunk, `split_into_windows`, `word_count`) | internal | `src/ragling/document/SPEC.md` — `spec.py` imports Chunk plus public helpers for window splitting and word counting |
 | PyYAML | external | N/A |
 | BeautifulSoup (bs4) | external | N/A |
 | tree-sitter-language-pack | external | N/A |

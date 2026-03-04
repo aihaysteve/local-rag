@@ -141,10 +141,9 @@ uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_d
 | Parsers (markdown, epub, code, email, rss, calibre, spec) | internal | `src/ragling/parsers/SPEC.md` |
 | `db.py` (get_or_create_collection, delete_collection) | internal | `src/ragling/SPEC.md` |
 | `embeddings.py` (get_embeddings, serialize_float32) | internal | `src/ragling/SPEC.md` |
-| `chunker.py` (Chunk) | internal | `src/ragling/SPEC.md` |
+| `ragling.document` (Chunk, convert_and_chunk, chunk_with_hybrid, bridges) | internal | `src/ragling/document/SPEC.md` |
 | `config.py` (Config) | internal | `src/ragling/SPEC.md` |
 | `doc_store.py` (DocStore) | internal | `src/ragling/SPEC.md` |
-| `docling_bridge.py` / `docling_convert.py` | internal | `src/ragling/SPEC.md` |
 | `indexing_status.py` (IndexingStatus) | internal | `src/ragling/SPEC.md` |
 | `indexer_types.py` (IndexerType) | internal | `src/ragling/SPEC.md` |
 | Ollama (embedding API) | external | N/A |

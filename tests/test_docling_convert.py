@@ -1010,7 +1010,9 @@ class TestDescribeImageOllama:
         mock_output.text = "A red square"
         mock_engine.predict.return_value = mock_output
 
-        with patch("ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine) as mock_get:
+        with patch(
+            "ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine
+        ) as mock_get:
             describe_image(img_path, ollama_host="http://gpu:11434")
             mock_get.assert_called_once_with(ollama_host="http://gpu:11434")
 
@@ -1029,7 +1031,9 @@ class TestDescribeImageOllama:
         mock_output.text = "A blue square"
         mock_engine.predict.return_value = mock_output
 
-        with patch("ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine) as mock_get:
+        with patch(
+            "ragling.document.docling_convert._get_vlm_engine", return_value=mock_engine
+        ) as mock_get:
             describe_image(img_path)
             mock_get.assert_called_once_with(ollama_host=None)
 
