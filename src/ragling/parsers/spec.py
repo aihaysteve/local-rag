@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -40,6 +41,18 @@ def normalize_section_type(heading: str) -> str:
     """
     key = heading.strip().lower()
     return _SECTION_MAP.get(key, "other")
+
+
+def is_spec_file(path: Path) -> bool:
+    """Check if a file path is a SPEC.md file.
+
+    Args:
+        path: File path to check.
+
+    Returns:
+        True if the filename is exactly 'SPEC.md'.
+    """
+    return path.name == "SPEC.md"
 
 
 @dataclass

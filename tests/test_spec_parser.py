@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from ragling.parsers.spec import is_spec_file, normalize_section_type, parse_spec, split_spec_sections
+from ragling.parsers.spec import (
+    is_spec_file,
+    normalize_section_type,
+    parse_spec,
+    split_spec_sections,
+)
 
 
 class TestNormalizeSectionType:
@@ -190,3 +195,22 @@ class TestParseSpecOversized:
         chunks = parse_spec(text, "auth/SPEC.md", chunk_size_tokens=50)
         for i, chunk in enumerate(chunks):
             assert chunk.chunk_index == i
+
+
+class TestIsSpecFile:
+    """Tests for SPEC.md filename detection."""
+
+    def test_spec_md_exact_match(self) -> None:
+        assert is_spec_file(Path("features/auth/SPEC.md")) is True
+
+    def test_case_sensitive(self) -> None:
+        assert is_spec_file(Path("spec.md")) is False
+
+    def test_not_spec(self) -> None:
+        assert is_spec_file(Path("README.md")) is False
+
+    def test_spec_md_in_root(self) -> None:
+        assert is_spec_file(Path("SPEC.md")) is True
+
+    def test_not_spec_prefix(self) -> None:
+        assert is_spec_file(Path("MY-SPEC.md")) is False
