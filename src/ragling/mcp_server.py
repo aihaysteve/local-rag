@@ -11,7 +11,7 @@ from urllib.parse import quote
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 
-from ragling.auth import UserContext
+from ragling.auth.auth import UserContext
 from ragling.config import Config, load_config
 from ragling.db import get_connection, init_db
 from ragling.indexer_types import IndexerType
@@ -373,7 +373,7 @@ def create_server(
 
         from mcp.server.auth.settings import AuthSettings
 
-        from ragling.token_verifier import RaglingTokenVerifier
+        from ragling.auth.token_verifier import RaglingTokenVerifier
 
         mcp_kwargs["token_verifier"] = RaglingTokenVerifier(server_config)
         mcp_kwargs["auth"] = AuthSettings(

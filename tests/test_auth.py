@@ -7,7 +7,7 @@ class TestResolveApiKey:
     """Tests for resolving API key to user context."""
 
     def test_valid_key_returns_user_context(self) -> None:
-        from ragling.auth import resolve_api_key
+        from ragling.auth.auth import resolve_api_key
 
         config = Config(
             home=None,
@@ -18,7 +18,7 @@ class TestResolveApiKey:
         assert ctx.username == "kitchen"
 
     def test_invalid_key_returns_none(self) -> None:
-        from ragling.auth import resolve_api_key
+        from ragling.auth.auth import resolve_api_key
 
         config = Config(
             users={"kitchen": UserConfig(api_key="rag_test123")},
@@ -26,13 +26,13 @@ class TestResolveApiKey:
         assert resolve_api_key("rag_wrong", config) is None
 
     def test_empty_key_returns_none(self) -> None:
-        from ragling.auth import resolve_api_key
+        from ragling.auth.auth import resolve_api_key
 
         config = Config()
         assert resolve_api_key("", config) is None
 
     def test_no_users_configured_returns_none(self) -> None:
-        from ragling.auth import resolve_api_key
+        from ragling.auth.auth import resolve_api_key
 
         config = Config()
         assert resolve_api_key("rag_anything", config) is None
@@ -42,21 +42,21 @@ class TestUserContextVisibleCollections:
     """Tests for computing visible collections from user config."""
 
     def test_includes_username_collection(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
 
         ctx = UserContext(username="kitchen", system_collections=[], path_mappings={})
         visible = ctx.visible_collections(global_collection="global")
         assert "kitchen" in visible
 
     def test_includes_global_collection(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
 
         ctx = UserContext(username="kitchen", system_collections=[], path_mappings={})
         visible = ctx.visible_collections(global_collection="global")
         assert "global" in visible
 
     def test_includes_system_collections(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
 
         ctx = UserContext(
             username="kitchen",
@@ -68,7 +68,7 @@ class TestUserContextVisibleCollections:
         assert "calibre" in visible
 
     def test_no_global_when_no_global_paths(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
 
         ctx = UserContext(username="kitchen", system_collections=[], path_mappings={})
         visible = ctx.visible_collections(global_collection=None)

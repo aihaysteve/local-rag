@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import patch
 
 from ragling.config import Config, UserConfig
-from ragling.token_verifier import RaglingTokenVerifier
+from ragling.auth.token_verifier import RaglingTokenVerifier
 
 
 def _hk(token: str) -> str:
@@ -77,7 +77,7 @@ class TestRateLimiting:
         """After exceeding MAX_FAILURES with the same token, verify_token
         should raise RateLimitedError instead of checking the credential."""
         verifier = self._make_verifier()
-        from ragling.token_verifier import RateLimitedError
+        from ragling.auth.token_verifier import RateLimitedError
 
         # Exhaust the threshold (6 failures to exceed >5)
         for _ in range(6):
@@ -96,7 +96,7 @@ class TestRateLimiting:
 
         fake_time = 1000.0
 
-        with patch("ragling.token_verifier.time") as mock_time:
+        with patch("ragling.auth.token_verifier.time") as mock_time:
             mock_time.monotonic.return_value = fake_time
 
             # Accumulate 7 failures (count goes to 7)
@@ -119,7 +119,7 @@ class TestRateLimiting:
 
         fake_time = 1000.0
 
-        with patch("ragling.token_verifier.time") as mock_time:
+        with patch("ragling.auth.token_verifier.time") as mock_time:
             mock_time.monotonic.return_value = fake_time
 
             # Accumulate 20 failures (2^20 = 1_048_576 >> 300)
@@ -158,11 +158,11 @@ class TestRateLimiting:
     def test_rate_limit_expires_after_backoff_period(self):
         """Once the backoff period passes, the token should be allowed again."""
         verifier = self._make_verifier()
-        from ragling.token_verifier import RateLimitedError
+        from ragling.auth.token_verifier import RateLimitedError
 
         fake_time = 1000.0
 
-        with patch("ragling.token_verifier.time") as mock_time:
+        with patch("ragling.auth.token_verifier.time") as mock_time:
             mock_time.monotonic.return_value = fake_time
 
             # Accumulate 6 failures to trigger rate limiting
@@ -186,7 +186,7 @@ class TestRateLimiting:
     def test_different_tokens_tracked_independently(self):
         """Rate limiting for one token should not affect another."""
         verifier = self._make_verifier()
-        from ragling.token_verifier import RateLimitedError
+        from ragling.auth.token_verifier import RateLimitedError
 
         # Exhaust threshold for one token
         for _ in range(6):
@@ -208,7 +208,7 @@ class TestRateLimiting:
 
         fake_time = 1000.0
 
-        with patch("ragling.token_verifier.time") as mock_time:
+        with patch("ragling.auth.token_verifier.time") as mock_time:
             mock_time.monotonic.return_value = fake_time
 
             # Add some failures
@@ -241,7 +241,7 @@ class TestRateLimiting:
 
         fake_time = 2000.0
 
-        with patch("ragling.token_verifier.time") as mock_time:
+        with patch("ragling.auth.token_verifier.time") as mock_time:
             mock_time.monotonic.return_value = fake_time
 
             # Add a stale entry: next_allowed is 601+ seconds in the past

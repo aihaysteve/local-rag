@@ -62,7 +62,7 @@ class TestFullFlow:
 
         with patch("ragling.embeddings.get_embeddings", return_value=mock_embeddings):
             with patch("ragling.embeddings.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0]):
-                from ragling.auth import resolve_api_key
+                from ragling.auth.auth import resolve_api_key
                 from ragling.document.chunker import Chunk
                 from ragling.db import get_connection, get_or_create_collection, init_db
                 from ragling.indexers.base import upsert_source_with_chunks

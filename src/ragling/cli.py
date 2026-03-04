@@ -914,7 +914,7 @@ def serve(ctx: click.Context, port: int, sse: bool, no_stdio: bool) -> None:
 
         import uvicorn
 
-        from ragling.tls import ensure_tls_certs
+        from ragling.auth.tls import ensure_tls_certs
 
         tls_config = ensure_tls_certs()
         server.settings.port = port
@@ -964,7 +964,7 @@ def mcp_config(port: int, tls_dir: Path | None) -> None:
     """Output MCP client configuration JSON for connecting to the SSE server."""
     import json
 
-    from ragling.tls import ensure_tls_certs
+    from ragling.auth.tls import ensure_tls_certs
 
     tls = ensure_tls_certs(tls_dir)
 

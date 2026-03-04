@@ -76,7 +76,7 @@ class RaglingTokenVerifier(TokenVerifier):
         key = self._hash_token(token)
         self._check_rate_limit(key)
 
-        from ragling.auth import resolve_api_key
+        from ragling.auth.auth import resolve_api_key
 
         user_ctx = resolve_api_key(token, self._config)
         if user_ctx is None:

@@ -43,7 +43,7 @@ class TestBuildSourceUriSpec:
 
 class TestApplyUserContextToResults:
     def test_applies_path_mappings_to_results(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(
@@ -63,7 +63,7 @@ class TestApplyUserContextToResults:
         assert mapped[0]["source_uri"] == "file:///workspace/group/notes.md"
 
     def test_no_mapping_leaves_paths_unchanged(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(username="kitchen", path_mappings={})
@@ -72,7 +72,7 @@ class TestApplyUserContextToResults:
         assert mapped[0]["source_path"] == "/host/other.md"
 
     def test_does_not_mutate_original_results(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(
@@ -84,7 +84,7 @@ class TestApplyUserContextToResults:
         assert original[0]["source_path"] == "/host/file.md"
 
     def test_preserves_other_fields(self) -> None:
-        from ragling.auth import UserContext
+        from ragling.auth.auth import UserContext
         from ragling.mcp_server import _apply_user_context_to_results
 
         ctx = UserContext(
@@ -366,7 +366,7 @@ class TestCreateServerSignature:
         """When users are configured, create_server sets up auth."""
         from ragling.config import Config, UserConfig
         from ragling.mcp_server import create_server
-        from ragling.token_verifier import RaglingTokenVerifier
+        from ragling.auth.token_verifier import RaglingTokenVerifier
 
         config = Config(
             users={"kitchen": UserConfig(api_key="test-key")},
