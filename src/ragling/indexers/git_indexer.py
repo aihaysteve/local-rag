@@ -35,7 +35,7 @@ from ragling.parsers.code import (
     is_code_file,
     parse_code_file,
 )
-from ragling.parsers.spec import find_nearest_spec
+from ragling.parsers.spec import find_nearest_spec, is_spec_file, parse_spec
 
 logger = logging.getLogger(__name__)
 
@@ -683,7 +683,7 @@ class GitRepoIndexer(BaseIndexer):
         if _should_exclude(relative_path):
             return False
         path = Path(relative_path)
-        return is_code_file(path)
+        return is_code_file(path) or is_spec_file(path)
 
     def _index_file(
         self,
@@ -728,23 +728,32 @@ class GitRepoIndexer(BaseIndexer):
                 logger.debug("Unchanged, skipping: %s", relative_path)
                 return False
 
-        # Parse code file
-        language = get_language(file_path)
-        if not language:
-            logger.debug("No language detected for %s, skipping", relative_path)
-            return False
+        # Route SPEC.md files to the dedicated spec parser
+        if is_spec_file(file_path):
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+            chunks = parse_spec(
+                text, relative_path, chunk_size_tokens=config.chunk_size_tokens
+            )
+            source_type = "spec"
+        else:
+            # Parse code file
+            language = get_language(file_path)
+            if not language:
+                logger.debug("No language detected for %s, skipping", relative_path)
+                return False
 
-        doc = parse_code_file(file_path, language, relative_path)
-        if not doc or not doc.blocks:
-            logger.warning("No content extracted from %s, skipping", relative_path)
-            return False
+            doc = parse_code_file(file_path, language, relative_path)
+            if not doc or not doc.blocks:
+                logger.warning("No content extracted from %s, skipping", relative_path)
+                return False
 
-        # Convert blocks to chunks
-        chunks = _code_blocks_to_chunks(
-            doc, relative_path, config, repo_root=self.repo_path, spec_cache=spec_cache
-        )
+            chunks = _code_blocks_to_chunks(
+                doc, relative_path, config, repo_root=self.repo_path, spec_cache=spec_cache
+            )
+            source_type = "code"
+
         if not chunks:
-            logger.warning("Code file parsed but produced 0 chunks: %s", relative_path)
+            logger.warning("File parsed but produced 0 chunks: %s", relative_path)
             return False
 
         # Generate embeddings
@@ -757,7 +766,7 @@ class GitRepoIndexer(BaseIndexer):
             conn,
             collection_id=collection_id,
             source_path=source_path,
-            source_type="code",
+            source_type=source_type,
             chunks=chunks,
             embeddings=embeddings,
             file_hash=file_h,

@@ -1116,3 +1116,44 @@ class TestSpecMdIndexing:
         for row in rows:
             meta = json.loads(row["metadata"])
             assert meta.get("spec_path") == "features/auth/SPEC.md"
+
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    def test_spec_md_indexed_as_spec_source_type(
+        self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
+    ) -> None:
+        """SPEC.md files should be indexed with source_type='spec'."""
+        conn = _make_conn(tmp_path)
+        config = _make_config(tmp_path)
+        indexer = GitRepoIndexer(repo_with_spec, "test-spec")
+        indexer.index(conn, config)
+
+        rows = conn.execute(
+            "SELECT source_path, source_type FROM sources WHERE source_type = 'spec'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert "SPEC.md" in rows[0]["source_path"]
+
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    def test_spec_chunks_have_section_metadata(
+        self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
+    ) -> None:
+        """SPEC.md chunks should have section-level metadata."""
+        conn = _make_conn(tmp_path)
+        config = _make_config(tmp_path)
+        indexer = GitRepoIndexer(repo_with_spec, "test-spec")
+        indexer.index(conn, config)
+
+        rows = conn.execute(
+            "SELECT metadata FROM documents d JOIN sources s ON d.source_id = s.id "
+            "WHERE s.source_type = 'spec'"
+        ).fetchall()
+        assert len(rows) > 0
+
+        section_types = set()
+        for row in rows:
+            meta = json.loads(row["metadata"])
+            assert meta["subsystem_name"] == "Auth"
+            assert "section_type" in meta
+            section_types.add(meta["section_type"])
+
+        assert "purpose" in section_types
