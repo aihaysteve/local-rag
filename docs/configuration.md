@@ -27,6 +27,7 @@ Edit the file to match your setup. See [config.example.json](../config.example.j
 | `calibre_libraries` | `[]` | Paths to Calibre libraries |
 | `netnewswire_db_path` | auto-detected | Path to NetNewsWire data directory |
 | `code_groups` | `{}` | Map of group name → list of git repo paths |
+| `watch` | `{}` | Map of collection name → directory path(s) to watch and auto-index |
 | `disabled_collections` | `[]` | Collections to skip during indexing |
 | `git_history_in_months` | `6` | How far back to index commit history |
 | `embedding_model` | `"bge-m3"` | Ollama embedding model |
@@ -59,3 +60,24 @@ Skip a collection during indexing without deleting its data:
   "disabled_collections": ["email", "rss"]
 }
 ```
+
+## Watch Directories
+
+Auto-index directories with content-type detection:
+
+```json
+{
+  "watch": {
+    "my-project": ".",
+    "research": ["~/Documents/papers", "~/Documents/references"]
+  }
+}
+```
+
+Values can be a single path string or an array of paths. ragling auto-detects git repos, Obsidian vaults, and plain document folders within each watched path.
+
+## Per-Project Config
+
+ragling looks for `ragling.json` in the current directory before falling back to `~/.ragling/config.json`. Use `--config` to specify a config file explicitly.
+
+See [Project Setup](project-setup.md) for setting up ragling in a project directory.

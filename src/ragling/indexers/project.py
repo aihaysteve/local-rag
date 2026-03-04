@@ -172,7 +172,8 @@ def _parse_and_chunk(
             config=config,
         )
 
-    # SPEC.md: parse with dedicated spec parser for section-level chunking
+    # SPEC.md: parse with dedicated spec parser for section-level chunking.
+    # Safe after the Docling check — "spec" and "markdown" are never in DOCLING_FORMATS.
     if is_spec_file(path) and source_type in ("spec", "markdown"):
         text = path.read_text(encoding="utf-8", errors="replace")
         spec_path = source_path or path.name
