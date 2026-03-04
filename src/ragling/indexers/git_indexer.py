@@ -353,6 +353,7 @@ def _code_blocks_to_chunks(
     config: Config,
     *,
     repo_root: Path | None = None,
+    spec_cache: dict[str, str | None] | None = None,
 ) -> list[Chunk]:
     """Convert CodeDocument blocks into Chunks suitable for embedding.
 
@@ -364,6 +365,9 @@ def _code_blocks_to_chunks(
         relative_path: Relative path within the repository.
         config: Application configuration.
         repo_root: Optional repo root for SPEC.md lookups.
+        spec_cache: Optional shared cache for spec_path lookups, keyed by
+            directory path. Passing a shared dict across files avoids
+            redundant filesystem walks for files in the same directory.
 
     Returns:
         List of Chunk objects.
@@ -373,8 +377,18 @@ def _code_blocks_to_chunks(
     chunks: list[Chunk] = []
     chunk_idx = 0
 
-    # Cache spec_path lookups per directory
-    _spec_cache: dict[str, str | None] = {}
+    # Resolve spec_path once per file (all blocks share the same directory)
+    resolved_spec_path: str | None = None
+    if repo_root is not None:
+        file_dir = str((repo_root / relative_path).parent)
+        if spec_cache is not None and file_dir in spec_cache:
+            resolved_spec_path = spec_cache[file_dir]
+        else:
+            resolved_spec_path = find_nearest_spec(
+                repo_root / relative_path, repo_root
+            )
+            if spec_cache is not None:
+                spec_cache[file_dir] = resolved_spec_path
 
     for block in doc.blocks:
         prefix = (
@@ -392,14 +406,8 @@ def _code_blocks_to_chunks(
             "file_path": block.file_path,
         }
 
-        # Add spec_path pointer if a governing SPEC.md exists
-        if repo_root is not None:
-            file_dir = str((repo_root / relative_path).parent)
-            if file_dir not in _spec_cache:
-                _spec_cache[file_dir] = find_nearest_spec(repo_root / relative_path, repo_root)
-            spec_path = _spec_cache[file_dir]
-            if spec_path:
-                metadata["spec_path"] = spec_path
+        if resolved_spec_path:
+            metadata["spec_path"] = resolved_spec_path
 
         prefixed_text = prefix + block.text
         prefix_word_count = _word_count(prefix)
@@ -608,10 +616,18 @@ class GitRepoIndexer(BaseIndexer):
             status.set_file_total(self.collection_name, len(changed_files), total_bytes)
 
         # Index pass: process changed files with per-file status ticks
+        # Shared cache avoids redundant SPEC.md walks for files in the same directory
+        spec_cache: dict[str, str | None] = {}
         for rel_path, file_h, file_size in changed_files:
             try:
                 was_indexed = self._index_file(
-                    conn, config, rel_path, collection_id, force, precomputed_hash=file_h
+                    conn,
+                    config,
+                    rel_path,
+                    collection_id,
+                    force,
+                    precomputed_hash=file_h,
+                    spec_cache=spec_cache,
                 )
                 if was_indexed:
                     indexed += 1
@@ -677,6 +693,7 @@ class GitRepoIndexer(BaseIndexer):
         collection_id: int,
         force: bool,
         precomputed_hash: str | None = None,
+        spec_cache: dict[str, str | None] | None = None,
     ) -> bool:
         """Index a single file from the repository.
 
@@ -688,6 +705,7 @@ class GitRepoIndexer(BaseIndexer):
             force: If True, re-index regardless of change detection.
             precomputed_hash: Pre-computed SHA256 hash (avoids recomputation
                 when the scan pass already computed it).
+            spec_cache: Shared cache for spec_path lookups across files.
 
         Returns:
             True if the file was indexed, False if skipped (unchanged).
@@ -722,7 +740,9 @@ class GitRepoIndexer(BaseIndexer):
             return False
 
         # Convert blocks to chunks
-        chunks = _code_blocks_to_chunks(doc, relative_path, config, repo_root=self.repo_path)
+        chunks = _code_blocks_to_chunks(
+            doc, relative_path, config, repo_root=self.repo_path, spec_cache=spec_cache
+        )
         if not chunks:
             logger.warning("Code file parsed but produced 0 chunks: %s", relative_path)
             return False

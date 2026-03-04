@@ -1020,6 +1020,49 @@ class TestSpecPathEnrichment:
 
         assert "spec_path" not in chunks[0].metadata
 
+    def test_shared_spec_cache_reused_across_files(self, tmp_path: Path) -> None:
+        """A shared spec_cache avoids redundant filesystem walks."""
+        repo = tmp_path / "repo"
+        sub = repo / "features" / "auth"
+        sub.mkdir(parents=True)
+        (sub / "SPEC.md").write_text("# Auth\n")
+
+        def _make_doc(filename: str) -> CodeDocument:
+            return CodeDocument(
+                file_path=f"features/auth/{filename}",
+                language="python",
+                blocks=[
+                    CodeBlock(
+                        text="pass",
+                        language="python",
+                        symbol_name="f",
+                        symbol_type="function",
+                        start_line=1,
+                        end_line=1,
+                        file_path=f"features/auth/{filename}",
+                    )
+                ],
+            )
+
+        config = _make_config(tmp_path)
+        cache: dict[str, str | None] = {}
+
+        # First file populates cache
+        chunks1 = _code_blocks_to_chunks(
+            _make_doc("a.py"), "features/auth/a.py", config,
+            repo_root=repo, spec_cache=cache,
+        )
+        assert chunks1[0].metadata["spec_path"] == "features/auth/SPEC.md"
+        assert len(cache) == 1
+
+        # Second file reuses cache (no additional filesystem walk)
+        chunks2 = _code_blocks_to_chunks(
+            _make_doc("b.py"), "features/auth/b.py", config,
+            repo_root=repo, spec_cache=cache,
+        )
+        assert chunks2[0].metadata["spec_path"] == "features/auth/SPEC.md"
+        assert len(cache) == 1  # Still just 1 entry — cache was reused
+
 
 # ---------------------------------------------------------------------------
 # Tests: SPEC.md indexing integration
