@@ -100,6 +100,69 @@ class SpecSection:
 _H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _H2_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 
+# Regex to match fenced code block opening/closing markers
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+_FENCE_CLOSE_RE = re.compile(r"^(`{3,}|~{3,})\s*$")
+
+
+def _strip_fenced_blocks(text: str) -> str:
+    """Replace content inside fenced code blocks with spaces.
+
+    Preserves character offsets so regex positions on the stripped text
+    map correctly to the original text. Supports backtick and tilde fences.
+    Unclosed fences mask everything after the opening marker.
+
+    Args:
+        text: Raw markdown text.
+
+    Returns:
+        Text with fenced block interiors replaced by spaces.
+    """
+    result = list(text)
+    lines = text.split("\n")
+    pos = 0  # character position in text
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            fence_char = fence_match.group(1)[0]
+            fence_len = len(fence_match.group(1))
+            # Skip the opening fence line itself
+            i += 1
+            pos += len(line) + 1  # +1 for newline
+
+            # Find the closing fence
+            closed = False
+            while i < len(lines):
+                inner_line = lines[i]
+                inner_match = _FENCE_CLOSE_RE.match(inner_line)
+                if (
+                    inner_match
+                    and inner_match.group(1)[0] == fence_char
+                    and len(inner_match.group(1)) >= fence_len
+                ):
+                    # Closing fence found — skip it
+                    i += 1
+                    pos += len(inner_line) + 1
+                    closed = True
+                    break
+                # Blank out this line's content (preserve newlines)
+                for j in range(len(inner_line)):
+                    result[pos + j] = " "
+                i += 1
+                pos += len(inner_line) + 1
+
+            if not closed:
+                # Unclosed fence — everything after is already blanked
+                pass
+        else:
+            i += 1
+            pos += len(line) + 1
+
+    return "".join(result)
+
 
 def split_spec_sections(text: str) -> tuple[str, list[SpecSection]]:
     """Split SPEC.md content into a subsystem name and list of sections.
@@ -113,12 +176,15 @@ def split_spec_sections(text: str) -> tuple[str, list[SpecSection]]:
     Returns:
         Tuple of (subsystem_name, list of SpecSection).
     """
+    # Strip fenced code blocks for heading detection only
+    stripped = _strip_fenced_blocks(text)
+
     # Extract subsystem name from H1
-    h1_match = _H1_RE.search(text)
+    h1_match = _H1_RE.search(stripped)
     subsystem = h1_match.group(1).strip() if h1_match else ""
 
     # Find all H2 positions
-    h2_matches = list(_H2_RE.finditer(text))
+    h2_matches = list(_H2_RE.finditer(stripped))
 
     sections: list[SpecSection] = []
 
