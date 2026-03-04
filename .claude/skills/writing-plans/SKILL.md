@@ -142,28 +142,9 @@ Mark each task's dependencies explicitly. Independent tasks can be dispatched to
 
 ## Execution Handoff
 
-After saving the plan, offer execution choice:
+After saving the plan, proceed directly to subagent-driven execution:
 
-**"Plan complete and saved to `docs/plans/<filename>.md`. Execution options:**
-
-**1. Subagent-Driven (this session)** — I orchestrate fresh subagents per task, independent tasks run in parallel, review between tasks
-
-**2. Agent Team** — Spawn a teammate to execute the plan autonomously, reports back when done
-
-**3. Separate Session** — Open new session with executing-plans, batch execution with checkpoints
-
-**Which approach?"**
-
-**If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use subagent-driven-development
 - Stay in this session
 - Fresh subagent per task + two-stage review
-
-**If Agent Team chosen:**
-- Spawn teammate using Task tool with `team_name`
-- Teammate uses executing-plans to work through the plan
-- Reports back on completion
-
-**If Separate Session chosen:**
-- Guide them to open new session in worktree
-- **REQUIRED SUB-SKILL:** New session uses executing-plans
+- Independent tasks run in parallel

@@ -26,3 +26,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, quality gates, and
 - [docs/hybrid-search-and-rrf.md](docs/hybrid-search-and-rrf.md) — search algorithm details
 - [docs/ollama-and-embeddings.md](docs/ollama-and-embeddings.md) — Ollama setup and embedding models
 - [docs/project-setup.md](docs/project-setup.md) — add ragling to a project (init command, config, .mcp.json)
+
+### Subsystem Map
+
+| Subsystem | Path | Purpose |
+|---|---|---|
+| Core | `src/ragling/` | Configuration, search, storage, indexing orchestration, MCP server, CLI |
+| Indexers | `src/ragling/indexers/` | Source-specific indexing pipelines |
+| Parsers | `src/ragling/parsers/` | Format-specific content extraction for indexing |
+| Skills | `.claude/skills/` | Reusable agent instruction documents |
