@@ -189,12 +189,14 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
         if section.heading != "(overview)":
             headings.append(section.heading)
 
-        metadata = {
-            "subsystem_name": subsystem,
-            "section_type": section.section_type,
-            "spec_path": relative_path,
-            "headings": headings,
-        }
+        def _make_metadata() -> dict[str, object]:
+            """Build a fresh metadata dict with independent mutable values."""
+            return {
+                "subsystem_name": subsystem,
+                "section_type": section.section_type,
+                "spec_path": relative_path,
+                "headings": list(headings),
+            }
 
         prefixed_text = prefix + section.body
 
@@ -203,7 +205,7 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
                 Chunk(
                     text=prefixed_text,
                     title=relative_path,
-                    metadata=metadata,
+                    metadata=_make_metadata(),
                     chunk_index=chunk_idx,
                 )
             )
@@ -219,7 +221,7 @@ def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> 
                     Chunk(
                         text=prefix + window,
                         title=relative_path,
-                        metadata=metadata.copy(),
+                        metadata=_make_metadata(),
                         chunk_index=chunk_idx,
                     )
                 )

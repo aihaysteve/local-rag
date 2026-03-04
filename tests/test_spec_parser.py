@@ -197,6 +197,17 @@ class TestParseSpecOversized:
         for i, chunk in enumerate(chunks):
             assert chunk.chunk_index == i
 
+    def test_split_chunks_have_independent_metadata(self) -> None:
+        """Metadata dicts and headings lists must not be shared across chunks."""
+        long_body = " ".join(f"word{i}" for i in range(100))
+        text = f"# Auth\n\n## Core Mechanism\n{long_body}\n"
+        chunks = parse_spec(text, "auth/SPEC.md", chunk_size_tokens=50)
+        assert len(chunks) > 1
+        # Mutate one chunk's metadata — should not affect others
+        chunks[0].metadata["headings"].append("MUTATED")
+        for chunk in chunks[1:]:
+            assert "MUTATED" not in chunk.metadata["headings"]
+
 
 class TestIsSpecFile:
     """Tests for SPEC.md filename detection."""
