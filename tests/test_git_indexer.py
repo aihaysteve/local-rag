@@ -1049,16 +1049,22 @@ class TestSpecPathEnrichment:
 
         # First file populates cache
         chunks1 = _code_blocks_to_chunks(
-            _make_doc("a.py"), "features/auth/a.py", config,
-            repo_root=repo, spec_cache=cache,
+            _make_doc("a.py"),
+            "features/auth/a.py",
+            config,
+            repo_root=repo,
+            spec_cache=cache,
         )
         assert chunks1[0].metadata["spec_path"] == "features/auth/SPEC.md"
         assert len(cache) == 1
 
         # Second file reuses cache (no additional filesystem walk)
         chunks2 = _code_blocks_to_chunks(
-            _make_doc("b.py"), "features/auth/b.py", config,
-            repo_root=repo, spec_cache=cache,
+            _make_doc("b.py"),
+            "features/auth/b.py",
+            config,
+            repo_root=repo,
+            spec_cache=cache,
         )
         assert chunks2[0].metadata["spec_path"] == "features/auth/SPEC.md"
         assert len(cache) == 1  # Still just 1 entry — cache was reused

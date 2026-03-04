@@ -384,9 +384,7 @@ def _code_blocks_to_chunks(
         if spec_cache is not None and file_dir in spec_cache:
             resolved_spec_path = spec_cache[file_dir]
         else:
-            resolved_spec_path = find_nearest_spec(
-                repo_root / relative_path, repo_root
-            )
+            resolved_spec_path = find_nearest_spec(repo_root / relative_path, repo_root)
             if spec_cache is not None:
                 spec_cache[file_dir] = resolved_spec_path
 
@@ -731,9 +729,7 @@ class GitRepoIndexer(BaseIndexer):
         # Route SPEC.md files to the dedicated spec parser
         if is_spec_file(file_path):
             text = file_path.read_text(encoding="utf-8", errors="replace")
-            chunks = parse_spec(
-                text, relative_path, chunk_size_tokens=config.chunk_size_tokens
-            )
+            chunks = parse_spec(text, relative_path, chunk_size_tokens=config.chunk_size_tokens)
             source_type = "spec"
         else:
             # Parse code file

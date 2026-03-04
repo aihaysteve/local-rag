@@ -639,8 +639,11 @@ class ProjectIndexer(BaseIndexer):
 
         # Parse and chunk
         chunks = _parse_and_chunk(
-            file_path, source_type, config,
-            doc_store=self.doc_store, source_path=source_path,
+            file_path,
+            source_type,
+            config,
+            doc_store=self.doc_store,
+            source_path=source_path,
         )
         if not chunks:
             logger.warning("No content extracted from %s, skipping", file_path)
