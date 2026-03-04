@@ -161,6 +161,7 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 |---|---|---|
 | `Config`, `load_config()` | All subsystems | Frozen dataclass; `with_overrides()` returns new instance |
 | `get_connection()`, `init_db()` | Indexers, search, CLI | Returns sqlite3.Connection with sqlite-vec loaded, WAL mode, busy_timeout set |
+| `get_or_create_collection()`, `delete_collection()` | Indexers, IndexingQueue | Collection CRUD; `get_or_create_collection()` returns collection_id, `delete_collection()` removes collection and cascaded rows |
 | `search()`, `perform_search()`, `perform_batch_search()` | MCP server, CLI | Returns `list[SearchResult]` with RRF-merged hybrid results |
 | `SearchResult`, `SearchFilters`, `BatchQuery` | MCP server | Dataclasses for search input/output |
 | `rrf_merge()` | Tests | Merges two ranked lists by Reciprocal Rank Fusion |
@@ -216,7 +217,7 @@ system watcher, MCP server. Supports stdio, SSE, and dual transport modes.
 | FAIL-4 | IndexingQueue silently drops errors | Indexer raises during `_process()` | Exception logged; status counter decremented; job marked failed in IndexingStatus |
 | FAIL-5 | Follower never promoted to leader | Previous leader process died but OS did not release flock | Restart the follower; kernel should release on process death — if not, check for zombie processes |
 | FAIL-6 | Config reload ignored after file change | ConfigWatcher debounce timer not expired; or parse error in new config | Check logs for parse errors; old config preserved on error |
-| FAIL-7 | Rate limiter blocks legitimate user after failed attempts | Exceeds MAX_FAILURES (5) threshold with wrong key | Wait for backoff to expire (max 300s); or restart the server to clear rate-limit state |
+| FAIL-7 | Rate limiter blocks legitimate user after failed attempts | More than MAX_FAILURES (5) consecutive failures with wrong key (triggers on 6th attempt, `count > 5`) | Wait for backoff to expire (max 300s); or restart the server to clear rate-limit state |
 
 ## Testing
 
@@ -238,8 +239,8 @@ uv run pytest tests/test_config.py tests/test_db.py tests/test_search.py \
 | INV-2 | `test_config.py::TestMalformedConfigFallback::test_malformed_json_falls_back_to_defaults` | Verifies default Config returned for malformed JSON |
 | INV-3 | `test_db.py::TestGetConnection::test_wal_mode_enabled` | Checks `PRAGMA journal_mode` returns `wal` |
 | INV-4 | `test_indexing_queue.py::TestSingleWriterDesign::test_indexer_runs_on_worker_thread` | Captures thread name during processing, asserts it is `index-worker` |
-| INV-5 | `test_doc_store.py::TestDocStoreInit::test_cache_hit_skips_converter` | Verifies converter not called on second access with same hash |
-| INV-5 | `test_doc_store.py::TestDocStoreInit::test_different_config_hash_triggers_reconversion` | Different config_hash triggers reconversion |
+| INV-5 | `test_doc_store.py::TestGetOrConvert::test_cache_hit_skips_converter` | Verifies converter not called on second access with same hash |
+| INV-5 | `test_doc_store.py::TestConfigHashCaching::test_different_config_hash_triggers_reconversion` | Different config_hash triggers reconversion |
 | INV-6 | `test_search.py::TestRRFMerge::test_sorted_by_score_descending` | Asserts scores are sorted in descending order |
 | INV-7 | -- | No direct test; `hmac.compare_digest` usage in `resolve_api_key()` untested |
 | INV-8 | `test_leader.py::TestLeaderLock::test_second_lock_on_same_path_fails` | Second lock on same file fails to acquire |

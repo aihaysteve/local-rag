@@ -55,7 +55,7 @@ are excluded to prevent duplicate indexing.
 | `delete_source()` | `GitRepoIndexer`, `prune_stale_sources()` | Removes source row and cascaded documents/vectors; no-op if source absent |
 | `prune_stale_sources()` | `ObsidianIndexer`, `CalibreIndexer`, `ProjectIndexer` | Removes file-backed sources whose files no longer exist; skips virtual URIs |
 | `file_hash()` | All file-based indexers | Returns SHA-256 hex digest of file contents |
-| `IndexResult` | All indexers, `indexing_queue.py` | Dataclass tracking indexed/skipped/skipped_empty/pruned/errors/total_found counts |
+| `IndexResult` | All indexers, `indexing_queue.py` | Dataclass tracking indexed/skipped/skipped_empty/pruned/errors/total_found counts plus `error_messages: list[str]` |
 | `detect_directory_type()` | `ProjectIndexer`, sync module | Returns `IndexerType.OBSIDIAN`, `CODE`, or `PROJECT` based on marker files |
 | `detect_indexer_type_for_file()` | Sync module | Walks parent directories for `.obsidian`/`.git` markers; returns `IndexerType` |
 | `collect_indexable_directories()` | Sync module | Filters configured usernames against existing subdirectories |

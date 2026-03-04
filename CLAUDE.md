@@ -30,7 +30,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, quality gates, and
 
 | Subsystem | Path | Purpose |
 |---|---|---|
-| Core | `src/ragling/` | Config, search, storage, MCP server, CLI |
+| Core | `src/ragling/` | Configuration, search, storage, indexing orchestration, MCP server, CLI |
 | Indexers | `src/ragling/indexers/` | Source-specific indexing pipelines |
-| Parsers | `src/ragling/parsers/` | Format-specific content extraction |
+| Parsers | `src/ragling/parsers/` | Format-specific content extraction for indexing |
 | Skills | `.claude/skills/` | Reusable agent instruction documents |

@@ -24,7 +24,7 @@ never raise exceptions to callers, returning `None` or empty collections instead
 - `epub.py` — EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
 - `email.py` — eM Client SQLite database parsing (.NET ticks, address types, FTI)
 - `calibre.py` — Calibre library metadata loading from metadata.db
-- `code.py` — Tree-sitter structural code parsing (48 extensions, 34 languages)
+- `code.py` — Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages)
 - `rss.py` — NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
 - `spec.py` — SPEC.md section-level chunking into typed Chunk objects
 
@@ -50,8 +50,8 @@ never raise exceptions to callers, returning `None` or empty collections instead
 | `parse_articles(account_dir, since_ts?)` | RSS indexer | Yields `Article` objects; `since_ts` filters by Unix timestamp |
 | `parse_spec(text, relative_path, chunk_size_tokens?)` | git indexer, project indexer | Returns `list[Chunk]` with section-level metadata (subsystem, section_type, spec_path) |
 | `find_nearest_spec(file_path, repo_root)` | git indexer | Walks up directory tree to find nearest SPEC.md, returns relative path or `None` |
-| `is_spec_file(path)` | project indexer | Returns `True` if filename is exactly `SPEC.md` (case-sensitive) |
-| `is_code_file(path)` | project indexer | Returns `True` if extension or filename matches a supported code language |
+| `is_spec_file(path)` | git indexer, project indexer | Returns `True` if filename is exactly `SPEC.md` (case-sensitive) |
+| `is_code_file(path)` | git indexer, project indexer | Returns `True` if extension or filename matches a supported code language |
 | `get_language(path)` | git indexer | Returns tree-sitter language name string, or `None` for unsupported files |
 
 ## Invariants
@@ -111,13 +111,16 @@ uv run pytest tests/test_parsers.py tests/test_code_parser.py tests/test_spec_pa
 **Gaps:** No automated tests for `open_ro()` failure path (INV-1, FAIL-1), EPUB
 parsing (INV-2, INV-7, FAIL-3), email parsing (INV-8), calibre parsing, or RSS
 parsing. These parsers interact with external databases and file formats that are
-difficult to fixture without integration tests.
+difficult to fixture without integration tests. Additionally, `parse_markdown()`
+lacks a top-level try/except — sub-operations (YAML parsing) catch errors, but an
+unexpected failure in regex processing or tag extraction could raise to the caller,
+which would violate INV-5.
 
 ## Dependencies
 
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
-| `ragling.chunker` (Chunk) | internal | `src/ragling/SPEC.md` |
+| `ragling.chunker` (Chunk, `_split_into_windows`, `_word_count`) | internal | `src/ragling/SPEC.md` — `spec.py` imports Chunk plus two private helpers for window splitting |
 | PyYAML | external | N/A |
 | BeautifulSoup (bs4) | external | N/A |
 | tree-sitter-language-pack | external | N/A |
