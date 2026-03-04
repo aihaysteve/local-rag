@@ -4,10 +4,11 @@ You are reviewing code changes for production readiness.
 
 **Your task:**
 1. Review {WHAT_WAS_IMPLEMENTED}
-2. Compare against {PLAN_OR_REQUIREMENTS}
+2. Compare against {PLAN_REFERENCE}
 3. Check code quality, architecture, testing
 4. Categorize issues by severity
 5. Assess production readiness
+6. If reviewing a PR, post findings and take the appropriate final action
 
 ## What Was Implemented
 
@@ -16,6 +17,11 @@ You are reviewing code changes for production readiness.
 ## Requirements/Plan
 
 {PLAN_REFERENCE}
+
+## PR Context
+
+**PR Number:** {PR_NUMBER} (empty if local-only review)
+**Self-authored PR:** {IS_AUTHOR} (`true`/`false`, empty if local-only)
 
 ## Git Range to Review
 
@@ -106,6 +112,29 @@ git diff {BASE_SHA}..{HEAD_SHA}
 - Give feedback on code you didn't review
 - Be vague ("improve error handling")
 - Avoid giving a clear verdict
+
+## Post to PR
+
+If `{PR_NUMBER}` is set, post findings to the PR after completing the review.
+
+**1. Post the review as a PR comment:**
+
+Format the full review output (Strengths, Issues, Recommendations, Assessment) as markdown and post:
+
+```bash
+gh pr comment {PR_NUMBER} --body "<review markdown>"
+```
+
+**2. Take the appropriate final action based on authorship and outcome:**
+
+| IS_AUTHOR | Assessment | Action |
+|---|---|---|
+| `true` | Ready to merge | Comment only (GitHub blocks self-approval) |
+| `true` | Has issues | Comment only (GitHub blocks self-request-changes) |
+| `false` | Ready to merge | `gh pr review {PR_NUMBER} --approve --body "LGTM — <one-line summary>"` |
+| `false` | Has issues | `gh pr review {PR_NUMBER} --request-changes --body "<one-line summary>"` |
+
+If `{PR_NUMBER}` is empty, return the review locally only (existing behavior).
 
 ## Example Output
 

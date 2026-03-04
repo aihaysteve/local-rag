@@ -153,3 +153,58 @@ The simplification skill will:
 - Re-run verification after changes
 
 Only after simplification completes and final verification passes can completion be claimed.
+
+## SPEC.md Invariant Check
+
+After standard verification passes, check for subsystem specifications:
+
+1. **Find SPEC.md** — Walk up from modified files to find the nearest SPEC.md
+2. **If found, check invariants** — Review each invariant in the spec's table.
+   For each one, verify it still holds after your changes. How to verify
+   depends on the invariant type:
+   - **Testable invariants** (data constraints, API contracts): run the
+     corresponding `test_invN_*` test. A passing test is sufficient evidence.
+   - **Architectural invariants** (coupling rules, file organization, naming):
+     review the diff against the constraint. Confirm the change doesn't
+     introduce a violation.
+   - **Unclear or untestable invariants**: note them in the report rather
+     than skipping — flag for human review.
+3. **Check coverage** — If the SPEC.md has a Coverage table in its Testing
+   section, verify that every INV-N and FAIL-N has a corresponding test and
+   that the test passes. Flag uncovered spec items.
+4. **Report** — Include invariant and coverage check results in verification output
+
+This is a lightweight consistency check, not a replacement for the full test
+suite. If an invariant is unclear or untestable, note it rather than skipping it.
+
+### Staleness Check
+
+After checking invariants, assess whether the SPEC.md is still current:
+
+1. **Compare modification dates** — If source files in the subsystem have been
+   modified more recently than SPEC.md (check via `git log -1 --format=%ci`),
+   the spec may be stale.
+2. **Check for drift** — Do your changes introduce new invariants, failure modes,
+   or public interfaces not captured in the spec? If yes, flag for update.
+3. **Report staleness** — Include in verification output. Recommend
+   `/codify-subsystem` to refresh the spec if significant drift is detected.
+
+A stale spec is better than no spec — don't block completion on staleness alone.
+Flag it and move on.
+
+```
+SPEC.md invariant check:
+- [path/to/SPEC.md]
+- INV-1: [description] → ✅ Still holds / ❌ Violated
+- FAIL-1: [description] → ✅ Handled / ❌ Unhandled
+
+Coverage check:
+- INV-1 → test_inv1_* ✅ Covered / ❌ Missing test
+- FAIL-1 → test_fail1_* ✅ Covered / ❌ Missing test
+
+Staleness:
+- SPEC.md last modified: [date]
+- Source files modified after spec: [yes/no — list files if yes]
+- New invariants/interfaces not in spec: [yes/no — describe if yes]
+- Recommendation: [Current / Recommend re-codification]
+```
