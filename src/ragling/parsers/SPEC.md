@@ -87,6 +87,8 @@ uv run pytest tests/test_parsers.py tests/test_code_parser.py tests/test_spec_pa
 
 | Spec Item | Test | Description |
 |---|---|---|
+| INV-1 | -- | No direct test; `open_ro()` failure path untested |
+| INV-2 | -- | No direct test; UTF-8 `errors="replace"` behavior untested |
 | INV-3 | `TestSwiftParsing::test_start_end_lines_1_based` | All Swift blocks have 1-based start/end lines |
 | INV-3 | `TestSwiftParsing::test_class_line_numbers` | Class declaration has correct 1-based line range |
 | INV-3 | `TestZigParsing::test_start_end_lines_1_based` | All Zig blocks have 1-based start/end lines |
