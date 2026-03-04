@@ -58,5 +58,8 @@ scripts/fixtures/git-repo-large/
 !.claude/skills/writing-plans/
 !.claude/skills/writing-skills/
 
+# Auto memory (personal, not code)
+MEMORY.md
+
 # Working documents (plans live in PR body, not repo)
 docs/plans/
