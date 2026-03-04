@@ -1,6 +1,7 @@
 """Tests for ragling.mcp_server module."""
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -717,7 +718,7 @@ class TestRagIndexWatch:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            watch={"research": [dir1, dir2]},
+            watch=MappingProxyType({"research": (dir1, dir2)}),
         )
 
         status = IndexingStatus()
@@ -756,7 +757,7 @@ class TestRagIndexWatch:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            watch={"proj": [watch_dir]},
+            watch=MappingProxyType({"proj": (watch_dir,)}),
         )
 
         server = create_server(group_name="default", config=config)
@@ -782,6 +783,46 @@ class TestRagIndexWatch:
         assert result["collection"] == "proj"
         assert result["indexed"] == 1
         MockProjectIndexer.assert_called_once()
+
+    def test_rag_index_direct_watch_code_detection(self, tmp_path: Path) -> None:
+        """Watch collections use GitRepoIndexer when auto-detected as code."""
+        from ragling.config import Config
+        from ragling.indexer_types import IndexerType
+        from ragling.mcp_server import create_server
+
+        watch_dir = tmp_path / "repo"
+        watch_dir.mkdir()
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"repo": (watch_dir,)}),
+        )
+
+        server = create_server(group_name="default", config=config)
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        with (
+            patch(
+                "ragling.indexers.auto_indexer.detect_directory_type",
+                return_value=IndexerType.CODE,
+            ),
+            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitIndexer,
+        ):
+            mock_result = MagicMock()
+            mock_result.indexed = 3
+            mock_result.skipped = 0
+            mock_result.errors = 0
+            mock_result.total_found = 3
+            MockGitIndexer.return_value.index.return_value = mock_result
+            result: dict[str, Any] = rag_index_fn(collection="repo")
+
+        assert result["collection"] == "repo"
+        assert result["indexed"] == 3
+        MockGitIndexer.assert_called_once_with(watch_dir, collection_name="repo")
 
 
 class TestRagIndexFollowerMode:

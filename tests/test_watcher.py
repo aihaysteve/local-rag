@@ -149,7 +149,8 @@ class TestWatchPathsIncludesObsidianAndCode:
         global_dir = tmp_path / "global"
         vault = tmp_path / "vault"
         repo = tmp_path / "repo"
-        for d in (home, global_dir, vault, repo):
+        watch_dir = tmp_path / "watched"
+        for d in (home, global_dir, vault, repo, watch_dir):
             d.mkdir()
 
         config = Config(
@@ -157,12 +158,14 @@ class TestWatchPathsIncludesObsidianAndCode:
             global_paths=(global_dir,),
             obsidian_vaults=(vault,),
             code_groups=MappingProxyType({"org": (repo,)}),
+            watch=MappingProxyType({"proj": (watch_dir,)}),
         )
         paths = get_watch_paths(config)
         assert home in paths
         assert global_dir in paths
         assert vault in paths
         assert repo in paths
+        assert watch_dir in paths
 
 
 class TestWatchPathsIncludesWatch:

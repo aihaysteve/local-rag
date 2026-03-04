@@ -436,6 +436,11 @@ def create_server(
           Source types: vary by content (markdown, pdf, docx, etc.).
           Useful filters: collection=<project-name>.
 
+        **Watch directories** — Auto-detected collections from configured directories.
+          Each directory is indexed as code or project based on its contents.
+          Source types: depend on auto-detection (code or project types).
+          Useful filters: collection=<watch-name>.
+
         ## Collection filtering
 
         The ``collection`` parameter accepts either a collection name or a collection type:
@@ -734,7 +739,7 @@ def create_server(
 
         Args:
             collection: Collection name ('obsidian', 'email', 'calibre', 'rss', a code group
-                name, or a project name).
+                name, a watch collection name, or a project name).
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
         """

@@ -227,8 +227,15 @@ def load_config(path: Path | None = None) -> Config:
         code_groups_raw[cg_name] = tuple(_expand_path(p) for p in paths)
     code_groups: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(code_groups_raw)
 
+    _system_names = {"obsidian", "email", "calibre", "rss", "global"}
     watch_raw: dict[str, tuple[Path, ...]] = {}
     for w_name, w_paths in data.get("watch", {}).items():
+        if w_name in _system_names:
+            raise ValueError(f"watch name '{w_name}' conflicts with system collection name")
+        if w_name in code_groups_raw:
+            raise ValueError(
+                f"watch name '{w_name}' conflicts with code_groups entry of the same name"
+            )
         if isinstance(w_paths, str):
             watch_raw[w_name] = (_expand_path(w_paths),)
         else:

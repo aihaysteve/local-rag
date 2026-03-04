@@ -515,3 +515,23 @@ class TestWatchConfig:
         config_file.write_text(json.dumps({"watch": {"proj": str(tmp_path / "proj")}}))
         config = load_config(config_file)
         assert isinstance(config.watch, MappingProxyType)
+
+    @pytest.mark.parametrize("name", ["obsidian", "email", "calibre", "rss", "global"])
+    def test_rejects_watch_name_matching_system_collection(self, tmp_path: Path, name: str) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"watch": {name: str(tmp_path / "dir")}}))
+        with pytest.raises(ValueError, match="system collection"):
+            load_config(config_file)
+
+    def test_rejects_watch_name_matching_code_group(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "code_groups": {"my-org": [str(tmp_path / "repo")]},
+                    "watch": {"my-org": str(tmp_path / "dir")},
+                }
+            )
+        )
+        with pytest.raises(ValueError, match="code_groups"):
+            load_config(config_file)
