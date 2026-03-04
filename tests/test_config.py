@@ -439,3 +439,79 @@ class TestMalformedConfigFallback:
             assert config.obsidian_vaults == ()
         finally:
             config_file.chmod(0o644)
+
+
+class TestWatchConfig:
+    """Tests for the watch config field."""
+
+    def test_default_watch_is_empty(self) -> None:
+        config = Config()
+        assert config.watch == {}
+
+    def test_watch_is_mapping_proxy(self) -> None:
+        config = Config()
+        assert isinstance(config.watch, MappingProxyType)
+
+    def test_loads_watch_string_value(self, tmp_path: Path) -> None:
+        """A string value is normalized to a single-element tuple."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"watch": {"movie-rec": str(tmp_path / "movie-rec")}}))
+        config = load_config(config_file)
+        assert "movie-rec" in config.watch
+        assert config.watch["movie-rec"] == (tmp_path / "movie-rec",)
+
+    def test_loads_watch_list_value(self, tmp_path: Path) -> None:
+        """A list of paths is normalized to a tuple."""
+        dir1 = tmp_path / "papers"
+        dir2 = tmp_path / "refs"
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"watch": {"research": [str(dir1), str(dir2)]}}))
+        config = load_config(config_file)
+        assert config.watch["research"] == (dir1, dir2)
+
+    def test_loads_watch_mixed_values(self, tmp_path: Path) -> None:
+        """Mix of string and list values in watch config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "watch": {
+                        "single": str(tmp_path / "one"),
+                        "multi": [str(tmp_path / "a"), str(tmp_path / "b")],
+                    }
+                }
+            )
+        )
+        config = load_config(config_file)
+        assert config.watch["single"] == (tmp_path / "one",)
+        assert config.watch["multi"] == (tmp_path / "a", tmp_path / "b")
+
+    def test_watch_tilde_expansion(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"watch": {"proj": "~/Projects/proj"}}))
+        config = load_config(config_file)
+        assert "~" not in str(config.watch["proj"][0])
+
+    def test_missing_watch_uses_empty_default(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"embedding_model": "bge-m3"}))
+        config = load_config(config_file)
+        assert config.watch == {}
+
+    def test_watch_values_are_tuples(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"watch": {"proj": str(tmp_path / "proj")}}))
+        config = load_config(config_file)
+        assert isinstance(config.watch["proj"], tuple)
+
+    def test_with_overrides_converts_watch_dict(self) -> None:
+        """with_overrides should accept a plain dict for watch and convert it."""
+        config = Config()
+        new_config = config.with_overrides(watch={"proj": (Path("/proj"),)})
+        assert isinstance(new_config.watch, MappingProxyType)
+
+    def test_load_config_watch_is_immutable(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"watch": {"proj": str(tmp_path / "proj")}}))
+        config = load_config(config_file)
+        assert isinstance(config.watch, MappingProxyType)

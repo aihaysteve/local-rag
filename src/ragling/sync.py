@@ -66,6 +66,13 @@ def _resolve_path(file_path: Path, config: Config) -> tuple[str | None, Path | N
             if resolved.is_relative_to(repo_resolved):
                 return group_name, repo_resolved
 
+    # Check watch directories
+    for watch_name, watch_paths in config.watch.items():
+        for watch_path in watch_paths:
+            watch_resolved = watch_path.resolve()
+            if resolved.is_relative_to(watch_resolved):
+                return watch_name, watch_resolved
+
     return None, None
 
 
@@ -92,7 +99,8 @@ def run_startup_sync(
     """Spawn a daemon thread that discovers all sources and submits IndexJobs.
 
     Enumerates home directories, global paths, obsidian vaults, code groups,
-    and system collections, then submits IndexJob items to the queue.
+    watch directories, and system collections, then submits IndexJob items
+    to the queue.
 
     Args:
         config: Application configuration.
@@ -167,6 +175,23 @@ def run_startup_sync(
                             path=repo_path,
                             collection_name=group_name,
                             indexer_type=IndexerType.CODE,
+                        )
+                    )
+
+            # --- Watch directories ---
+            for watch_name, watch_paths in config.watch.items():
+                if not config.is_collection_enabled(watch_name):
+                    continue
+                for watch_path in watch_paths:
+                    if not watch_path.is_dir():
+                        continue
+                    dir_type = detect_directory_type(watch_path)
+                    queue.submit(
+                        IndexJob(
+                            job_type="directory",
+                            path=watch_path,
+                            collection_name=watch_name,
+                            indexer_type=dir_type,
                         )
                     )
 

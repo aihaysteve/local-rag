@@ -126,6 +126,18 @@ class TestGetAllowedPaths:
         assert repo_b.resolve() in allowed
         assert repo_c.resolve() in allowed
 
+    def test_includes_watch_paths(self, tmp_path: Path) -> None:
+        from ragling.mcp_server import _get_allowed_paths
+
+        dir1 = tmp_path / "proj"
+        dir2 = tmp_path / "papers"
+        dir1.mkdir()
+        dir2.mkdir()
+        config = Config(watch=MappingProxyType({"proj": (dir1,), "research": (dir2,)}))
+        allowed = _get_allowed_paths(config)
+        assert dir1.resolve() in allowed
+        assert dir2.resolve() in allowed
+
 
 class TestConvertDocumentPathRestriction:
     """Tests for restrict_paths parameter on _convert_document."""

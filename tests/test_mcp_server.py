@@ -698,6 +698,92 @@ class TestRagIndexQueueRouting:
         queue.submit.assert_not_called()
 
 
+class TestRagIndexWatch:
+    """Tests for rag_index routing watch collections."""
+
+    def test_rag_index_via_queue_watch_submits_jobs(self, tmp_path: Path) -> None:
+        """Watch collections submit auto-detected jobs via queue."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        dir1 = tmp_path / "papers"
+        dir2 = tmp_path / "refs"
+        dir1.mkdir()
+        dir2.mkdir()
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch={"research": [dir1, dir2]},
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
+            result: dict[str, Any] = rag_index_fn(collection="research")
+
+        assert queue.submit.call_count == 2
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        assert all(j.collection_name == "research" for j in jobs)
+        assert {j.path for j in jobs} == {dir1, dir2}
+        assert result["status"] == "submitted"
+        assert result["paths"] == 2
+
+    def test_rag_index_direct_watch_uses_auto_detection(self, tmp_path: Path) -> None:
+        """Watch collections use auto-detected indexer in direct mode."""
+        from ragling.config import Config
+        from ragling.mcp_server import create_server
+
+        watch_dir = tmp_path / "proj"
+        watch_dir.mkdir()
+        (watch_dir / "notes.md").write_text("# Notes")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch={"proj": [watch_dir]},
+        )
+
+        server = create_server(group_name="default", config=config)
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        with (
+            patch(
+                "ragling.indexers.auto_indexer.detect_directory_type",
+                return_value="project",
+            ),
+            patch("ragling.indexers.project.ProjectIndexer") as MockProjectIndexer,
+        ):
+            mock_result = MagicMock()
+            mock_result.indexed = 1
+            mock_result.skipped = 0
+            mock_result.errors = 0
+            mock_result.total_found = 1
+            MockProjectIndexer.return_value.index.return_value = mock_result
+            result: dict[str, Any] = rag_index_fn(collection="proj")
+
+        assert result["collection"] == "proj"
+        assert result["indexed"] == 1
+        MockProjectIndexer.assert_called_once()
+
+
 class TestRagIndexFollowerMode:
     """Tests for rag_index behavior when queue_getter returns None (follower)."""
 
