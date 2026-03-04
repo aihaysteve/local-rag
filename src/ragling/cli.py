@@ -1047,12 +1047,10 @@ def init(name: str | None, ragling_dir: Path | None) -> None:
 
     # Validate project name
     if project_name in RESERVED_COLLECTION_NAMES:
-        click.echo(
-            f"Error: '{project_name}' is a reserved collection name. "
-            f"Use --name to choose a different name.",
-            err=True,
+        raise click.ClickException(
+            f"'{project_name}' is a reserved collection name. "
+            f"Use --name to choose a different name."
         )
-        sys.exit(1)
 
     ragling_path = ragling_dir or _detect_ragling_dir()
 
