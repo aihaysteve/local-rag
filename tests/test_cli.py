@@ -1,7 +1,9 @@
 """Tests for ragling CLI."""
 
+import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from ragling.cli import main
@@ -735,3 +737,137 @@ class TestBackgroundFlag:
         assert call_kwargs.get("stderr") is not subprocess.DEVNULL
         # stdout should still be DEVNULL
         assert call_kwargs["stdout"] is subprocess.DEVNULL
+
+
+class TestInitCommand:
+    """Tests for the ragling init command."""
+
+    def test_init_help(self) -> None:
+        """init command is registered and shows help."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["init", "--help"])
+        assert result.exit_code == 0
+        assert "--name" in result.output
+        assert "--ragling-dir" in result.output
+
+    def test_init_creates_ragling_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init creates ragling.json with watch config using directory name."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        config_file = project_dir / "ragling.json"
+        assert config_file.exists()
+        data = json.loads(config_file.read_text())
+        assert "watch" in data
+        assert "my-project" in data["watch"]
+        assert data["watch"]["my-project"] == "."
+
+    def test_init_custom_name(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--name overrides the derived project name."""
+        runner = CliRunner()
+        project_dir = tmp_path / "some-dir"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(
+            main, ["init", "--name", "custom-name", "--ragling-dir", "/fake/ragling"]
+        )
+        assert result.exit_code == 0
+        data = json.loads((project_dir / "ragling.json").read_text())
+        assert "custom-name" in data["watch"]
+
+    def test_init_creates_mcp_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """init creates .mcp.json with ragling server entry."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/path/to/ragling"])
+        assert result.exit_code == 0
+        mcp_file = project_dir / ".mcp.json"
+        assert mcp_file.exists()
+        data = json.loads(mcp_file.read_text())
+        assert "mcpServers" in data
+        assert "ragling" in data["mcpServers"]
+        args = data["mcpServers"]["ragling"]["args"]
+        assert "--directory" in args
+        assert "/path/to/ragling" in args
+        assert "--config" in args
+
+    def test_init_merges_existing_mcp_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init preserves existing servers in .mcp.json."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        existing_mcp = {"mcpServers": {"other-server": {"command": "other"}}}
+        (project_dir / ".mcp.json").write_text(json.dumps(existing_mcp))
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "other-server" in data["mcpServers"]
+        assert "ragling" in data["mcpServers"]
+
+    def test_init_skips_existing_ragling_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init does not overwrite existing ragling.json."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        existing = {"watch": {"old-name": "."}}
+        (project_dir / "ragling.json").write_text(json.dumps(existing))
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        assert "already exists" in result.output
+        data = json.loads((project_dir / "ragling.json").read_text())
+        assert "old-name" in data["watch"]  # unchanged
+
+    @pytest.mark.parametrize("name", ["obsidian", "email", "calibre", "rss", "global"])
+    def test_init_rejects_reserved_names(
+        self, tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init rejects system collection names."""
+        runner = CliRunner()
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--name", name, "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code != 0
+
+    def test_init_checks_ollama(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """init output includes Ollama status information."""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        # Mock urllib to simulate Ollama not running
+        with patch("urllib.request.urlopen", side_effect=OSError("Connection refused")):
+            result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        assert "ollama" in result.output.lower()
+
+    def test_init_mcp_json_config_uses_absolute_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The --config path in .mcp.json should be absolute."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", "/fake/ragling"])
+        assert result.exit_code == 0
+        data = json.loads((project_dir / ".mcp.json").read_text())
+        args = data["mcpServers"]["ragling"]["args"]
+        config_idx = args.index("--config")
+        config_path = args[config_idx + 1]
+        assert Path(config_path).is_absolute()
