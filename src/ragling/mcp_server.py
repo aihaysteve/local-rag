@@ -1,7 +1,6 @@
 """MCP server exposing ragling search and index tools.
 
 Thin facade: builds auth, creates ToolContext, delegates to tools/ package.
-All helpers re-exported for backward compatibility with existing tests.
 """
 
 from __future__ import annotations
@@ -12,21 +11,6 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.fastmcp import FastMCP
 
 from ragling.config import Config
-
-# Re-export helpers so existing ``from ragling.mcp_server import X`` keeps working.
-# Also re-export get_access_token and load_config for test patch targets.
-from ragling.tools.helpers import (  # noqa: F401
-    _apply_user_context_to_results,
-    _build_list_response,
-    _build_search_response,
-    _build_source_uri,
-    _convert_document,
-    _get_allowed_paths,
-    _get_user_context,
-    _result_to_dict,
-    get_access_token,
-    load_config,
-)
 
 if TYPE_CHECKING:
     from ragling.indexing_queue import IndexingQueue
