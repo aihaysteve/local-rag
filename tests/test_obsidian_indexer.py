@@ -64,7 +64,7 @@ class TestObsidianWalkVaultFiltering:
         assert "note.md" in names
         assert "paper.pdf" in names
 
-    def test_skips_hidden_directories(self, tmp_path: Path) -> None:
+    def test_skips_hidden_directories(self, tmp_path: Path) -> None:  # Tests Indexers INV-7
         """Files inside hidden directories (like .obsidian) are excluded."""
         vault = self._make_vault(tmp_path)
         # .obsidian already exists; put a file inside it
@@ -77,7 +77,7 @@ class TestObsidianWalkVaultFiltering:
         assert "config.json" not in names
         assert "note.md" in names
 
-    def test_skips_hidden_files(self, tmp_path: Path) -> None:
+    def test_skips_hidden_files(self, tmp_path: Path) -> None:  # Tests Indexers INV-7
         """Files whose names start with a dot are excluded."""
         vault = self._make_vault(tmp_path)
         (vault / ".hidden.md").write_text("# Secret")
@@ -89,7 +89,7 @@ class TestObsidianWalkVaultFiltering:
         assert ".hidden.md" not in names
         assert "visible.md" in names
 
-    def test_skips_user_excluded_folders(self, tmp_path: Path) -> None:
+    def test_skips_user_excluded_folders(self, tmp_path: Path) -> None:  # Tests Indexers INV-7
         """Files inside user-excluded folders are excluded."""
         vault = self._make_vault(tmp_path)
         excluded_dir = vault / "templates"
@@ -205,7 +205,9 @@ class TestObsidianIndexerStatusReporting:
 
         assert result.indexed == 1
 
-    def test_status_file_processed_called_per_file(self, tmp_path: Path) -> None:
+    def test_status_file_processed_called_per_file(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers INV-9
         """ObsidianIndexer calls file_processed after each file is indexed."""
         from ragling.indexing_status import IndexingStatus
         from ragling.indexers.obsidian import ObsidianIndexer

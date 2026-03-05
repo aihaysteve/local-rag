@@ -53,7 +53,7 @@ class TestGetConnection:
         finally:
             conn.close()
 
-    def test_wal_mode_enabled(self, tmp_path: Path) -> None:
+    def test_wal_mode_enabled(self, tmp_path: Path) -> None:  # Tests Core INV-3, Core FAIL-2
         from ragling.db import get_connection
 
         config = Config(

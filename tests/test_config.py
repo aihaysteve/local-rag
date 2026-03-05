@@ -223,12 +223,12 @@ class TestUserConfigRepr:
 class TestConfigImmutability:
     """Config should be frozen to prevent accidental mutation."""
 
-    def test_config_is_frozen(self) -> None:
+    def test_config_is_frozen(self) -> None:  # Tests Core INV-1
         config = Config()
         with pytest.raises(AttributeError):
             config.group_name = "mutated"  # type: ignore[misc]
 
-    def test_with_overrides_returns_new_instance(self) -> None:
+    def test_with_overrides_returns_new_instance(self) -> None:  # Tests Core INV-1
         config = Config(group_name="original")
         new_config = config.with_overrides(group_name="changed")
         assert new_config.group_name == "changed"
@@ -410,7 +410,9 @@ class TestEnrichmentConfig:
 class TestMalformedConfigFallback:
     """load_config should fall back to defaults on malformed or unreadable config."""
 
-    def test_malformed_json_falls_back_to_defaults(self, tmp_path: Path) -> None:
+    def test_malformed_json_falls_back_to_defaults(
+        self, tmp_path: Path
+    ) -> None:  # Tests Core INV-2
         config_file = tmp_path / "config.json"
         config_file.write_text("{not valid json!!!")
         config = load_config(config_file)

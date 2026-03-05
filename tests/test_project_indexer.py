@@ -426,7 +426,9 @@ class TestProjectIndexerDiscovery:
         assert result.indexed >= 1
         conn.close()
 
-    def test_repo_in_code_groups_skipped_by_discovery(self, tmp_path: Path) -> None:
+    def test_repo_in_code_groups_skipped_by_discovery(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers INV-6
         """Repos already in code_groups should NOT be re-indexed by project discovery.
 
         When a global_path contains a git repo that is also configured in
@@ -466,7 +468,9 @@ class TestProjectIndexerDiscovery:
         MockGit.assert_not_called()
         conn.close()
 
-    def test_repo_not_in_code_groups_still_indexed(self, tmp_path: Path) -> None:
+    def test_repo_not_in_code_groups_still_indexed(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers INV-6
         """Repos NOT in code_groups should still be indexed by project discovery."""
         from ragling.config import Config
         from ragling.db import get_connection, init_db
@@ -860,7 +864,7 @@ class TestProjectIndexerStatusReporting:
 class TestSpecMdRouting:
     """Tests for SPEC.md files being routed to the spec parser."""
 
-    def test_spec_md_uses_spec_parser(self, tmp_path: Path) -> None:
+    def test_spec_md_uses_spec_parser(self, tmp_path: Path) -> None:  # Tests Indexers INV-10
         spec = tmp_path / "SPEC.md"
         spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n\n## Dependencies\nUses bcrypt.\n")
 

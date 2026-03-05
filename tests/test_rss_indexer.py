@@ -9,7 +9,7 @@ from ragling.config import Config
 class TestRSSIndexerChunking:
     """Tests that RSS indexer uses HybridChunker via bridge function."""
 
-    def test_index_article_uses_chunk_with_hybrid(self) -> None:
+    def test_index_article_uses_chunk_with_hybrid(self) -> None:  # Tests Indexers FAIL-1
         """_index_article should call chunk_with_hybrid, not chunk_email."""
         from ragling.indexers.rss_indexer import RSSIndexer
 

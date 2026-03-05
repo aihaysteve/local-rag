@@ -268,7 +268,7 @@ class TestReconciliation:
         init_db(conn, config)
         return conn, config
 
-    def test_stale_sub_collection_deleted(self, tmp_path: Path) -> None:
+    def test_stale_sub_collection_deleted(self, tmp_path: Path) -> None:  # Tests Indexers FAIL-3
         """Sub-collection whose marker no longer exists gets deleted."""
         from ragling.db import get_or_create_collection
 
@@ -290,7 +290,9 @@ class TestReconciliation:
         assert row is None
         conn.close()
 
-    def test_current_sub_collections_preserved(self, tmp_path: Path) -> None:
+    def test_current_sub_collections_preserved(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers FAIL-3
         """Sub-collections that still have markers are not deleted."""
         from ragling.db import get_or_create_collection
 

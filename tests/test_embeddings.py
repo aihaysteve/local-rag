@@ -42,7 +42,7 @@ class TestClientHostConfig:
 class TestHostAwareErrorMessages:
     """Error messages should include the configured host."""
 
-    def test_default_message_suggests_ollama_serve(self) -> None:
+    def test_default_message_suggests_ollama_serve(self) -> None:  # Tests Core FAIL-1
         with pytest.raises(OllamaConnectionError, match="ollama serve"):
             _raise_if_connection_error(ConnectionError("connection refused"), config=Config())
 
@@ -69,7 +69,9 @@ class TestGetEmbeddingsBatchFallback:
         assert mock_client.embed.call_count == 1
 
     @patch("ragling.embeddings.ollama.Client")
-    def test_batch_failure_retries_individually(self, mock_client_cls: MagicMock) -> None:
+    def test_batch_failure_retries_individually(
+        self, mock_client_cls: MagicMock
+    ) -> None:  # Tests Core INV-9
         """Batch of 3 fails, individual calls succeed, returns 3 embeddings."""
         mock_client = mock_client_cls.return_value
 
@@ -168,7 +170,9 @@ class TestGetEmbeddingTruncationRetry:
         assert mock_client.embed.call_count == 1
 
     @patch("ragling.embeddings.ollama.Client")
-    def test_failure_retries_with_truncated_text(self, mock_client_cls: MagicMock) -> None:
+    def test_failure_retries_with_truncated_text(
+        self, mock_client_cls: MagicMock
+    ) -> None:  # Tests Core INV-9
         """First call fails, retries with text truncated to 256 words."""
         mock_client = mock_client_cls.return_value
         long_text = " ".join(["word"] * 300)

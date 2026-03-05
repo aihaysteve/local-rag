@@ -70,14 +70,13 @@ digraph tdd_cycle {
 
 ## Spec-Anchored Tests
 
-When the subsystem has a SPEC.md, anchor tests to spec item IDs:
+When the subsystem has a SPEC.md, use its invariants and failure modes as your
+test target list. Write the failing test for INV-1, watch it fail, implement,
+watch it pass. Then INV-2. Then FAIL-1. And so on.
 
-- Each **INV-N** gets a positive test: `test_invN_description` — verifies the invariant holds
-- Each **FAIL-N** gets a negative test: `test_failN_description` — verifies graceful handling
-
-This doesn't change the red-green-refactor cycle — it tells you *what* to test.
-The spec items are your test target list. Write the failing test for INV-1,
-watch it fail, implement, watch it pass. Then INV-2. Then FAIL-1. And so on.
+Add `# Tests INV-N` or `# Tests FAIL-N` inline comments on the `def` line of
+each test that verifies a spec item. This keeps traceability in the code where
+it stays in sync naturally.
 
 **Without a SPEC.md:** Write tests as you normally would — one behavior per test,
 clear names, real code.
@@ -350,7 +349,7 @@ Before marking work complete:
 - [ ] Output pristine (no errors, warnings)
 - [ ] Tests use real code (mocks only if unavoidable)
 - [ ] Edge cases and errors covered
-- [ ] If SPEC.md exists: every INV-N has a positive test, every FAIL-N has a negative test
+- [ ] If SPEC.md exists: every INV-N and FAIL-N has a test with a `# Tests INV-N` inline comment
 
 Can't check all boxes? You skipped TDD. Start over.
 

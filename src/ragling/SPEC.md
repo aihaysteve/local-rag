@@ -14,75 +14,10 @@ for concurrent access across multiple MCP instances.
 
 ## Core Mechanism
 
-### Configuration
-
-`config.py` defines Config as a frozen dataclass with `with_overrides()` for
-deriving variants. Immutability is enforced via `MappingProxyType` for dicts,
-tuples for lists, and `frozenset` for sets. `load_config()` reads JSON from
-`~/.ragling/config.json`, falling back to defaults on malformed input.
-
-### Database
-
-`db.py` manages per-group SQLite index databases. `get_connection()` loads the
-sqlite-vec extension, sets WAL mode with retry (5 attempts, exponential backoff
-from 50ms), `busy_timeout=5000`, and `foreign_keys=ON`. `init_db()` creates the
-full schema: `collections`, `sources`, `documents` tables; `vec_documents`
-(sqlite-vec) and `documents_fts` (FTS5) virtual tables; and FTS sync triggers.
-`SCHEMA_VERSION=2` with forward migration support.
-
-### Document conversion cache
-
-`doc_store.py` implements a content-addressed SQLite cache keyed by SHA-256 file
-hash plus a config hash. `get_or_convert()` runs the converter callable before
-any DML to avoid holding a write lock during slow conversions. Multiple MCP
-instances share the doc store via WAL mode.
-
-### Embeddings
-
-`embeddings.py` interfaces with Ollama. Texts are sent in sub-batches of 32 with a
-300-second timeout. On batch failure, falls back to individual embedding with
-truncation retry (256 words). `serialize_float32()` converts vectors to sqlite-vec
-binary format.
-
-### Indexing orchestration
-
-`indexing_queue.py` provides the single-writer queue. `IndexJob` (frozen dataclass)
-describes a unit of work; `IndexRequest` wraps it with a `threading.Event` for
-synchronous submission. The worker thread delegates indexer creation to
-`indexers.factory.create_indexer()` -- the single source of truth for mapping
-collection names and indexer types to configured indexer instances.
-`indexing_status.py` tracks progress per-collection with thread-safe counters
-(job-level, file-level, byte-level, failure tracking).
-
-### Leader election
-
-`leader.py` implements per-group leader election using `fcntl.flock()`. The kernel
-releases the lock when the process dies, so there are no stale locks, no PID files,
-and no heartbeats. Followers retry periodically via `start_retry()` with a
-configurable interval and promotion callback.
-
-### Startup sync
-
-`sync.py` spawns a daemon thread that discovers all configured sources (home dirs,
-global paths, obsidian vaults, code groups, watch dirs, system collections) and
-submits `IndexJob` items. `submit_file_change()` routes file changes to the
-correct collection and indexer type.
-
-### MCP server
-
-`mcp_server.py` builds a FastMCP server with tools: `rag_search`,
-`rag_batch_search`, `rag_list_collections`, `rag_index`, `rag_indexing_status`,
-`rag_doc_store_info`, `rag_collection_info`, `rag_convert`. The `rag_index`
-tool requires a running IndexingQueue (no direct indexing path). Auth via
-`RaglingTokenVerifier` when users are configured.
-
-### CLI
-
-`cli.py` provides the Click command group. The `serve` command delegates to
-`ServerOrchestrator` for startup orchestration. `server.py` contains the
-`ServerOrchestrator` class that manages the full startup sequence: leader election,
-IndexingQueue start, startup sync, file watchers, system watcher, config watching,
-and shutdown. Supports stdio, SSE, and dual transport modes.
+Configuration is frozen and immutable to prevent race conditions across threads.
+All writes flow through the IndexingQueue's single worker thread; reads use
+separate WAL-mode connections. Leader election via `fcntl.flock()` delegates to
+the kernel for automatic cleanup on process death.
 
 **Key files:**
 - `config.py` -- frozen Config dataclass and `load_config()`
@@ -140,35 +75,6 @@ and shutdown. Supports stdio, SSE, and dual transport modes.
 | FAIL-2 | `OperationalError: database is locked` during WAL setup | Concurrent first-time access to a new database file | Automatic retry with exponential backoff (5 attempts); increase delay if persistent |
 | FAIL-4 | IndexingQueue silently drops errors | Indexer raises during `_process()` | Exception logged; status counter decremented; job marked failed in IndexingStatus |
 | FAIL-5 | Follower never promoted to leader | Previous leader process died but OS did not release flock | Restart the follower; kernel should release on process death -- if not, check for zombie processes |
-
-## Testing
-
-```bash
-uv run pytest tests/test_config.py tests/test_db.py tests/test_doc_store.py \
-  tests/test_embeddings.py tests/test_indexing_queue.py \
-  tests/test_indexing_status.py tests/test_leader.py tests/test_sync.py \
-  tests/test_path_mapping.py tests/test_server.py -v
-```
-
-### Coverage
-
-| Spec Item | Test | Description |
-|---|---|---|
-| INV-1 | `test_config.py::TestConfigImmutability::test_config_is_frozen` | Asserts `FrozenInstanceError` on direct attribute assignment |
-| INV-1 | `test_config.py::TestConfigImmutability::test_with_overrides_returns_new_instance` | Verifies `with_overrides()` returns a new Config, original unchanged |
-| INV-2 | `test_config.py::TestMalformedConfigFallback::test_malformed_json_falls_back_to_defaults` | Verifies default Config returned for malformed JSON |
-| INV-3 | `test_db.py::TestGetConnection::test_wal_mode_enabled` | Checks `PRAGMA journal_mode` returns `wal` |
-| INV-4 | `test_indexing_queue.py::TestSingleWriterDesign::test_indexer_runs_on_worker_thread` | Captures thread name during processing, asserts it is `index-worker` |
-| INV-5 | `test_doc_store.py::TestGetOrConvert::test_cache_hit_skips_converter` | Verifies converter not called on second access with same hash |
-| INV-5 | `test_doc_store.py::TestConfigHashCaching::test_different_config_hash_triggers_reconversion` | Different config_hash triggers reconversion |
-| INV-8 | `test_leader.py::TestLeaderLock::test_second_lock_on_same_path_fails` | Second lock on same file fails to acquire |
-| INV-8 | `test_leader.py::TestLeaderLock::test_release_allows_reacquisition` | After close(), another process can acquire |
-| INV-9 | `test_embeddings.py::TestGetEmbeddingTruncationRetry::test_failure_retries_with_truncated_text` | Verifies retry with truncated text on first failure |
-| INV-9 | `test_embeddings.py::TestGetEmbeddingsBatchFallback::test_batch_failure_retries_individually` | Batch failure falls back to per-text embedding |
-| FAIL-1 | `test_embeddings.py::TestHostAwareErrorMessages::test_default_message_suggests_ollama_serve` | Verifies `OllamaConnectionError` raised with helpful message |
-| FAIL-2 | `test_db.py::TestGetConnection::test_wal_mode_enabled` | WAL retry logic exercised on connection setup |
-| FAIL-4 | `test_indexing_queue.py::TestIndexingQueue::test_worker_handles_exceptions` | Error in one job does not stop the worker |
-| FAIL-5 | `test_leader.py::TestLeaderLockRetry::test_retry_promotes_after_leader_releases` | Follower promoted after leader releases lock |
 
 ## Dependencies
 

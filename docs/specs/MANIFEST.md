@@ -6,7 +6,11 @@ Index of all SPEC.md files in the ragling codebase.
 
 | Subsystem | SPEC.md Path | Purpose |
 |---|---|---|
-| Core | `src/ragling/SPEC.md` | Configuration, search, storage, indexing orchestration, MCP server, CLI |
+| Core | `src/ragling/SPEC.md` | Configuration, storage, embeddings, indexing orchestration, MCP server, CLI |
+| Document | `src/ragling/document/SPEC.md` | Document conversion, chunking, and format bridging |
+| Auth | `src/ragling/auth/SPEC.md` | API key resolution, TLS certificates, token verification |
+| Search | `src/ragling/search/SPEC.md` | Hybrid vector + full-text search with RRF |
+| Watchers | `src/ragling/watchers/SPEC.md` | File system, database, and config change monitoring |
 | Indexers | `src/ragling/indexers/SPEC.md` | Source-specific indexing pipelines |
 | Parsers | `src/ragling/parsers/SPEC.md` | Format-specific content extraction for indexing |
 | Skills | `.claude/skills/SPEC.md` | Reusable agent instruction documents |

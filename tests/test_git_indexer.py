@@ -200,7 +200,7 @@ class TestWatermarks:
         result = _parse_watermarks(desc)
         assert result == data
 
-    def test_parse_legacy_format(self) -> None:
+    def test_parse_legacy_format(self) -> None:  # Tests Indexers INV-4
         desc = "git:/path/to/repo:abc123def"
         result = _parse_watermarks(desc)
         assert result == {"/path/to/repo": "abc123def"}
@@ -216,16 +216,16 @@ class TestWatermarks:
         serialized = _make_watermarks(wm)
         assert json.loads(serialized) == wm
 
-    def test_roundtrip(self) -> None:
+    def test_roundtrip(self) -> None:  # Tests Indexers INV-4
         original = {"/repo/a": "aaa111", "/repo/b": "bbb222"}
         serialized = _make_watermarks(original)
         parsed = _parse_watermarks(serialized)
         assert parsed == original
 
-    def test_parse_invalid_json_returns_empty(self) -> None:
+    def test_parse_invalid_json_returns_empty(self) -> None:  # Tests Indexers FAIL-5
         assert _parse_watermarks("{invalid json") == {}
 
-    def test_parse_unrecognized_string_returns_empty(self) -> None:
+    def test_parse_unrecognized_string_returns_empty(self) -> None:  # Tests Indexers FAIL-5
         assert _parse_watermarks("random string") == {}
 
 
@@ -250,7 +250,7 @@ class TestCodeFileIndexing:
         assert result.errors == 0
 
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_creates_documents_in_db(
+    def test_creates_documents_in_db(  # Tests Indexers INV-2
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
         conn = _make_conn(tmp_path)
@@ -263,7 +263,7 @@ class TestCodeFileIndexing:
         assert doc_count > 0
 
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_creates_vector_embeddings(
+    def test_creates_vector_embeddings(  # Tests Indexers INV-2
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
         conn = _make_conn(tmp_path)
@@ -346,7 +346,7 @@ class TestCodeFileIndexing:
 
 class TestWatermarkPersistence:
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_stores_watermark_after_indexing(
+    def test_stores_watermark_after_indexing(  # Tests Indexers INV-4
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
         conn = _make_conn(tmp_path)
@@ -398,7 +398,7 @@ class TestWatermarkPersistence:
 
 class TestIncrementalIndexing:
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_second_run_no_changes_skips(
+    def test_second_run_no_changes_skips(  # Tests Indexers INV-3
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
         """If HEAD hasn't changed, second index() should skip everything."""
@@ -697,7 +697,9 @@ class TestNotAGitRepo:
 
 class TestMultiRepoWatermarks:
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_two_repos_in_same_collection(self, mock_embed: object, tmp_path: Path) -> None:
+    def test_two_repos_in_same_collection(
+        self, mock_embed: object, tmp_path: Path
+    ) -> None:  # Tests Indexers INV-4
         """Two repos indexed into the same collection should both have watermarks."""
         repo1 = tmp_path / "repo1"
         repo1.mkdir()
@@ -854,7 +856,7 @@ class TestDocumentMetadata:
 
 class TestFileHashChangeDetection:
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_unchanged_file_hash_causes_skip(
+    def test_unchanged_file_hash_causes_skip(  # Tests Indexers INV-3
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
         """Files with the same content hash are skipped on incremental index."""
@@ -1124,7 +1126,7 @@ class TestSpecMdIndexing:
             assert meta.get("spec_path") == "features/auth/SPEC.md"
 
     @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
-    def test_spec_md_indexed_as_spec_source_type(
+    def test_spec_md_indexed_as_spec_source_type(  # Tests Indexers INV-10
         self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
     ) -> None:
         """SPEC.md files should be indexed with source_type='spec'."""

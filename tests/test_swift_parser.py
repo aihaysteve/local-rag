@@ -179,7 +179,7 @@ func topLevel() -> Int {
         func_block = blocks[6]
         assert func_block.symbol_type == "function"
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_swift(tmp_path)
         for block in blocks:
@@ -231,7 +231,7 @@ struct Size {
         assert blocks[0].symbol_name == "Size"
         assert blocks[0].symbol_type == "struct"
 
-    def test_class_line_numbers(self, tmp_path: Path) -> None:
+    def test_class_line_numbers(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """Class declaration has correct 1-based line numbers."""
         blocks = self._parse_swift(tmp_path)
         cls = blocks[1]

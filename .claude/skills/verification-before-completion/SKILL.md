@@ -169,10 +169,10 @@ After standard verification passes, check for subsystem specifications:
      introduce a violation.
    - **Unclear or untestable invariants**: note them in the report rather
      than skipping — flag for human review.
-3. **Check coverage** — If the SPEC.md has a Coverage table in its Testing
-   section, verify that every INV-N and FAIL-N has a corresponding test and
-   that the test passes. Flag uncovered spec items.
-4. **Report** — Include invariant and coverage check results in verification output
+3. **Check test traceability** — Search test files for `# Tests INV-N` and
+   `# Tests FAIL-N` inline comments. Verify those tests pass. Flag spec items
+   that lack a corresponding test comment.
+4. **Report** — Include invariant and traceability check results in verification output
 
 This is a lightweight consistency check, not a replacement for the full test
 suite. If an invariant is unclear or untestable, note it rather than skipping it.
@@ -198,9 +198,9 @@ SPEC.md invariant check:
 - INV-1: [description] → ✅ Still holds / ❌ Violated
 - FAIL-1: [description] → ✅ Handled / ❌ Unhandled
 
-Coverage check:
-- INV-1 → test_inv1_* ✅ Covered / ❌ Missing test
-- FAIL-1 → test_fail1_* ✅ Covered / ❌ Missing test
+Test traceability:
+- INV-1 → grep "# Tests.*INV-1" tests/ → ✅ Found / ❌ Missing
+- FAIL-1 → grep "# Tests.*FAIL-1" tests/ → ✅ Found / ❌ Missing
 
 Staleness:
 - SPEC.md last modified: [date]

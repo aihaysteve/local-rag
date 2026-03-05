@@ -48,7 +48,7 @@ class TestLeaderLock:
         assert lock_path.exists()
         lock.close()
 
-    def test_second_lock_on_same_path_fails(self, tmp_path: Path) -> None:
+    def test_second_lock_on_same_path_fails(self, tmp_path: Path) -> None:  # Tests Core INV-8
         from ragling.leader import LeaderLock
 
         lock_path = tmp_path / "test.lock"
@@ -62,7 +62,7 @@ class TestLeaderLock:
         lock1.close()
         lock2.close()
 
-    def test_release_allows_reacquisition(self, tmp_path: Path) -> None:
+    def test_release_allows_reacquisition(self, tmp_path: Path) -> None:  # Tests Core INV-8
         from ragling.leader import LeaderLock
 
         lock_path = tmp_path / "test.lock"
@@ -108,7 +108,9 @@ class TestLeaderLock:
 class TestLeaderLockRetry:
     """Tests for the periodic retry thread that promotes followers."""
 
-    def test_retry_promotes_after_leader_releases(self, tmp_path: Path) -> None:
+    def test_retry_promotes_after_leader_releases(
+        self, tmp_path: Path
+    ) -> None:  # Tests Core FAIL-5
         from ragling.leader import LeaderLock
 
         lock_path = tmp_path / "test.lock"
