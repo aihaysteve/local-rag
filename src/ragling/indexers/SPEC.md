@@ -46,6 +46,8 @@ are excluded to prevent duplicate indexing.
 - `git_indexer.py` -- `GitRepoIndexer` for code repos (tree-sitter +
   commit history); delegates git CLI operations to `git_commands.py`
 - `rss_indexer.py` -- `RSSIndexer` for NetNewsWire RSS articles
+- `factory.py` -- `create_indexer()` centralized indexer creation; single
+  source of truth for mapping collection names/types to indexer instances
 - `format_routing.py` -- `EXTENSION_MAP`, `SUPPORTED_EXTENSIONS`,
   `is_supported_extension()`, `parse_and_chunk()` shared format dispatch
 - `project.py` -- `ProjectIndexer` with auto-discovery and delegation;
@@ -55,6 +57,7 @@ are excluded to prevent duplicate indexing.
 
 | Export | Used By | Contract |
 |---|---|---|
+| `create_indexer()` | `indexing_queue.py`, `cli.py` | Factory function: maps collection name/IndexerType to configured indexer instance |
 | `BaseIndexer` ABC | All indexers | Must implement `index(conn, config, force, status) -> IndexResult` |
 | `upsert_source_with_chunks()` | All indexers | Atomic delete-then-insert of source + documents + vectors; commits transaction |
 | `delete_source()` | `GitRepoIndexer`, `prune_stale_sources()` | Removes source row and cascaded documents/vectors; no-op if source absent |
@@ -106,7 +109,7 @@ are excluded to prevent duplicate indexing.
 ## Testing
 
 ```bash
-uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_format_routing.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_commands.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
+uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_factory.py tests/test_format_routing.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_commands.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
 ```
 
 ### Coverage

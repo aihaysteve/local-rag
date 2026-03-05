@@ -374,25 +374,20 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
         return
     from ragling.doc_store import DocStore
     from ragling.indexers.base import BaseIndexer
-    from ragling.indexers.calibre_indexer import CalibreIndexer
-    from ragling.indexers.email_indexer import EmailIndexer
-    from ragling.indexers.git_indexer import GitRepoIndexer
-    from ragling.indexers.obsidian import ObsidianIndexer
-    from ragling.indexers.rss_indexer import RSSIndexer
+    from ragling.indexers.factory import create_indexer
 
     config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
     conn = _get_db(config)
     doc_store = DocStore(config.shared_db_path)
 
-    sources: list[tuple[str, BaseIndexer]] = []
+    sources: list[tuple[str, BaseIndexer, bool]] = []  # (label, indexer, is_git)
 
     if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
         sources.append(
             (
                 "obsidian",
-                ObsidianIndexer(
-                    config.obsidian_vaults, config.obsidian_exclude_folders, doc_store=doc_store
-                ),
+                create_indexer("obsidian", config, doc_store=doc_store),
+                False,
             )
         )
 
@@ -401,25 +396,35 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
         and config.emclient_db_path
         and config.emclient_db_path.exists()
     ):
-        sources.append(("email", EmailIndexer(str(config.emclient_db_path))))
+        sources.append(("email", create_indexer("email", config), False))
 
     if config.is_collection_enabled("calibre") and config.calibre_libraries:
-        sources.append(("calibre", CalibreIndexer(config.calibre_libraries, doc_store=doc_store)))
+        sources.append(
+            (
+                "calibre",
+                create_indexer("calibre", config, doc_store=doc_store),
+                False,
+            )
+        )
 
     if (
         config.is_collection_enabled("rss")
         and config.netnewswire_db_path
         and config.netnewswire_db_path.exists()
     ):
-        sources.append(("rss", RSSIndexer(str(config.netnewswire_db_path))))
+        sources.append(("rss", create_indexer("rss", config), False))
 
-    git_indexers: list[str] = []
     for group_name, repo_paths in config.code_groups.items():
         if config.is_collection_enabled(group_name):
             for repo_path in repo_paths:
                 label = f"{group_name}/{repo_path.name}"
-                sources.append((label, GitRepoIndexer(repo_path, collection_name=group_name)))
-                git_indexers.append(label)
+                sources.append(
+                    (
+                        label,
+                        create_indexer(group_name, config, path=repo_path),
+                        True,
+                    )
+                )
 
     if not sources:
         click.echo("No sources configured. Set paths in ~/.ragling/config.json.", err=True)
@@ -430,13 +435,12 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
     summary_rows: list[tuple[str, int, int, int, int, str | None]] = []
 
     try:
-        for label, indexer in sources:
+        for label, indexer, is_git in sources:
             click.echo(f"  {label}...")
             try:
-                if label in git_indexers:
-                    if not isinstance(indexer, GitRepoIndexer):
-                        raise TypeError(f"Expected GitRepoIndexer for '{label}'")
-                    result = indexer.index(conn, config, force=force, index_history=True)
+                if is_git:
+                    # GitRepoIndexer.index() accepts index_history; BaseIndexer does not
+                    result = indexer.index(conn, config, force=force, index_history=True)  # type: ignore[call-arg]
                 else:
                     result = indexer.index(conn, config, force=force)
                 summary_rows.append(

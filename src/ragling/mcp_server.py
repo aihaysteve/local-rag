@@ -335,8 +335,8 @@ def create_server(
         indexing_status: Optional IndexingStatus tracker for reporting
             indexing progress in search responses.
         indexing_queue: Optional IndexingQueue for routing indexing jobs
-            through the single-writer queue (serve mode). When None,
-            rag_index falls back to direct indexing (CLI mode).
+            through the single-writer queue (serve mode). When None and
+            no queue_getter is provided, rag_index returns an error.
         queue_getter: Optional callable returning the current IndexingQueue.
             Called on each rag_index invocation for dynamic resolution
             (e.g. follower->leader promotion). Takes precedence over
@@ -769,8 +769,8 @@ def create_server(
                 "Indexing is handled by the leader process for this group."
             }
 
-        # No queue_getter -> CLI/direct mode
-        return _rag_index_direct(collection, path, config)
+        # No queue_getter -> no indexing queue available
+        return {"error": "No indexing queue available. Use 'ragling serve' to start the server."}
 
     @mcp.tool()
     def rag_indexing_status() -> dict[str, Any]:
@@ -959,105 +959,5 @@ def create_server(
             "collection": collection,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
-
-    def _rag_index_direct(collection: str, path: str | None, config: Config) -> dict[str, Any]:
-        """Direct indexing without queue (backwards compatibility)."""
-        from pathlib import Path as P
-
-        from ragling.doc_store import DocStore
-        from ragling.indexers.base import BaseIndexer
-        from ragling.indexers.calibre_indexer import CalibreIndexer
-        from ragling.indexers.email_indexer import EmailIndexer
-        from ragling.indexers.git_indexer import GitRepoIndexer
-        from ragling.indexers.obsidian import ObsidianIndexer
-        from ragling.indexers.project import ProjectIndexer
-        from ragling.indexers.rss_indexer import RSSIndexer
-
-        conn = get_connection(config)
-        init_db(conn, config)
-        doc_store = DocStore(config.shared_db_path)
-
-        try:
-            indexer: BaseIndexer
-            if collection == "obsidian":
-                indexer = ObsidianIndexer(
-                    config.obsidian_vaults,
-                    config.obsidian_exclude_folders,
-                    doc_store=doc_store,
-                )
-                result = indexer.index(conn, config)
-            elif collection == "email":
-                indexer = EmailIndexer(str(config.emclient_db_path))
-                result = indexer.index(conn, config)
-            elif collection == "calibre":
-                indexer = CalibreIndexer(config.calibre_libraries, doc_store=doc_store)
-                result = indexer.index(conn, config)
-            elif collection == "rss":
-                indexer = RSSIndexer(str(config.netnewswire_db_path))
-                result = indexer.index(conn, config)
-            elif collection in config.code_groups:
-                total_indexed = 0
-                total_skipped = 0
-                total_errors = 0
-                total_found = 0
-                for repo_path in config.code_groups[collection]:
-                    idx = GitRepoIndexer(repo_path, collection_name=collection)
-                    r = idx.index(conn, config, index_history=True)
-                    total_indexed += r.indexed
-                    total_skipped += r.skipped
-                    total_errors += r.errors
-                    total_found += r.total_found
-                return {
-                    "collection": collection,
-                    "indexed": total_indexed,
-                    "skipped": total_skipped,
-                    "errors": total_errors,
-                    "total_found": total_found,
-                }
-            elif collection in config.watch:
-                from ragling.indexers.auto_indexer import detect_directory_type
-
-                total_indexed = 0
-                total_skipped = 0
-                total_errors = 0
-                total_found = 0
-                for watch_path in config.watch[collection]:
-                    dir_type = detect_directory_type(watch_path)
-                    if dir_type == IndexerType.CODE:
-                        git_idx = GitRepoIndexer(watch_path, collection_name=collection)
-                        r = git_idx.index(conn, config, index_history=True)
-                    else:
-                        proj_idx = ProjectIndexer(collection, [watch_path], doc_store=doc_store)
-                        r = proj_idx.index(conn, config)
-                    total_indexed += r.indexed
-                    total_skipped += r.skipped
-                    total_errors += r.errors
-                    total_found += r.total_found
-                return {
-                    "collection": collection,
-                    "indexed": total_indexed,
-                    "skipped": total_skipped,
-                    "errors": total_errors,
-                    "total_found": total_found,
-                }
-            elif path:
-                indexer = ProjectIndexer(collection, [P(path)], doc_store=doc_store)
-                result = indexer.index(conn, config)
-            else:
-                return {
-                    "error": f"Unknown collection '{collection}'. "
-                    "Provide a path for project indexing."
-                }
-
-            return {
-                "collection": collection,
-                "indexed": result.indexed,
-                "skipped": result.skipped,
-                "errors": result.errors,
-                "total_found": result.total_found,
-            }
-        finally:
-            doc_store.close()
-            conn.close()
 
     return mcp

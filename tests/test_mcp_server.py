@@ -548,8 +548,8 @@ class TestRagIndexQueueRouting:
         # The server object has rag_index registered; verify queue parameter accepted
         assert server is not None
 
-    def test_rag_index_direct_when_no_queue(self, tmp_path: Path) -> None:
-        """When no queue is provided, rag_index uses direct indexing."""
+    def test_rag_index_without_queue_returns_error(self, tmp_path: Path) -> None:
+        """When no queue is provided, rag_index returns an error."""
         from ragling.config import Config
         from ragling.mcp_server import create_server
 
@@ -557,14 +557,21 @@ class TestRagIndexQueueRouting:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
+            obsidian_vaults=[tmp_path / "vault"],
         )
 
-        # No indexing_queue — should still work (backwards compat)
+        # No indexing_queue — rag_index should return error
         server = create_server(
             group_name="default",
             config=config,
         )
         assert server is not None
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        assert "error" in result
+        assert "No indexing queue available" in result["error"]
 
     def test_rag_index_via_queue_returns_submitted_status(self, tmp_path: Path) -> None:
         """rag_index returns immediately with 'submitted' status."""
@@ -761,14 +768,13 @@ class TestRagIndexWatch:
         assert result["status"] == "submitted"
         assert result["paths"] == 2
 
-    def test_rag_index_direct_watch_uses_auto_detection(self, tmp_path: Path) -> None:
-        """Watch collections use auto-detected indexer in direct mode."""
+    def test_rag_index_no_queue_watch_returns_error(self, tmp_path: Path) -> None:
+        """Without a queue, rag_index returns an error for watch collections."""
         from ragling.config import Config
         from ragling.mcp_server import create_server
 
         watch_dir = tmp_path / "proj"
         watch_dir.mkdir()
-        (watch_dir / "notes.md").write_text("# Notes")
 
         config = Config(
             db_path=tmp_path / "test.db",
@@ -781,65 +787,31 @@ class TestRagIndexWatch:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
+        result: dict[str, Any] = rag_index_fn(collection="proj")
 
-        with (
-            patch(
-                "ragling.indexers.auto_indexer.detect_directory_type",
-                return_value="project",
-            ),
-            patch("ragling.indexers.project.ProjectIndexer") as MockProjectIndexer,
-        ):
-            mock_result = MagicMock()
-            mock_result.indexed = 1
-            mock_result.skipped = 0
-            mock_result.errors = 0
-            mock_result.total_found = 1
-            MockProjectIndexer.return_value.index.return_value = mock_result
-            result: dict[str, Any] = rag_index_fn(collection="proj")
+        assert "error" in result
+        assert "No indexing queue available" in result["error"]
 
-        assert result["collection"] == "proj"
-        assert result["indexed"] == 1
-        MockProjectIndexer.assert_called_once()
-
-    def test_rag_index_direct_watch_code_detection(self, tmp_path: Path) -> None:
-        """Watch collections use GitRepoIndexer when auto-detected as code."""
+    def test_rag_index_no_queue_returns_error(self, tmp_path: Path) -> None:
+        """Without a queue, rag_index returns an error for any collection."""
         from ragling.config import Config
-        from ragling.indexer_types import IndexerType
         from ragling.mcp_server import create_server
-
-        watch_dir = tmp_path / "repo"
-        watch_dir.mkdir()
 
         config = Config(
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            watch=MappingProxyType({"repo": (watch_dir,)}),
+            obsidian_vaults=[tmp_path / "vault"],
         )
 
         server = create_server(group_name="default", config=config)
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
+        result: dict[str, Any] = rag_index_fn(collection="obsidian")
 
-        with (
-            patch(
-                "ragling.indexers.auto_indexer.detect_directory_type",
-                return_value=IndexerType.CODE,
-            ),
-            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitIndexer,
-        ):
-            mock_result = MagicMock()
-            mock_result.indexed = 3
-            mock_result.skipped = 0
-            mock_result.errors = 0
-            mock_result.total_found = 3
-            MockGitIndexer.return_value.index.return_value = mock_result
-            result: dict[str, Any] = rag_index_fn(collection="repo")
-
-        assert result["collection"] == "repo"
-        assert result["indexed"] == 3
-        MockGitIndexer.assert_called_once_with(watch_dir, collection_name="repo")
+        assert "error" in result
+        assert "No indexing queue available" in result["error"]
 
 
 class TestRagIndexFollowerMode:
