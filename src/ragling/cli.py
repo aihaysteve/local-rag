@@ -7,6 +7,8 @@ import signal
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import NamedTuple
+
 import click
 from rich.console import Console
 from rich.table import Table
@@ -376,19 +378,20 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
     from ragling.indexers.base import BaseIndexer
     from ragling.indexers.factory import create_indexer
 
+    class IndexSource(NamedTuple):
+        label: str
+        indexer: BaseIndexer
+        is_git: bool
+
     config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
     conn = _get_db(config)
     doc_store = DocStore(config.shared_db_path)
 
-    sources: list[tuple[str, BaseIndexer, bool]] = []  # (label, indexer, is_git)
+    sources: list[IndexSource] = []
 
     if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
         sources.append(
-            (
-                "obsidian",
-                create_indexer("obsidian", config, doc_store=doc_store),
-                False,
-            )
+            IndexSource("obsidian", create_indexer("obsidian", config, doc_store=doc_store), False)
         )
 
     if (
@@ -396,15 +399,11 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
         and config.emclient_db_path
         and config.emclient_db_path.exists()
     ):
-        sources.append(("email", create_indexer("email", config), False))
+        sources.append(IndexSource("email", create_indexer("email", config), False))
 
     if config.is_collection_enabled("calibre") and config.calibre_libraries:
         sources.append(
-            (
-                "calibre",
-                create_indexer("calibre", config, doc_store=doc_store),
-                False,
-            )
+            IndexSource("calibre", create_indexer("calibre", config, doc_store=doc_store), False)
         )
 
     if (
@@ -412,18 +411,14 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
         and config.netnewswire_db_path
         and config.netnewswire_db_path.exists()
     ):
-        sources.append(("rss", create_indexer("rss", config), False))
+        sources.append(IndexSource("rss", create_indexer("rss", config), False))
 
     for group_name, repo_paths in config.code_groups.items():
         if config.is_collection_enabled(group_name):
             for repo_path in repo_paths:
                 label = f"{group_name}/{repo_path.name}"
                 sources.append(
-                    (
-                        label,
-                        create_indexer(group_name, config, path=repo_path),
-                        True,
-                    )
+                    IndexSource(label, create_indexer(group_name, config, path=repo_path), True)
                 )
 
     if not sources:
@@ -435,19 +430,19 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
     summary_rows: list[tuple[str, int, int, int, int, str | None]] = []
 
     try:
-        for label, indexer, is_git in sources:
-            click.echo(f"  {label}...")
+        for src in sources:
+            click.echo(f"  {src.label}...")
             try:
-                if is_git:
+                if src.is_git:
                     # GitRepoIndexer.index() accepts index_history; BaseIndexer does not
-                    result = indexer.index(conn, config, force=force, index_history=True)  # type: ignore[call-arg]
+                    result = src.indexer.index(conn, config, force=force, index_history=True)  # type: ignore[call-arg]
                 else:
-                    result = indexer.index(conn, config, force=force)
+                    result = src.indexer.index(conn, config, force=force)
                 summary_rows.append(
-                    (label, result.indexed, result.skipped, result.errors, result.total_found, None)
+                    (src.label, result.indexed, result.skipped, result.errors, result.total_found, None)
                 )
             except Exception as e:
-                summary_rows.append((label, 0, 0, 0, 0, str(e)))
+                summary_rows.append((src.label, 0, 0, 0, 0, str(e)))
     finally:
         doc_store.close()
         conn.close()
