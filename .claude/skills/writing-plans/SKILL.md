@@ -72,9 +72,7 @@ Each task must be self-contained — a subagent receiving only this task text ha
 **Context:** [What this task builds, where it fits in the system, any relevant architectural decisions. Include enough that a fresh subagent understands the landscape without reading other tasks.]
 
 **Subsystem spec(s):** [Path to nearest SPEC.md, or "None — new subsystem"]
-**Key invariants from spec:** [List with IDs — the subagent must not violate these and must write tests for them]
-- INV-N: [description] → test: `test_invN_*`
-- FAIL-N: [description] → test: `test_failN_*`
+**Key invariants from spec:** [List the INV-N and FAIL-N IDs the subagent must not violate]
 **Adjacent specs:** [If task touches other subsystems, list their SPEC.md paths and only the Public Interface contracts relevant to this task — not their full invariants]
 
 **Files:**
@@ -137,7 +135,7 @@ Mark each task's dependencies explicitly. Independent tasks can be dispatched to
 - For cross-cutting tasks: full spec for primary subsystem, Public Interface only for adjacent subsystems. If >2 specs are relevant, the task is too large — split it by subsystem boundary
 - Mark dependencies between tasks
 - Acceptance criteria = what must be TRUE = the tests
-- Anchor tests to SPEC.md item IDs (INV-N, FAIL-N) when a spec exists
+- Add `# Tests INV-N` inline comments to test methods that verify spec items
 - DRY, YAGNI, TDD, frequent commits
 
 ## Execution Handoff
