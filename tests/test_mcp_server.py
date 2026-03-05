@@ -1502,7 +1502,14 @@ class TestRagBatchSearch:
         assert result["indexing"]["total_remaining"] == 3
 
     def test_batch_search_idle_indexing_status(self, tmp_path: Path) -> None:
-        """Idle IndexingStatus (to_dict() returns None) must not crash."""
+        """Idle IndexingStatus produces indexing=None via _build_search_response.
+
+        Prior to the _build_search_response unification, rag_batch_search had
+        inline logic that checked ``status_dict.get("active")`` before including
+        the status. That check was redundant: IndexingStatus.to_dict() already
+        returns None when idle and always sets ``active=True`` when active.
+        This test confirms the unified path preserves the same behavior.
+        """
         from ragling.indexing_status import IndexingStatus
         from ragling.mcp_server import create_server
 
