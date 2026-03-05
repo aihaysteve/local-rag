@@ -74,11 +74,13 @@ def _db_and_docstore(config: Config):
     from ragling.doc_store import DocStore
 
     conn = _get_db(config)
-    doc_store = DocStore(config.shared_db_path)
     try:
-        yield conn, doc_store
+        doc_store = DocStore(config.shared_db_path)
+        try:
+            yield conn, doc_store
+        finally:
+            doc_store.close()
     finally:
-        doc_store.close()
         conn.close()
 
 
@@ -220,6 +222,14 @@ def index_obsidian(
 ) -> None:
     """Index Obsidian vault(s)."""
     if not vaults:
+        if not background:
+            config = load_config(ctx.obj.get("config_path"))
+            if not config.obsidian_vaults:
+                click.echo(
+                    "Error: No vault paths provided. Use --vault or set obsidian_vaults in config.",
+                    err=True,
+                )
+                sys.exit(1)
         _run_single_index(ctx, "obsidian", force, background, needs_docstore=True)
         return
     if background:
@@ -262,6 +272,14 @@ def index_calibre(
 ) -> None:
     """Index Calibre ebook library/libraries."""
     if not libraries:
+        if not background:
+            config = load_config(ctx.obj.get("config_path"))
+            if not config.calibre_libraries:
+                click.echo(
+                    "Error: No library paths provided. Use --library or set calibre_libraries in config.",
+                    err=True,
+                )
+                sys.exit(1)
         _run_single_index(ctx, "calibre", force, background, needs_docstore=True)
         return
     if background:
