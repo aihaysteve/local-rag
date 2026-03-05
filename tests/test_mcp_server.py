@@ -14,13 +14,13 @@ class TestBuildSourceUri:
     """Tests for _build_source_uri (existing function, ensure no regression)."""
 
     def test_rss_returns_url(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         result = _build_source_uri("/rss/article", "rss", {"url": "https://example.com"}, "rss")
         assert result == "https://example.com"
 
     def test_email_returns_none(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         result = _build_source_uri("/email/1", "email", {}, "email")
         assert result is None
@@ -30,7 +30,7 @@ class TestBuildSourceUriSpec:
     """Tests for spec source_type URI building."""
 
     def test_spec_returns_file_uri(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri(
             source_path="/Users/dev/project/features/auth/SPEC.md",
@@ -46,7 +46,7 @@ class TestBuildSourceUriSpec:
 class TestApplyUserContextToResults:
     def test_applies_path_mappings_to_results(self) -> None:
         from ragling.auth.auth import UserContext
-        from ragling.mcp_server import _apply_user_context_to_results
+        from ragling.tools.helpers import _apply_user_context_to_results
 
         ctx = UserContext(
             username="kitchen",
@@ -66,7 +66,7 @@ class TestApplyUserContextToResults:
 
     def test_no_mapping_leaves_paths_unchanged(self) -> None:
         from ragling.auth.auth import UserContext
-        from ragling.mcp_server import _apply_user_context_to_results
+        from ragling.tools.helpers import _apply_user_context_to_results
 
         ctx = UserContext(username="kitchen", path_mappings={})
         results = [{"source_path": "/host/other.md", "source_uri": None}]
@@ -75,7 +75,7 @@ class TestApplyUserContextToResults:
 
     def test_does_not_mutate_original_results(self) -> None:
         from ragling.auth.auth import UserContext
-        from ragling.mcp_server import _apply_user_context_to_results
+        from ragling.tools.helpers import _apply_user_context_to_results
 
         ctx = UserContext(
             username="kitchen",
@@ -87,7 +87,7 @@ class TestApplyUserContextToResults:
 
     def test_preserves_other_fields(self) -> None:
         from ragling.auth.auth import UserContext
-        from ragling.mcp_server import _apply_user_context_to_results
+        from ragling.tools.helpers import _apply_user_context_to_results
 
         ctx = UserContext(
             username="kitchen",
@@ -111,7 +111,7 @@ class TestApplyUserContextToResults:
 class TestBuildListResponse:
     def test_includes_indexing_when_active(self) -> None:
         from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         status = IndexingStatus()
         status.increment("obsidian", 5)
@@ -125,14 +125,14 @@ class TestBuildListResponse:
 
     def test_no_indexing_key_when_idle(self) -> None:
         from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         status = IndexingStatus()
         response = _build_list_response([], status)
         assert "indexing" not in response
 
     def test_no_indexing_key_when_no_status(self) -> None:
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         response = _build_list_response([])
         assert "indexing" not in response
@@ -140,7 +140,7 @@ class TestBuildListResponse:
     def test_includes_file_level_indexing_status(self) -> None:
         """List response shows per-collection file-level indexing status."""
         from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         status = IndexingStatus()
         status.set_file_total("obsidian", 80)
@@ -172,26 +172,26 @@ class TestBuildListResponse:
         assert indexing["total_remaining"] == 50
 
     def test_result_passed_through(self) -> None:
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         collections = [{"name": "obsidian"}, {"name": "email"}]
         response = _build_list_response(collections)
         assert response["result"] == collections
 
     def test_includes_role_when_getter_provided(self) -> None:
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         response = _build_list_response([], role_getter=lambda: "leader")
         assert response["role"] == "leader"
 
     def test_includes_follower_role(self) -> None:
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         response = _build_list_response([], role_getter=lambda: "follower")
         assert response["role"] == "follower"
 
     def test_omits_role_when_no_getter(self) -> None:
-        from ragling.mcp_server import _build_list_response
+        from ragling.tools.helpers import _build_list_response
 
         response = _build_list_response([])
         assert "role" not in response
@@ -200,7 +200,7 @@ class TestBuildListResponse:
 class TestBuildSearchResponse:
     def test_includes_indexing_when_active(self) -> None:
         from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import _build_search_response
+        from ragling.tools.helpers import _build_search_response
 
         status = IndexingStatus()
         status.increment("obsidian", 5)
@@ -214,14 +214,14 @@ class TestBuildSearchResponse:
 
     def test_indexing_null_when_idle(self) -> None:
         from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import _build_search_response
+        from ragling.tools.helpers import _build_search_response
 
         status = IndexingStatus()
         response = _build_search_response([], status)
         assert response["indexing"] is None
 
     def test_indexing_null_when_no_status(self) -> None:
-        from ragling.mcp_server import _build_search_response
+        from ragling.tools.helpers import _build_search_response
 
         response = _build_search_response([])
         assert response["indexing"] is None
@@ -229,7 +229,7 @@ class TestBuildSearchResponse:
     def test_includes_file_level_indexing_status(self) -> None:
         """Search response shows per-collection {total, processed, remaining} for file-level tracking."""
         from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import _build_search_response
+        from ragling.tools.helpers import _build_search_response
 
         status = IndexingStatus()
         status.set_file_total("obsidian", 100)
@@ -261,7 +261,7 @@ class TestBuildSearchResponse:
         assert indexing["total_remaining"] == 65
 
     def test_results_passed_through(self) -> None:
-        from ragling.mcp_server import _build_search_response
+        from ragling.tools.helpers import _build_search_response
 
         results = [{"title": "A"}, {"title": "B"}]
         response = _build_search_response(results)
@@ -273,7 +273,7 @@ class TestResultToDict:
     """Tests for _result_to_dict helper."""
 
     def test_converts_search_result_to_dict(self) -> None:
-        from ragling.mcp_server import _result_to_dict
+        from ragling.tools.helpers import _result_to_dict
         from ragling.search.search import SearchResult
 
         r = SearchResult(
@@ -296,7 +296,7 @@ class TestResultToDict:
         assert d["stale"] is False
 
     def test_includes_source_uri(self) -> None:
-        from ragling.mcp_server import _result_to_dict
+        from ragling.tools.helpers import _result_to_dict
         from ragling.search.search import SearchResult
 
         r = SearchResult(
@@ -313,7 +313,7 @@ class TestResultToDict:
         assert d["source_uri"].startswith("file://")
 
     def test_stale_flag_preserved(self) -> None:
-        from ragling.mcp_server import _result_to_dict
+        from ragling.tools.helpers import _result_to_dict
         from ragling.search.search import SearchResult
 
         r = SearchResult(
@@ -337,7 +337,7 @@ class TestConvertDocument:
         md_file = tmp_path / "test.md"
         md_file.write_text("# Hello World\n\nThis is a test document.")
 
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         result = _convert_document(str(md_file), path_mappings={})
         assert "Hello World" in result
@@ -347,7 +347,7 @@ class TestConvertDocument:
         md_file = tmp_path / "test.md"
         md_file.write_text("# Mapped\n\nContent here.")
 
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         # Container path /workspace/group/test.md maps to host path
         mappings = {str(tmp_path) + "/": "/workspace/group/"}
@@ -355,13 +355,13 @@ class TestConvertDocument:
         assert "Mapped" in result
 
     def test_returns_error_for_nonexistent_file(self) -> None:
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         result = _convert_document("/nonexistent/file.pdf", {})
         assert "error" in result.lower() or "not found" in result.lower()
 
     def test_error_does_not_leak_file_path(self) -> None:
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         result = _convert_document("/nonexistent/secret/path.pdf", {})
         assert "/nonexistent/secret" not in result
@@ -369,7 +369,7 @@ class TestConvertDocument:
     def test_conversion_error_does_not_leak_details(self, tmp_path: Path) -> None:
         from unittest.mock import patch
 
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         pdf = tmp_path / "test.pdf"
         pdf.write_text("not a real pdf")
@@ -474,7 +474,7 @@ class TestGetUserContext:
 
     def test_returns_user_context_when_authenticated(self) -> None:
         from ragling.config import Config, UserConfig
-        from ragling.mcp_server import _get_user_context
+        from ragling.tools.helpers import _get_user_context
 
         config = Config(
             users={
@@ -496,7 +496,7 @@ class TestGetUserContext:
 
     def test_returns_none_when_no_access_token(self) -> None:
         from ragling.config import Config, UserConfig
-        from ragling.mcp_server import _get_user_context
+        from ragling.tools.helpers import _get_user_context
 
         config = Config(
             users={"kitchen": UserConfig(api_key="key")},
@@ -506,7 +506,7 @@ class TestGetUserContext:
             assert ctx is None
 
     def test_returns_none_when_no_config(self) -> None:
-        from ragling.mcp_server import _get_user_context
+        from ragling.tools.helpers import _get_user_context
 
         with patch("ragling.tools.helpers.get_access_token", return_value=MagicMock()):
             ctx = _get_user_context(None)
@@ -514,7 +514,7 @@ class TestGetUserContext:
 
     def test_returns_none_when_unknown_user(self) -> None:
         from ragling.config import Config, UserConfig
-        from ragling.mcp_server import _get_user_context
+        from ragling.tools.helpers import _get_user_context
 
         config = Config(
             users={"kitchen": UserConfig(api_key="key")},

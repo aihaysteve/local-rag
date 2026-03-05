@@ -13,7 +13,7 @@ class TestGetAllowedPaths:
     """Tests for _get_allowed_paths collecting all configured source directories."""
 
     def test_includes_obsidian_vaults(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -22,7 +22,7 @@ class TestGetAllowedPaths:
         assert vault.resolve() in allowed
 
     def test_includes_calibre_libraries(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         lib = tmp_path / "calibre"
         lib.mkdir()
@@ -31,7 +31,7 @@ class TestGetAllowedPaths:
         assert lib.resolve() in allowed
 
     def test_includes_code_group_repo_paths(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         repo1 = tmp_path / "repo1"
         repo2 = tmp_path / "repo2"
@@ -43,7 +43,7 @@ class TestGetAllowedPaths:
         assert repo2.resolve() in allowed
 
     def test_includes_home_when_set(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         home = tmp_path / "home"
         home.mkdir()
@@ -52,7 +52,7 @@ class TestGetAllowedPaths:
         assert home.resolve() in allowed
 
     def test_excludes_home_when_none(self) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         config = Config(home=None)
         allowed = _get_allowed_paths(config)
@@ -60,7 +60,7 @@ class TestGetAllowedPaths:
         assert isinstance(allowed, list)
 
     def test_includes_global_paths(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         gp1 = tmp_path / "global1"
         gp2 = tmp_path / "global2"
@@ -72,7 +72,7 @@ class TestGetAllowedPaths:
         assert gp2.resolve() in allowed
 
     def test_combines_all_sources(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         vault = tmp_path / "vault"
         lib = tmp_path / "calibre"
@@ -101,14 +101,14 @@ class TestGetAllowedPaths:
         assert watch_dir.resolve() in allowed
 
     def test_empty_config_returns_empty(self) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         config = Config()
         allowed = _get_allowed_paths(config)
         assert allowed == []
 
     def test_multiple_code_groups(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         repo_a = tmp_path / "a"
         repo_b = tmp_path / "b"
@@ -130,7 +130,7 @@ class TestGetAllowedPaths:
         assert repo_c.resolve() in allowed
 
     def test_includes_watch_paths(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _get_allowed_paths
+        from ragling.tools.helpers import _get_allowed_paths
 
         dir1 = tmp_path / "proj"
         dir2 = tmp_path / "papers"
@@ -147,7 +147,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_allows_file_within_allowed_path(self, tmp_path: Path) -> None:
         """File inside an allowed directory is permitted."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -162,7 +162,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_rejects_file_outside_allowed_paths(self, tmp_path: Path) -> None:
         """File outside all allowed directories is rejected."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -182,7 +182,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_no_restriction_when_restrict_paths_false(self, tmp_path: Path) -> None:
         """When restrict_paths=False, any file is accessible (stdio mode)."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -197,7 +197,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_default_restrict_paths_is_false(self, tmp_path: Path) -> None:
         """Default behavior (no restrict_paths) allows any file (backwards compat)."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         outside = tmp_path / "anywhere"
         outside.mkdir()
@@ -209,7 +209,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_rejects_symlink_escape(self, tmp_path: Path) -> None:
         """Symlink pointing outside allowed paths is rejected."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -229,7 +229,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_allows_nested_file_in_allowed_path(self, tmp_path: Path) -> None:
         """File in a subdirectory of an allowed path is permitted."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         sub = vault / "sub" / "deep"
@@ -243,7 +243,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_restriction_with_path_mapping(self, tmp_path: Path) -> None:
         """Path mapping is applied before restriction check (uses host path)."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -262,7 +262,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_restriction_rejects_mapped_path_outside_allowed(self, tmp_path: Path) -> None:
         """Even with mapping, the host path must be within allowed directories."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -285,7 +285,7 @@ class TestConvertDocumentPathRestriction:
 
     def test_generic_error_message_no_path_leak(self, tmp_path: Path) -> None:
         """Error message should be generic and not reveal the actual resolved path."""
-        from ragling.mcp_server import _convert_document
+        from ragling.tools.helpers import _convert_document
 
         vault = tmp_path / "vault"
         vault.mkdir()
