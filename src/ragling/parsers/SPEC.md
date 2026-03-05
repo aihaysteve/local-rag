@@ -99,6 +99,7 @@ uv run pytest tests/test_parsers.py tests/test_code_parser.py tests/test_spec_pa
 | INV-4 | `TestNormalizeSectionType::test_extra_whitespace` | Whitespace-padded heading normalizes correctly |
 | INV-5 | `TestMinimalInput::test_empty_string` | Empty input returns valid MarkdownDocument, no exception |
 | INV-5 | `TestFrontmatter::test_handles_invalid_yaml` | Invalid YAML returns empty frontmatter, no exception |
+| INV-5 | `TestParseMarkdownINV5::test_exception_in_helper_returns_fallback` | Internal helper exception returns valid fallback document |
 | INV-6 | `TestTags::test_no_duplicate_tags` | Frontmatter + inline duplicate tag appears only once |
 | INV-6 | `TestTags::test_heading_not_treated_as_tag` | `# Heading` not extracted as inline tag |
 | INV-6 | `TestTags::test_tag_not_in_code_block` | `#tag` inside code fences ignored |
@@ -108,13 +109,14 @@ uv run pytest tests/test_parsers.py tests/test_code_parser.py tests/test_spec_pa
 | FAIL-4 | `TestNormalizeSectionType::test_unknown_heading` | Unknown heading returns "other" section_type |
 | FAIL-5 | `TestFrontmatter::test_handles_invalid_yaml` | Invalid YAML returns empty frontmatter dict |
 
+`parse_markdown()` wraps its entire body in a top-level try/except.
+On unexpected failure, it logs the error and returns a fallback
+`MarkdownDocument` with the raw text as body and filename stem as title.
+
 **Gaps:** No automated tests for `open_ro()` failure path (INV-1, FAIL-1), EPUB
 parsing (INV-2, INV-7, FAIL-3), email parsing (INV-8), calibre parsing, or RSS
 parsing. These parsers interact with external databases and file formats that are
-difficult to fixture without integration tests. Additionally, `parse_markdown()`
-lacks a top-level try/except — sub-operations (YAML parsing) catch errors, but an
-unexpected failure in regex processing or tag extraction could raise to the caller,
-which would violate INV-5.
+difficult to fixture without integration tests.
 
 ## Dependencies
 

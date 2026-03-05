@@ -140,30 +140,37 @@ def parse_markdown(text: str, filename: str) -> MarkdownDocument:
     Returns:
         Parsed MarkdownDocument with extracted metadata.
     """
-    frontmatter, body = _extract_frontmatter(text)
+    try:
+        frontmatter, body = _extract_frontmatter(text)
 
-    # Strip dataview blocks
-    body = _strip_dataview_blocks(body)
+        # Strip dataview blocks
+        body = _strip_dataview_blocks(body)
 
-    # Extract and strip embeds
-    body, _embeds = _extract_embeds(body)
+        # Extract and strip embeds
+        body, _embeds = _extract_embeds(body)
 
-    # Convert wikilinks
-    body, links = _convert_wikilinks(body)
+        # Convert wikilinks
+        body, links = _convert_wikilinks(body)
 
-    # Extract tags (from frontmatter + inline)
-    tags = _extract_tags(body, frontmatter)
+        # Extract tags (from frontmatter + inline)
+        tags = _extract_tags(body, frontmatter)
 
-    # Determine title
-    title = frontmatter.get("title", "") or Path(filename).stem
+        # Determine title
+        title = frontmatter.get("title", "") or Path(filename).stem
 
-    # Clean up extra blank lines
-    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+        # Clean up extra blank lines
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
 
-    return MarkdownDocument(
-        title=title,
-        body_text=body,
-        frontmatter=frontmatter,
-        tags=tags,
-        links=links,
-    )
+        return MarkdownDocument(
+            title=title,
+            body_text=body,
+            frontmatter=frontmatter,
+            tags=tags,
+            links=links,
+        )
+    except Exception:
+        logger.exception("Failed to parse markdown file '%s'", filename)
+        return MarkdownDocument(
+            title=Path(filename).stem,
+            body_text=text,
+        )
