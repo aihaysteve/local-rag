@@ -39,6 +39,8 @@ class SearchFilters:
     date_to: str | None = None
     sender: str | None = None
     author: str | None = None
+    subsystem: str | None = None
+    section_type: str | None = None
     visible_collection_ids: set[int] | None = None
 
     def is_active(self) -> bool:
@@ -48,6 +50,8 @@ class SearchFilters:
             or self.source_type
             or self.sender
             or self.author
+            or self.subsystem
+            or self.section_type
             or self.date_from
             or self.date_to
             or self.visible_collection_ids is not None
@@ -236,7 +240,14 @@ def _check_filters(row: sqlite3.Row | dict, filters: SearchFilters) -> bool:
     if filters.source_type and row["source_type"] != filters.source_type:
         return False
 
-    if filters.sender or filters.author or filters.date_from or filters.date_to:
+    if (
+        filters.sender
+        or filters.author
+        or filters.subsystem
+        or filters.section_type
+        or filters.date_from
+        or filters.date_to
+    ):
         metadata = json.loads(row["metadata"]) if row["metadata"] else {}
 
         if filters.sender:
@@ -248,6 +259,16 @@ def _check_filters(row: sqlite3.Row | dict, filters: SearchFilters) -> bool:
             authors = metadata.get("authors", [])
             author_lower = filters.author.lower()
             if not any(author_lower in a.lower() for a in authors):
+                return False
+
+        if filters.subsystem:
+            doc_subsystem = metadata.get("subsystem_name", "")
+            if filters.subsystem.lower() != doc_subsystem.lower():
+                return False
+
+        if filters.section_type:
+            doc_section_type = metadata.get("section_type", "")
+            if filters.section_type != doc_section_type:
                 return False
 
         if filters.date_from or filters.date_to:
@@ -427,6 +448,8 @@ def perform_search(
     date_to: str | None = None,
     sender: str | None = None,
     author: str | None = None,
+    subsystem: str | None = None,
+    section_type: str | None = None,
     group_name: str = "default",
     config: Config | None = None,
     visible_collections: list[str] | None = None,
@@ -446,6 +469,8 @@ def perform_search(
         date_to: Only results before this date (YYYY-MM-DD).
         sender: Filter by email sender (case-insensitive substring match).
         author: Filter by book author (case-insensitive substring match).
+        subsystem: Filter by SPEC.md subsystem name (case-insensitive exact match).
+        section_type: Filter by SPEC.md section type (e.g., 'decision_framework').
         group_name: Group name for per-group indexes (default "default").
         config: Optional pre-loaded Config. If None, calls load_config().
         visible_collections: Optional list of collection names to restrict results to.
@@ -477,6 +502,8 @@ def perform_search(
             date_to=date_to,
             sender=sender,
             author=author,
+            subsystem=subsystem,
+            section_type=section_type,
         )
 
         return search(
@@ -504,6 +531,8 @@ class BatchQuery:
     date_to: str | None = None
     sender: str | None = None
     author: str | None = None
+    subsystem: str | None = None
+    section_type: str | None = None
 
 
 def perform_batch_search(
@@ -553,6 +582,8 @@ def perform_batch_search(
                 date_to=q.date_to,
                 sender=q.sender,
                 author=q.author,
+                subsystem=q.subsystem,
+                section_type=q.section_type,
             )
             results.append(
                 search(
