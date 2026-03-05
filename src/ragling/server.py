@@ -57,6 +57,7 @@ class ServerOrchestrator:
         self._current_queue: IndexingQueue | None = None
         self._lock: LeaderLock | None = None
         self._config_watcher: ConfigWatcher | None = None
+        self._shutdown_registered = False
 
     def queue_getter(self) -> IndexingQueue | None:
         """Return the current IndexingQueue, or None if not yet created."""
@@ -73,6 +74,12 @@ class ServerOrchestrator:
             q.set_config(new_config)
         logger.info("Config reloaded")
 
+    def _require_config_watcher(self) -> ConfigWatcher:
+        """Return _config_watcher or raise if run() hasn't been called."""
+        if self._config_watcher is None:
+            raise RuntimeError("ServerOrchestrator.run() must be called before this method")
+        return self._config_watcher
+
     def start_leader_infrastructure(self) -> None:
         """Start IndexingQueue, sync, and watchers (leader startup sequence)."""
         import threading
@@ -81,8 +88,8 @@ class ServerOrchestrator:
         from ragling.sync import run_startup_sync, submit_file_change
         from ragling.watchers.watcher import get_watch_paths, start_watcher
 
-        assert self._config_watcher is not None
-        current_config = self._config_watcher.get_config()
+        config_watcher = self._require_config_watcher()
+        current_config = config_watcher.get_config()
         queue = IndexingQueue(current_config, self.indexing_status)
         queue.start()
         self._current_queue = queue
@@ -93,16 +100,14 @@ class ServerOrchestrator:
         if get_watch_paths(current_config):
 
             def _on_files_changed(files: list[Path]) -> None:
-                assert self._config_watcher is not None
                 logger.info("File changes detected: %d files", len(files))
                 for file_path in files:
-                    submit_file_change(file_path, self._config_watcher.get_config(), queue)
+                    submit_file_change(file_path, config_watcher.get_config(), queue)
 
             def _start_watcher_after_sync() -> None:
-                assert self._config_watcher is not None
                 sync_done.wait()
                 try:
-                    observer = start_watcher(self._config_watcher.get_config(), _on_files_changed)
+                    observer = start_watcher(config_watcher.get_config(), _on_files_changed)
                     if observer is not None:
                         logger.info("File watcher started successfully")
                     else:
@@ -115,12 +120,11 @@ class ServerOrchestrator:
             ).start()
 
         def _start_system_watcher_after_sync() -> None:
-            assert self._config_watcher is not None
             sync_done.wait()
             try:
                 from ragling.watchers.system_watcher import start_system_watcher
 
-                start_system_watcher(self._config_watcher.get_config(), queue)
+                start_system_watcher(config_watcher.get_config(), queue)
                 logger.info("System collection watcher started")
             except Exception:
                 logger.exception("Failed to start system collection watcher")
@@ -146,8 +150,9 @@ class ServerOrchestrator:
         """Create and return a configured FastMCP server instance."""
         from ragling.mcp_server import create_server
 
-        assert self._config_watcher is not None
-        assert self._lock is not None
+        config_watcher = self._require_config_watcher()
+        if self._lock is None:
+            raise RuntimeError("ServerOrchestrator.run() must be called before this method")
 
         lock = self._lock  # capture for lambda closure (mypy narrowing)
 
@@ -155,7 +160,7 @@ class ServerOrchestrator:
             group_name=self._group,
             config=self._config,
             indexing_status=self.indexing_status,
-            config_getter=self._config_watcher.get_config,
+            config_getter=config_watcher.get_config,
             queue_getter=self.queue_getter,
             role_getter=lambda: "leader" if lock.is_leader else "follower",
         )
@@ -195,7 +200,7 @@ class ServerOrchestrator:
                 on_promote=self.start_leader_infrastructure,
             )
 
-        if not hasattr(self, "_shutdown_registered"):
+        if not self._shutdown_registered:
             atexit.register(self.shutdown)
             self._shutdown_registered = True
 

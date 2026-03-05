@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from ragling.config import Config
 
 
@@ -56,6 +58,26 @@ class TestConfigReload:
 
         new_config = Config()
         orch.handle_config_reload(new_config)  # should not raise
+
+
+class TestRunRequired:
+    """Methods that need run() raise RuntimeError if called early."""
+
+    def test_start_leader_before_run_raises(self) -> None:
+        from ragling.server import ServerOrchestrator
+
+        config = Config()
+        orch = ServerOrchestrator(config, group="default")
+        with pytest.raises(RuntimeError, match="run\\(\\) must be called"):
+            orch.start_leader_infrastructure()
+
+    def test_create_mcp_server_before_run_raises(self) -> None:
+        from ragling.server import ServerOrchestrator
+
+        config = Config()
+        orch = ServerOrchestrator(config, group="default")
+        with pytest.raises(RuntimeError, match="run\\(\\) must be called"):
+            orch.create_mcp_server()
 
 
 class TestShutdown:
