@@ -373,7 +373,7 @@ class TestConvertDocument:
 
         pdf = tmp_path / "test.pdf"
         pdf.write_text("not a real pdf")
-        with patch("ragling.mcp_server.load_config") as mock_config:
+        with patch("ragling.tools.helpers.load_config") as mock_config:
             mock_config.return_value.shared_db_path = tmp_path / "shared.db"
             result = _convert_document(str(pdf), {})
         assert str(tmp_path) not in result
@@ -487,7 +487,7 @@ class TestGetUserContext:
         )
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             ctx = _get_user_context(config)
             assert ctx is not None
             assert ctx.username == "kitchen"
@@ -501,14 +501,14 @@ class TestGetUserContext:
         config = Config(
             users={"kitchen": UserConfig(api_key="key")},
         )
-        with patch("ragling.mcp_server.get_access_token", return_value=None):
+        with patch("ragling.tools.helpers.get_access_token", return_value=None):
             ctx = _get_user_context(config)
             assert ctx is None
 
     def test_returns_none_when_no_config(self) -> None:
         from ragling.mcp_server import _get_user_context
 
-        with patch("ragling.mcp_server.get_access_token", return_value=MagicMock()):
+        with patch("ragling.tools.helpers.get_access_token", return_value=MagicMock()):
             ctx = _get_user_context(None)
             assert ctx is None
 
@@ -521,7 +521,7 @@ class TestGetUserContext:
         )
         mock_token = MagicMock()
         mock_token.client_id = "unknown_user"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             ctx = _get_user_context(config)
             assert ctx is None
 
@@ -1092,7 +1092,7 @@ class TestVisibilityFiltering:
 
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = fn()
 
         names = [c["name"] for c in result["result"]]
@@ -1108,7 +1108,7 @@ class TestVisibilityFiltering:
         _server, tools = self._setup_server_with_collections(tmp_path)
         fn = tools["rag_list_collections"].fn
 
-        with patch("ragling.mcp_server.get_access_token", return_value=None):
+        with patch("ragling.tools.helpers.get_access_token", return_value=None):
             result = fn()
 
         names = [c["name"] for c in result["result"]]
@@ -1128,7 +1128,7 @@ class TestVisibilityFiltering:
 
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = fn(collection="email")
 
         assert "error" in result
@@ -1142,7 +1142,7 @@ class TestVisibilityFiltering:
 
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = fn(collection="obsidian")
 
         assert "error" not in result
@@ -1153,7 +1153,7 @@ class TestVisibilityFiltering:
         _server, tools = self._setup_server_with_collections(tmp_path)
         fn = tools["rag_collection_info"].fn
 
-        with patch("ragling.mcp_server.get_access_token", return_value=None):
+        with patch("ragling.tools.helpers.get_access_token", return_value=None):
             result = fn(collection="email")
 
         assert "error" not in result
@@ -1193,7 +1193,7 @@ class TestVisibilityFiltering:
 
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = fn(collection="email")
 
         assert "error" in result
@@ -1231,7 +1231,7 @@ class TestVisibilityFiltering:
 
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = fn(collection="obsidian")
 
         assert "error" not in result
@@ -1260,7 +1260,7 @@ class TestVisibilityFiltering:
         tools = server._tool_manager._tools
         fn = tools["rag_index"].fn
 
-        with patch("ragling.mcp_server.get_access_token", return_value=None):
+        with patch("ragling.tools.helpers.get_access_token", return_value=None):
             result = fn(collection="obsidian")
 
         assert "error" not in result

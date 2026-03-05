@@ -328,7 +328,7 @@ class TestRagConvertPassesRestrictPaths:
         # Simulate authenticated user context
         mock_token = MagicMock()
         mock_token.client_id = "testuser"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = rag_convert_fn(file_path=str(secret_file))
 
         assert "error" in result.lower()
@@ -351,7 +351,7 @@ class TestRagConvertPassesRestrictPaths:
         rag_convert_fn = tools["rag_convert"].fn
 
         # No authenticated user -> _get_user_context returns None
-        with patch("ragling.mcp_server.get_access_token", return_value=None):
+        with patch("ragling.tools.helpers.get_access_token", return_value=None):
             result = rag_convert_fn(file_path=str(file))
 
         assert "No restriction" in result
@@ -378,7 +378,7 @@ class TestRagConvertPassesRestrictPaths:
 
         mock_token = MagicMock()
         mock_token.client_id = "testuser"
-        with patch("ragling.mcp_server.get_access_token", return_value=mock_token):
+        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
             result = rag_convert_fn(file_path=str(file))
 
         assert "Allowed content" in result
