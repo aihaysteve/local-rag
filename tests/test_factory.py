@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from ragling.indexer_types import IndexerType
+
 
 class TestCreateIndexer:
     """create_indexer returns the correct indexer type for each collection."""
@@ -82,7 +84,6 @@ class TestCreateIndexer:
         from types import MappingProxyType
 
         from ragling.config import Config
-        from ragling.indexer_types import IndexerType
         from ragling.indexers.factory import create_indexer
         from ragling.indexers.git_indexer import GitRepoIndexer
 
@@ -98,7 +99,6 @@ class TestCreateIndexer:
         from types import MappingProxyType
 
         from ragling.config import Config
-        from ragling.indexer_types import IndexerType
         from ragling.indexers.factory import create_indexer
         from ragling.indexers.project import ProjectIndexer
 
@@ -138,3 +138,72 @@ class TestCreateIndexer:
         assert type(indexer).__name__ == "ObsidianIndexer"
         # When path is provided, it should override the vault list
         assert indexer.vault_paths == [tmp_path]
+
+
+class TestCreateIndexerWithExplicitType:
+    """create_indexer with explicit indexer_type bypasses name resolution."""
+
+    def test_explicit_type_creates_correct_indexer(self) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import create_indexer
+
+        config = Config(obsidian_vaults=[Path("/tmp/vault")])
+        indexer = create_indexer(
+            "obsidian", config, indexer_type=IndexerType.OBSIDIAN
+        )
+        assert type(indexer).__name__ == "ObsidianIndexer"
+
+    def test_explicit_type_overrides_name_resolution(self, tmp_path: Path) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import create_indexer
+        from ragling.indexers.project import ProjectIndexer
+
+        config = Config()
+        indexer = create_indexer(
+            "anything", config, path=tmp_path, indexer_type=IndexerType.PROJECT
+        )
+        assert isinstance(indexer, ProjectIndexer)
+
+    def test_unknown_explicit_type_raises(self) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import create_indexer
+
+        config = Config()
+        with pytest.raises(ValueError, match="Unknown indexer_type"):
+            create_indexer("x", config, indexer_type=IndexerType.PRUNE)
+
+
+class TestResolveIndexerType:
+    """_resolve_indexer_type maps collection names to IndexerType."""
+
+    def test_system_collections(self) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import _resolve_indexer_type
+
+        config = Config()
+        assert _resolve_indexer_type("obsidian", config, None) == IndexerType.OBSIDIAN
+        assert _resolve_indexer_type("email", config, None) == IndexerType.EMAIL
+        assert _resolve_indexer_type("calibre", config, None) == IndexerType.CALIBRE
+        assert _resolve_indexer_type("rss", config, None) == IndexerType.RSS
+
+    def test_code_group(self) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import _resolve_indexer_type
+
+        config = Config(code_groups={"mygroup": (Path("/tmp/repo"),)})
+        assert _resolve_indexer_type("mygroup", config, None) == IndexerType.CODE
+
+    def test_fallback_with_path_returns_project(self, tmp_path: Path) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import _resolve_indexer_type
+
+        config = Config()
+        assert _resolve_indexer_type("unknown", config, tmp_path) == IndexerType.PROJECT
+
+    def test_unknown_without_path_raises(self) -> None:
+        from ragling.config import Config
+        from ragling.indexers.factory import _resolve_indexer_type
+
+        config = Config()
+        with pytest.raises(ValueError, match="Unknown collection"):
+            _resolve_indexer_type("unknown", config, None)
