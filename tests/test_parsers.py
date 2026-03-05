@@ -224,3 +224,24 @@ class TestSampleFixture:
 
         # Hash in inline code not treated as tag
         assert "ff0000" not in doc.tags
+
+
+class TestParseMarkdownINV5:
+    """INV-5: parse_markdown never raises exceptions to callers."""
+
+    def test_exception_in_helper_returns_fallback(self):
+        """If an internal helper raises, parse_markdown returns a valid document."""
+        from unittest.mock import patch
+
+        with patch("ragling.parsers.markdown._extract_tags", side_effect=RuntimeError("boom")):
+            result = parse_markdown("# Title\n\nSome text", "test.md")
+        # Must return a valid MarkdownDocument, not raise
+        assert result.title  # title should be "Title" or fallback to "test"
+        assert isinstance(result.body_text, str)
+
+    def test_regex_error_returns_fallback(self):
+        """Pathological regex input does not crash."""
+        # Very long text should not cause catastrophic backtracking or errors
+        text = "# Title\n\n" + "word " * 100000
+        result = parse_markdown(text, "big.md")
+        assert result.title

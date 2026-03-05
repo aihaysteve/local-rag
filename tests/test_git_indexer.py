@@ -14,10 +14,10 @@ import pytest
 from ragling.config import Config
 from ragling.db import get_connection, init_db
 from ragling.indexers.base import IndexResult
+from ragling.indexers.git_commands import git_ls_files
 from ragling.indexers.git_indexer import (
     GitRepoIndexer,
     _code_blocks_to_chunks,
-    _git_ls_files,
     _make_watermarks,
     _parse_watermarks,
     _should_exclude,
@@ -130,27 +130,27 @@ def multi_commit_repo(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _git_ls_files
+# Tests: git_ls_files
 # ---------------------------------------------------------------------------
 
 
 class TestGitLsFiles:
     def test_returns_tracked_files(self, simple_repo: Path) -> None:
-        files = _git_ls_files(simple_repo)
+        files = git_ls_files(simple_repo)
         assert "hello.py" in files
 
     def test_does_not_include_git_dir(self, simple_repo: Path) -> None:
-        files = _git_ls_files(simple_repo)
+        files = git_ls_files(simple_repo)
         for f in files:
             assert not f.startswith(".git/")
 
     def test_returns_all_tracked_files(self, multi_file_repo: Path) -> None:
-        files = _git_ls_files(multi_file_repo)
+        files = git_ls_files(multi_file_repo)
         assert set(files) == {"main.py", "utils.py", "README.md", "data.txt"}
 
     def test_untracked_files_not_listed(self, simple_repo: Path) -> None:
         (simple_repo / "untracked.py").write_text("# not tracked\n")
-        files = _git_ls_files(simple_repo)
+        files = git_ls_files(simple_repo)
         assert "untracked.py" not in files
 
 

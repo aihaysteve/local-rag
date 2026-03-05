@@ -56,15 +56,20 @@ duration) from audio and video files via mutagen.
 
 ## Invariants
 
-None moved from Core. Document-specific invariants are covered by the modules'
-internal logic (e.g. `lru_cache` singleton for converter, content-addressed
-caching via DocStore).
+| ID | Invariant | Why It Matters |
+|---|---|---|
+| INV-1 | Docling `DocumentConverter` is a process-wide singleton via `lru_cache` on `get_converter()` | Creating multiple converters wastes memory and initialization time; singleton ensures consistent pipeline settings |
+| INV-2 | `convert_and_chunk()` requires a `DocStore` for Docling-handled formats | Content-addressed caching prevents redundant conversions; callers must provide a DocStore or get an error log and empty result |
+| INV-3 | `split_into_windows()` returns non-empty output for non-empty input | Downstream code assumes at least one chunk per non-empty text; empty output would produce sources with zero documents |
+| INV-4 | Audio metadata extraction is best-effort — failures return empty dict, never raise | One corrupt audio file must not abort an indexing batch |
 
 ## Failure Modes
 
-None moved from Core. Document conversion failures are handled internally:
-`convert_and_chunk()` falls back to pypdfium2 for PDF and VLM for images;
-bridge functions raise only on programmer error.
+| ID | Symptom | Cause | Fix |
+|---|---|---|---|
+| FAIL-1 | `convert_and_chunk()` returns chunks from pypdfium2 text instead of Docling | Primary Docling conversion failed (corrupted PDF, missing fonts) | Automatic fallback; quality may be reduced — re-index if the source file is fixed |
+| FAIL-2 | `ValueError` raised from `convert_and_chunk()` | Unsupported `source_type` passed (not in `DOCLING_FORMATS`) | Programming error in caller — check `DOCLING_FORMATS` before calling |
+| FAIL-3 | `extract_audio_metadata()` returns empty dict | Corrupt or unsupported audio container | File is logged and skipped; metadata fields will be empty in search results |
 
 ## Testing
 

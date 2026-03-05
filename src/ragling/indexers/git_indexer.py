@@ -9,8 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import subprocess
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,9 +16,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ragling.indexing_status import IndexingStatus
 
-from ragling.document.chunker import Chunk, split_into_windows, word_count
 from ragling.config import Config
 from ragling.db import get_or_create_collection
+from ragling.document.chunker import Chunk, split_into_windows, word_count
 from ragling.embeddings import get_embeddings
 from ragling.indexers.base import (
     BaseIndexer,
@@ -28,6 +26,18 @@ from ragling.indexers.base import (
     delete_source,
     file_hash,
     upsert_source_with_chunks,
+)
+from ragling.indexers.git_commands import (
+    CommitInfo,
+    FileChange,
+    commit_exists,
+    get_commit_file_changes,
+    get_commits_since,
+    get_file_diff,
+    get_head_sha,
+    git_diff_names,
+    git_ls_files,
+    is_git_repo,
 )
 from ragling.parsers.code import (
     CodeDocument,
@@ -68,189 +78,6 @@ _EXCLUDE_PATTERNS: set[str] = {
 _WATERMARK_PREFIX = "git:"
 
 
-@dataclass
-class CommitInfo:
-    """Parsed git commit metadata."""
-
-    sha: str
-    author_name: str
-    author_email: str
-    author_date: str
-    subject: str
-
-
-@dataclass
-class FileChange:
-    """A single file change from a git commit."""
-
-    file_path: str
-    additions: int
-    deletions: int
-    is_binary: bool
-
-
-def _run_git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the given repo directory.
-
-    Args:
-        repo_path: Path to the git repository.
-        *args: Git subcommand and arguments.
-
-    Returns:
-        CompletedProcess result.
-
-    Raises:
-        subprocess.CalledProcessError: If the git command fails.
-    """
-    return subprocess.run(
-        ["git", "-C", str(repo_path), *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
-def _is_git_repo(repo_path: Path) -> bool:
-    """Check if a path is inside a git repository."""
-    try:
-        _run_git(repo_path, "rev-parse", "--git-dir")
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-
-def _get_head_sha(repo_path: Path) -> str:
-    """Get the current HEAD commit SHA."""
-    result = _run_git(repo_path, "rev-parse", "HEAD")
-    return result.stdout.strip()
-
-
-def _git_ls_files(repo_path: Path) -> list[str]:
-    """List all tracked files in the repo."""
-    result = _run_git(repo_path, "ls-files")
-    return [line for line in result.stdout.strip().split("\n") if line]
-
-
-def _git_diff_names(repo_path: Path, from_sha: str, to_sha: str = "HEAD") -> list[str]:
-    """Get list of files changed between two commits."""
-    result = _run_git(repo_path, "diff", "--name-only", f"{from_sha}..{to_sha}")
-    return [line for line in result.stdout.strip().split("\n") if line]
-
-
-def _commit_exists(repo_path: Path, sha: str) -> bool:
-    """Check if a commit SHA exists in the repo."""
-    try:
-        _run_git(repo_path, "cat-file", "-t", sha)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def _get_commits_since(repo_path: Path, since_sha: str | None, months: int) -> list[CommitInfo]:
-    """Get commits since a given SHA or within the last N months.
-
-    Args:
-        repo_path: Path to the git repository.
-        since_sha: If set, only return commits after this SHA.
-        months: How many months of history to include.
-
-    Returns:
-        List of CommitInfo, oldest first.
-    """
-    args = [
-        "log",
-        "--no-merges",
-        f"--since={months} months ago",
-        "--pretty=format:%H|%an|%ae|%aI|%s",
-    ]
-    if since_sha:
-        args.append(f"{since_sha}..HEAD")
-
-    try:
-        result = _run_git(repo_path, *args)
-    except subprocess.CalledProcessError as e:
-        logger.warning("Failed to get commit log: %s", e)
-        return []
-
-    commits: list[CommitInfo] = []
-    for line in result.stdout.strip().split("\n"):
-        if not line:
-            continue
-        parts = line.split("|", 4)
-        if len(parts) != 5:
-            logger.debug("Skipping malformed log line: %s", line)
-            continue
-        commits.append(
-            CommitInfo(
-                sha=parts[0],
-                author_name=parts[1],
-                author_email=parts[2],
-                author_date=parts[3],
-                subject=parts[4],
-            )
-        )
-
-    # Reverse so oldest commit is first (git log returns newest first)
-    commits.reverse()
-    return commits
-
-
-def _get_commit_file_changes(repo_path: Path, commit_sha: str) -> list[FileChange]:
-    """Get the list of files changed in a commit with addition/deletion stats.
-
-    Args:
-        repo_path: Path to the git repository.
-        commit_sha: The commit SHA to inspect.
-
-    Returns:
-        List of FileChange objects.
-    """
-    try:
-        result = _run_git(repo_path, "show", "--numstat", "--format=", commit_sha)
-    except subprocess.CalledProcessError as e:
-        logger.warning("Failed to get file changes for %s: %s", commit_sha[:12], e)
-        return []
-
-    changes: list[FileChange] = []
-    for line in result.stdout.strip().split("\n"):
-        if not line:
-            continue
-        parts = line.split("\t", 2)
-        if len(parts) != 3:
-            continue
-        adds_str, dels_str, file_path = parts
-        # Binary files show as "-\t-\tfilename"
-        is_binary = adds_str == "-" and dels_str == "-"
-        changes.append(
-            FileChange(
-                file_path=file_path,
-                additions=0 if is_binary else int(adds_str),
-                deletions=0 if is_binary else int(dels_str),
-                is_binary=is_binary,
-            )
-        )
-    return changes
-
-
-def _get_file_diff(repo_path: Path, commit_sha: str, file_path: str) -> str:
-    """Get the diff for a specific file in a commit.
-
-    Args:
-        repo_path: Path to the git repository.
-        commit_sha: The commit SHA.
-        file_path: Path of the file within the repo.
-
-    Returns:
-        Raw diff text, or empty string on failure.
-    """
-    try:
-        result = _run_git(repo_path, "show", commit_sha, "--", file_path)
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.warning("Failed to get diff for %s in %s: %s", file_path, commit_sha[:12], e)
-        return ""
-
-
 def _commit_to_chunks(
     commit: CommitInfo,
     file_changes: list[FileChange],
@@ -284,7 +111,7 @@ def _commit_to_chunks(
         if fc.is_binary:
             continue
 
-        diff_text = _get_file_diff(repo_path, commit.sha, fc.file_path)
+        diff_text = get_file_diff(repo_path, commit.sha, fc.file_path)
         if not diff_text:
             continue
 
@@ -509,11 +336,11 @@ class GitRepoIndexer(BaseIndexer):
         Returns:
             IndexResult summarizing the indexing run.
         """
-        if not _is_git_repo(self.repo_path):
+        if not is_git_repo(self.repo_path):
             logger.error("Not a git repository: %s", self.repo_path)
             return IndexResult(errors=1, error_messages=["Not a git repository"])
 
-        head_sha = _get_head_sha(self.repo_path)
+        head_sha = get_head_sha(self.repo_path)
         logger.info("Git repo: %s (HEAD: %s)", self.repo_path, head_sha[:12])
 
         collection_id = get_or_create_collection(conn, self.collection_name, "code")
@@ -544,10 +371,10 @@ class GitRepoIndexer(BaseIndexer):
                     )
                 return IndexResult(total_found=0, skipped=0)
 
-            if _commit_exists(self.repo_path, old_sha):
+            if commit_exists(self.repo_path, old_sha):
                 # Incremental: get changed files
-                changed = set(_git_diff_names(self.repo_path, old_sha, head_sha))
-                tracked = set(_git_ls_files(self.repo_path))
+                changed = set(git_diff_names(self.repo_path, old_sha, head_sha))
+                tracked = set(git_ls_files(self.repo_path))
 
                 # Files that were changed and are still tracked
                 files_to_index = sorted(changed & tracked)
@@ -565,9 +392,9 @@ class GitRepoIndexer(BaseIndexer):
                     "Previous watermark commit %s not found, doing full index",
                     old_sha[:12],
                 )
-                files_to_index = _git_ls_files(self.repo_path)
+                files_to_index = git_ls_files(self.repo_path)
         else:
-            files_to_index = _git_ls_files(self.repo_path)
+            files_to_index = git_ls_files(self.repo_path)
 
         # Clean up deleted files from DB
         for rel_path in files_to_delete:
@@ -832,7 +659,7 @@ class GitRepoIndexer(BaseIndexer):
                 conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
             conn.commit()
 
-        commits = _get_commits_since(self.repo_path, since_sha, months)
+        commits = get_commits_since(self.repo_path, since_sha, months)
 
         # Filter out blacklisted commits by subject prefix
         if config.git_commit_subject_blacklist and commits:
@@ -884,7 +711,7 @@ class GitRepoIndexer(BaseIndexer):
 
         for i, commit in enumerate(commits_to_index, 1):
             try:
-                file_changes = _get_commit_file_changes(self.repo_path, commit.sha)
+                file_changes = get_commit_file_changes(self.repo_path, commit.sha)
                 if not file_changes:
                     skipped += 1
                     continue

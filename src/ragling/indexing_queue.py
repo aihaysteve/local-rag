@@ -16,7 +16,7 @@ import logging
 import queue
 import sqlite3
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -165,10 +165,21 @@ class IndexingQueue:
                 if isinstance(item, IndexRequest):
                     item.done.set()
 
-    def _process(self, job: IndexJob) -> IndexResult | None:
-        """Route a job to the correct indexer.
+    # Types that need a DocStore for Docling document conversion
+    _DOCSTORE_TYPES = frozenset(
+        {
+            IndexerType.OBSIDIAN,
+            IndexerType.CALIBRE,
+            IndexerType.PROJECT,
+            IndexerType.CODE,
+        }
+    )
 
-        This is the single place where indexer routing lives.
+    def _process(self, job: IndexJob) -> IndexResult | None:
+        """Route a job to the correct indexer via the factory.
+
+        Delegates indexer creation to ``indexers.factory.create_indexer()``.
+        Prune jobs are handled separately since they don't use an indexer.
 
         Args:
             job: The indexing job to process.
@@ -179,19 +190,11 @@ class IndexingQueue:
         Raises:
             ValueError: If the indexer_type is not recognized.
         """
-        dispatch: dict[IndexerType, Callable[[IndexJob], IndexResult | None]] = {
-            IndexerType.PROJECT: self._index_project,
-            IndexerType.CODE: self._index_code,
-            IndexerType.OBSIDIAN: self._index_obsidian,
-            IndexerType.EMAIL: self._index_email,
-            IndexerType.CALIBRE: self._index_calibre,
-            IndexerType.RSS: self._index_rss,
-            IndexerType.PRUNE: self._prune,
-        }
-        handler = dispatch.get(job.indexer_type)
-        if handler is None:
-            raise ValueError(f"Unknown indexer_type: {job.indexer_type!r}")
-        return handler(job)
+        if job.indexer_type == IndexerType.PRUNE:
+            self._prune(job)
+            return None
+
+        return self._index_via_factory(job)
 
     @contextmanager
     def _open_conn(self) -> Iterator[sqlite3.Connection]:
@@ -222,84 +225,67 @@ class IndexingQueue:
             raise ValueError(f"{job.indexer_type} job requires a path")
         return job.path
 
-    def _index_project(self, job: IndexJob) -> IndexResult | None:
-        from ragling.indexers.project import ProjectIndexer
+    def _index_via_factory(self, job: IndexJob) -> IndexResult | None:
+        """Create an indexer via the factory and run it.
 
-        with self._open_conn_and_docstore() as (conn, doc_store):
-            paths = [job.path] if job.path else []
-            indexer = ProjectIndexer(job.collection_name, paths, doc_store=doc_store)
-            result = indexer.index(conn, self._config, force=job.force, status=self._status)
-            logger.info("Indexed project %s: %s", job.collection_name, result)
-            return result
+        Handles DocStore lifecycle, index_history for code repos,
+        and the document pass for code repos.
+        """
+        from ragling.indexers.factory import create_indexer
 
-    def _index_code(self, job: IndexJob) -> IndexResult | None:
-        from ragling.indexers.git_indexer import GitRepoIndexer
+        needs_docstore = job.indexer_type in self._DOCSTORE_TYPES
+        is_code = job.indexer_type == IndexerType.CODE
+
+        if needs_docstore:
+            with self._open_conn_and_docstore() as (conn, doc_store):
+                indexer = create_indexer(
+                    job.collection_name,
+                    self._config,
+                    path=job.path,
+                    doc_store=doc_store,
+                    indexer_type=job.indexer_type,
+                )
+                if is_code:
+                    # GitRepoIndexer.index() accepts index_history; BaseIndexer does not
+                    result = indexer.index(
+                        conn,
+                        self._config,
+                        force=job.force,
+                        status=self._status,
+                        index_history=True,  # type: ignore[call-arg]
+                    )
+                    self._run_document_pass(conn, job, doc_store)
+                else:
+                    result = indexer.index(conn, self._config, force=job.force, status=self._status)
+                logger.info("Indexed %s %s: %s", job.indexer_type, job.collection_name, result)
+                return result
+        else:
+            with self._open_conn() as conn:
+                indexer = create_indexer(
+                    job.collection_name,
+                    self._config,
+                    path=job.path,
+                    indexer_type=job.indexer_type,
+                )
+                result = indexer.index(conn, self._config, force=job.force, status=self._status)
+                logger.info("Indexed %s %s: %s", job.indexer_type, job.collection_name, result)
+                return result
+
+    def _run_document_pass(
+        self, conn: sqlite3.Connection, job: IndexJob, doc_store: DocStore
+    ) -> None:
+        """Run the document pass for code repos (non-code files like docx, pdf)."""
+        from ragling.indexers.discovery import DiscoveredSource
         from ragling.indexers.project import ProjectIndexer
 
         path = self._require_path(job)
-        with self._open_conn_and_docstore() as (conn, doc_store):
-            indexer = GitRepoIndexer(path, collection_name=job.collection_name)
-            result = indexer.index(
-                conn, self._config, force=job.force, status=self._status, index_history=True
-            )
-            logger.info("Indexed code %s: %s", job.collection_name, result)
-
-            # Document pass: index non-code files (docx, pdf, etc.) via ProjectIndexer
-            from ragling.indexers.discovery import DiscoveredSource
-
-            repo_source = DiscoveredSource(path=path, source_type="code", relative_name="")
-            proj = ProjectIndexer(job.collection_name, [path], doc_store=doc_store)
-            doc_result = proj._index_repo_documents(
-                conn, self._config, repo_source, job.collection_name, job.force
-            )
-            if doc_result.indexed > 0:
-                logger.info(
-                    "Document pass for %s: %d indexed", job.collection_name, doc_result.indexed
-                )
-
-            return result
-
-    def _index_obsidian(self, job: IndexJob) -> IndexResult | None:
-        from ragling.indexers.obsidian import ObsidianIndexer
-
-        with self._open_conn_and_docstore() as (conn, doc_store):
-            vault_paths = [job.path] if job.path else self._config.obsidian_vaults
-            indexer = ObsidianIndexer(
-                vault_paths, self._config.obsidian_exclude_folders, doc_store=doc_store
-            )
-            result = indexer.index(conn, self._config, force=job.force, status=self._status)
-            logger.info("Indexed obsidian: %s", result)
-            return result
-
-    def _index_email(self, job: IndexJob) -> IndexResult | None:
-        from ragling.indexers.email_indexer import EmailIndexer
-
-        with self._open_conn() as conn:
-            db_path = str(job.path) if job.path else str(self._config.emclient_db_path)
-            indexer = EmailIndexer(db_path)
-            result = indexer.index(conn, self._config, force=job.force, status=self._status)
-            logger.info("Indexed email: %s", result)
-            return result
-
-    def _index_calibre(self, job: IndexJob) -> IndexResult | None:
-        from ragling.indexers.calibre_indexer import CalibreIndexer
-
-        with self._open_conn_and_docstore() as (conn, doc_store):
-            libraries = [job.path] if job.path else self._config.calibre_libraries
-            indexer = CalibreIndexer(libraries, doc_store=doc_store)
-            result = indexer.index(conn, self._config, force=job.force, status=self._status)
-            logger.info("Indexed calibre: %s", result)
-            return result
-
-    def _index_rss(self, job: IndexJob) -> IndexResult | None:
-        from ragling.indexers.rss_indexer import RSSIndexer
-
-        with self._open_conn() as conn:
-            db_path = str(job.path) if job.path else str(self._config.netnewswire_db_path)
-            indexer = RSSIndexer(db_path)
-            result = indexer.index(conn, self._config, force=job.force, status=self._status)
-            logger.info("Indexed rss: %s", result)
-            return result
+        repo_source = DiscoveredSource(path=path, source_type="code", relative_name="")
+        proj = ProjectIndexer(job.collection_name, [path], doc_store=doc_store)
+        doc_result = proj._index_repo_documents(
+            conn, self._config, repo_source, job.collection_name, job.force
+        )
+        if doc_result.indexed > 0:
+            logger.info("Document pass for %s: %d indexed", job.collection_name, doc_result.indexed)
 
     def _prune(self, job: IndexJob) -> None:
         from ragling.indexers.base import delete_source

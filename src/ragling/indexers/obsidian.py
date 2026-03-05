@@ -27,7 +27,7 @@ from ragling.indexers.base import (
     prune_stale_sources,
     upsert_source_with_chunks,
 )
-from ragling.indexers.project import _EXTENSION_MAP, _parse_and_chunk
+from ragling.indexers.format_routing import EXTENSION_MAP, parse_and_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ def _walk_vault(vault_path: Path, exclude_folders: set[str] | None = None) -> li
         if item.name.startswith("."):
             continue
         # Only include files with supported extensions
-        if item.suffix.lower() not in _EXTENSION_MAP:
+        if item.suffix.lower() not in EXTENSION_MAP:
             logger.debug("Skipping unsupported extension in vault: %s", item.name)
             continue
         results.append(item)
@@ -200,7 +200,7 @@ def _index_file(
     """
     source_path = str(file_path)
     content_hash = precomputed_hash or file_hash(file_path)
-    source_type = _EXTENSION_MAP.get(file_path.suffix.lower(), "plaintext")
+    source_type = EXTENSION_MAP.get(file_path.suffix.lower(), "plaintext")
     mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat()
 
     # Check if source already exists with same hash (skip when hash was pre-checked)
@@ -213,8 +213,8 @@ def _index_file(
             logger.debug("Skipping unchanged file: %s", file_path.name)
             return "skipped"
 
-    # Parse and chunk using the shared dispatch from project indexer
-    chunks = _parse_and_chunk(file_path, source_type, config, doc_store=doc_store)
+    # Parse and chunk using format routing dispatch
+    chunks = parse_and_chunk(file_path, source_type, config, doc_store=doc_store)
     if not chunks:
         logger.warning("No content extracted from %s, skipping", file_path)
         return "skipped"
