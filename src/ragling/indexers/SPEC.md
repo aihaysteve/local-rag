@@ -46,8 +46,10 @@ are excluded to prevent duplicate indexing.
 - `git_indexer.py` -- `GitRepoIndexer` for code repos (tree-sitter +
   commit history); delegates git CLI operations to `git_commands.py`
 - `rss_indexer.py` -- `RSSIndexer` for NetNewsWire RSS articles
-- `project.py` -- `ProjectIndexer` with auto-discovery and delegation,
-  `_parse_and_chunk()` shared dispatch, `_EXTENSION_MAP`
+- `format_routing.py` -- `EXTENSION_MAP`, `SUPPORTED_EXTENSIONS`,
+  `is_supported_extension()`, `parse_and_chunk()` shared format dispatch
+- `project.py` -- `ProjectIndexer` with auto-discovery and delegation;
+  re-exports `_EXTENSION_MAP`, `_SUPPORTED_EXTENSIONS` for backward compat
 
 ## Public Interface
 
@@ -70,7 +72,11 @@ are excluded to prevent duplicate indexing.
 | `GitRepoIndexer` | `indexing_queue.py`, `ProjectIndexer` | Indexes code files (tree-sitter) and optionally commit history |
 | `RSSIndexer` | `indexing_queue.py` | Indexes RSS articles from NetNewsWire with watermark-based incrementality |
 | `ProjectIndexer` | `indexing_queue.py` | Auto-discovers vaults/repos, delegates to specialized indexers, indexes leftovers |
-| `_SUPPORTED_EXTENSIONS` | Core (`watcher.py`) | Frozenset of all indexable file extensions (document + code); defined in `project.py`, imported by Core to filter filesystem events |
+| `EXTENSION_MAP` | `format_routing.py`, `project.py`, `obsidian.py` | Maps file extensions to source types; canonical definition in `format_routing.py` |
+| `SUPPORTED_EXTENSIONS` | `format_routing.py` | Frozenset of all indexable file extensions (document + code) |
+| `is_supported_extension()` | `format_routing.py`, re-exported by `project.py` | Checks if a file extension is supported for indexing |
+| `parse_and_chunk()` | `format_routing.py`, `project.py`, `obsidian.py` | Routes files to the correct parser/chunker pipeline by source type |
+| `_SUPPORTED_EXTENSIONS` | Core (`watcher.py`) | Backward-compat re-export from `project.py`; delegates to `format_routing.SUPPORTED_EXTENSIONS` |
 
 ## Invariants
 
@@ -100,7 +106,7 @@ are excluded to prevent duplicate indexing.
 ## Testing
 
 ```bash
-uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_commands.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
+uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_format_routing.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_commands.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
 ```
 
 ### Coverage

@@ -15,14 +15,14 @@ class TestProjectIndexerLogging:
         self, tmp_path: Path, caplog: logging.LogRecord
     ) -> None:
         """Docling format with no doc_store should log ERROR, not silently skip."""
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4 fake")
         config = Config(chunk_size_tokens=256)
 
-        with caplog.at_level(logging.ERROR, logger="ragling.indexers.project"):
-            result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=None)
+        with caplog.at_level(logging.ERROR, logger="ragling.indexers.format_routing"):
+            result = parse_and_chunk(pdf_file, "pdf", config, doc_store=None)
 
         assert result == []
         assert any("doc_store" in r.message.lower() for r in caplog.records)
@@ -39,7 +39,7 @@ class TestProjectIndexerLogging:
         _ = Config(chunk_size_tokens=256)
 
         with (
-            patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid,
+            patch("ragling.indexers.format_routing.chunk_with_hybrid") as mock_hybrid,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
             mock_hybrid.return_value = [Chunk(text="text", title="note.md", chunk_index=0)]

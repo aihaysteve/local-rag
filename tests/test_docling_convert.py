@@ -1146,7 +1146,7 @@ class TestAudioGracefulDegradation:
         indexer = ProjectIndexer(collection_name="test", paths=[tmp_path], doc_store=store)
 
         with patch(
-            "ragling.indexers.project.convert_and_chunk",
+            "ragling.indexers.format_routing.convert_and_chunk",
             side_effect=ImportError("No module named 'whisper'"),
         ):
             result = indexer._index_files(conn, config, [audio_file], 1, force=True)

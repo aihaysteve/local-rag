@@ -4,11 +4,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from ragling.indexers.obsidian import _walk_vault
-from ragling.indexers.project import _EXTENSION_MAP
+from ragling.indexers.format_routing import EXTENSION_MAP
 
 
 class TestObsidianWalkVaultFiltering:
-    """Tests for _walk_vault filtering files by _EXTENSION_MAP."""
+    """Tests for _walk_vault filtering files by EXTENSION_MAP."""
 
     def _make_vault(self, tmp_path: Path) -> Path:
         """Create a minimal Obsidian vault directory with .obsidian marker."""
@@ -18,9 +18,9 @@ class TestObsidianWalkVaultFiltering:
         return vault
 
     def test_includes_supported_extensions(self, tmp_path: Path) -> None:
-        """Files with extensions in _EXTENSION_MAP are included."""
+        """Files with extensions in EXTENSION_MAP are included."""
         vault = self._make_vault(tmp_path)
-        # Create files with extensions known to be in _EXTENSION_MAP
+        # Create files with extensions known to be in EXTENSION_MAP
         (vault / "note.md").write_text("# Note")
         (vault / "doc.pdf").write_bytes(b"%PDF-1.4 fake")
         (vault / "image.png").write_bytes(b"\x89PNG fake")
@@ -35,7 +35,7 @@ class TestObsidianWalkVaultFiltering:
         assert "data.txt" in names
 
     def test_excludes_unsupported_extensions(self, tmp_path: Path) -> None:
-        """Files with extensions NOT in _EXTENSION_MAP are excluded."""
+        """Files with extensions NOT in EXTENSION_MAP are excluded."""
         vault = self._make_vault(tmp_path)
         (vault / "unknown.xyz").write_text("mystery")
         (vault / "data.bin").write_bytes(b"\x00\x01\x02")
@@ -134,18 +134,18 @@ class TestObsidianWalkVaultFiltering:
         assert results == []
 
     def test_all_extension_map_keys_are_recognized(self, tmp_path: Path) -> None:
-        """Every extension in _EXTENSION_MAP is accepted by _walk_vault."""
+        """Every extension in EXTENSION_MAP is accepted by _walk_vault."""
         vault = self._make_vault(tmp_path)
 
         # Create a file for each extension in the map
-        for i, ext in enumerate(sorted(_EXTENSION_MAP.keys())):
+        for i, ext in enumerate(sorted(EXTENSION_MAP.keys())):
             filename = f"file_{i}{ext}"
             (vault / filename).write_text(f"content for {ext}")
 
         results = _walk_vault(vault)
         result_suffixes = {p.suffix.lower() for p in results}
 
-        for ext in _EXTENSION_MAP:
+        for ext in EXTENSION_MAP:
             assert ext in result_suffixes, f"Extension {ext} should be included but was not"
 
 

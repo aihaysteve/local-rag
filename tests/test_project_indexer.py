@@ -8,7 +8,7 @@ import pytest
 
 from ragling.document.chunker import Chunk
 from ragling.config import Config
-from ragling.indexers.project import _EXTENSION_MAP, is_supported_extension
+from ragling.indexers.format_routing import EXTENSION_MAP, is_supported_extension
 
 
 class TestSupportedExtensions:
@@ -66,7 +66,7 @@ _EXTENSION_CASES = [
 class TestExtensionMap:
     @pytest.mark.parametrize("ext,expected", _EXTENSION_CASES)
     def test_extension_maps_correctly(self, ext: str, expected: str) -> None:
-        assert _EXTENSION_MAP[ext] == expected
+        assert EXTENSION_MAP[ext] == expected
 
 
 _AUDIO_EXTENSIONS = [
@@ -90,7 +90,7 @@ class TestAudioExtensionMap:
 
     @pytest.mark.parametrize("ext", _AUDIO_EXTENSIONS)
     def test_audio_extension_maps_to_audio(self, ext: str) -> None:
-        assert _EXTENSION_MAP[ext] == "audio"
+        assert EXTENSION_MAP[ext] == "audio"
 
     @pytest.mark.parametrize("ext", _AUDIO_EXTENSIONS)
     def test_audio_extension_is_supported(self, ext: str) -> None:
@@ -109,15 +109,15 @@ class TestDoclingRouting:
         """Every format in DOCLING_FORMATS has at least one extension mapping to it."""
         from ragling.document.docling_convert import DOCLING_FORMATS
 
-        mapped_formats = set(_EXTENSION_MAP.values())
+        mapped_formats = set(EXTENSION_MAP.values())
         for fmt in DOCLING_FORMATS:
             assert fmt in mapped_formats, f"DOCLING_FORMATS has '{fmt}' but no extension maps to it"
 
     def test_parse_and_chunk_accepts_doc_store(self) -> None:
         """_parse_and_chunk accepts optional doc_store parameter."""
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
-        sig = inspect.signature(_parse_and_chunk)
+        sig = inspect.signature(parse_and_chunk)
         assert "doc_store" in sig.parameters
 
     def test_project_indexer_accepts_doc_store(self) -> None:
@@ -175,16 +175,16 @@ class TestParseAndChunkDoclingRouting:
         """Docling format + doc_store should call convert_and_chunk."""
         from unittest.mock import MagicMock
 
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4 fake")
         config = Config(chunk_size_tokens=256)
         mock_store = MagicMock()
 
-        with patch("ragling.indexers.project.convert_and_chunk") as mock_convert:
+        with patch("ragling.indexers.format_routing.convert_and_chunk") as mock_convert:
             mock_convert.return_value = [Chunk(text="text", title="test.pdf", chunk_index=0)]
-            result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=mock_store)
+            result = parse_and_chunk(pdf_file, "pdf", config, doc_store=mock_store)
 
         mock_convert.assert_called_once_with(
             pdf_file,
@@ -198,13 +198,13 @@ class TestParseAndChunkDoclingRouting:
 
     def test_docling_format_without_doc_store_returns_empty(self, tmp_path: Path) -> None:
         """Docling format without doc_store should return empty list and log ERROR."""
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         pdf_file = tmp_path / "test.pdf"
         pdf_file.write_bytes(b"%PDF-1.4 fake")
         config = Config(chunk_size_tokens=256)
 
-        result = _parse_and_chunk(pdf_file, "pdf", config, doc_store=None)
+        result = parse_and_chunk(pdf_file, "pdf", config, doc_store=None)
         assert result == []
 
 
@@ -212,31 +212,31 @@ class TestParseAndChunkUnifiedChunking:
     """Tests that _parse_and_chunk uses HybridChunker for all formats."""
 
     def test_markdown_uses_hybrid_chunker(self, tmp_path: Path) -> None:
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         md_file = tmp_path / "note.md"
         md_file.write_text("# Heading\n\nBody text here.")
         config = Config(chunk_size_tokens=256)
 
-        with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+        with patch("ragling.indexers.format_routing.chunk_with_hybrid") as mock_hybrid:
             mock_hybrid.return_value = [
                 Chunk(text="contextualized", title="note.md", chunk_index=0)
             ]
-            chunks = _parse_and_chunk(md_file, "markdown", config)
+            chunks = parse_and_chunk(md_file, "markdown", config)
 
         mock_hybrid.assert_called_once()
         assert len(chunks) == 1
 
     def test_markdown_preserves_obsidian_metadata(self, tmp_path: Path) -> None:
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         md_file = tmp_path / "note.md"
         md_file.write_text("---\ntags: [python]\n---\n# Heading\n\nBody with [[Link]].")
         config = Config(chunk_size_tokens=256)
 
-        with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+        with patch("ragling.indexers.format_routing.chunk_with_hybrid") as mock_hybrid:
             mock_hybrid.return_value = [Chunk(text="text", title="note.md", chunk_index=0)]
-            _parse_and_chunk(md_file, "markdown", config)
+            parse_and_chunk(md_file, "markdown", config)
 
         # Verify extra_metadata was passed with tags and links
         call_kwargs = mock_hybrid.call_args.kwargs
@@ -245,31 +245,31 @@ class TestParseAndChunkUnifiedChunking:
         assert "python" in extra["tags"]
 
     def test_epub_uses_hybrid_chunker(self, tmp_path: Path) -> None:
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         epub_file = tmp_path / "book.epub"
         epub_file.write_bytes(b"fake epub")
         config = Config(chunk_size_tokens=256)
 
-        with patch("ragling.indexers.project.parse_epub") as mock_parse:
+        with patch("ragling.indexers.format_routing.parse_epub") as mock_parse:
             mock_parse.return_value = [(1, "Chapter text.")]
-            with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+            with patch("ragling.indexers.format_routing.chunk_with_hybrid") as mock_hybrid:
                 mock_hybrid.return_value = [Chunk(text="text", title="book.epub", chunk_index=0)]
-                chunks = _parse_and_chunk(epub_file, "epub", config)
+                chunks = parse_and_chunk(epub_file, "epub", config)
 
         mock_hybrid.assert_called_once()
         assert len(chunks) == 1
 
     def test_plaintext_uses_hybrid_chunker(self, tmp_path: Path) -> None:
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         txt_file = tmp_path / "notes.txt"
         txt_file.write_text("Plain text content.")
         config = Config(chunk_size_tokens=256)
 
-        with patch("ragling.indexers.project.chunk_with_hybrid") as mock_hybrid:
+        with patch("ragling.indexers.format_routing.chunk_with_hybrid") as mock_hybrid:
             mock_hybrid.return_value = [Chunk(text="text", title="notes.txt", chunk_index=0)]
-            chunks = _parse_and_chunk(txt_file, "plaintext", config)
+            chunks = parse_and_chunk(txt_file, "plaintext", config)
 
         mock_hybrid.assert_called_once()
         assert len(chunks) == 1
@@ -515,7 +515,7 @@ class TestProjectIndexerDiscovery:
         with (
             patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian,
             patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit,
-            patch("ragling.indexers.project._parse_and_chunk", return_value=[]),
+            patch("ragling.indexers.project.parse_and_chunk", return_value=[]),
         ):
             indexer.index(conn, config)
 
@@ -559,7 +559,7 @@ class TestTwoPassGitIndexing:
         git_result = IndexResult(indexed=1)
         with (
             patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitClass,
-            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
             MockGitClass.return_value.index.return_value = git_result
@@ -596,7 +596,7 @@ class TestTwoPassGitIndexing:
         git_result = IndexResult(indexed=1)
         with (
             patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitClass,
-            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
         ):
             MockGitClass.return_value.index.return_value = git_result
             indexer.index(conn, config)
@@ -634,7 +634,7 @@ class TestBackwardCompatibility:
         indexer = ProjectIndexer("flat-project", [project_dir])
 
         with (
-            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
             mock_parse.return_value = [Chunk(text="text", title="test", chunk_index=0)]
@@ -670,7 +670,7 @@ class TestBackwardCompatibility:
         indexer = ProjectIndexer("single", [single_file])
 
         with (
-            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
             mock_parse.return_value = [Chunk(text="text", title="report", chunk_index=0)]
@@ -747,9 +747,7 @@ class TestTwoPassNoDuplicates:
 
         with (
             patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidianClass,
-            patch(
-                "ragling.indexers.project._parse_and_chunk", side_effect=tracking_parse_and_chunk
-            ),
+            patch("ragling.indexers.project.parse_and_chunk", side_effect=tracking_parse_and_chunk),
             patch("ragling.indexers.project.get_embeddings", return_value=[[0.1, 0.2, 0.3, 0.4]]),
         ):
             # Capture what ObsidianIndexer is constructed with
@@ -816,7 +814,7 @@ class TestProjectIndexerStatusReporting:
         indexer = ProjectIndexer("test-project", [project_dir])
 
         with (
-            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
             mock_parse.return_value = [Chunk(text="text", title="test", chunk_index=0)]
@@ -847,7 +845,7 @@ class TestProjectIndexerStatusReporting:
         indexer = ProjectIndexer("test-project", [project_dir])
 
         with (
-            patch("ragling.indexers.project._parse_and_chunk") as mock_parse,
+            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
             mock_parse.return_value = [Chunk(text="text", title="test", chunk_index=0)]
@@ -867,10 +865,10 @@ class TestSpecMdRouting:
         spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n\n## Dependencies\nUses bcrypt.\n")
 
         from ragling.config import Config
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
-        chunks = _parse_and_chunk(spec, "spec", config)
+        chunks = parse_and_chunk(spec, "spec", config)
 
         assert len(chunks) == 2
         assert chunks[0].metadata["subsystem_name"] == "Auth"
@@ -882,10 +880,10 @@ class TestSpecMdRouting:
         spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n")
 
         from ragling.config import Config
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
-        chunks = _parse_and_chunk(spec, "markdown", config)
+        chunks = parse_and_chunk(spec, "markdown", config)
 
         assert chunks[0].metadata["subsystem_name"] == "Auth"
 
@@ -895,11 +893,11 @@ class TestSpecMdRouting:
         spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n")
 
         from ragling.config import Config
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
         full_path = str(spec.resolve())
-        chunks = _parse_and_chunk(spec, "spec", config, source_path=full_path)
+        chunks = parse_and_chunk(spec, "spec", config, source_path=full_path)
 
         assert chunks[0].metadata["spec_path"] == full_path
         assert full_path in chunks[0].text  # context prefix uses full path
@@ -910,10 +908,10 @@ class TestSpecMdRouting:
         spec.write_text("# Auth\n\n## Purpose\nHandles auth.\n")
 
         from ragling.config import Config
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
-        chunks = _parse_and_chunk(spec, "spec", config)
+        chunks = parse_and_chunk(spec, "spec", config)
 
         assert chunks[0].metadata["spec_path"] == "SPEC.md"
 
@@ -922,9 +920,9 @@ class TestSpecMdRouting:
         readme.write_text("# Hello\n\nThis is a readme.\n")
 
         from ragling.config import Config
-        from ragling.indexers.project import _parse_and_chunk
+        from ragling.indexers.format_routing import parse_and_chunk
 
         config = Config(db_path=tmp_path / "test.db", embedding_dimensions=4)
-        chunks = _parse_and_chunk(readme, "markdown", config)
+        chunks = parse_and_chunk(readme, "markdown", config)
 
         assert "subsystem_name" not in chunks[0].metadata

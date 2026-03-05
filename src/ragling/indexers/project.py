@@ -13,19 +13,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ragling.document.chunker import Chunk
 from ragling.config import Config
 
 if TYPE_CHECKING:
+    from ragling.doc_store import DocStore
     from ragling.indexing_status import IndexingStatus
+
+# Pre-load document tree before indexers.base to break circular import:
+# indexers.base → document.chunker → document.__init__ → docling_convert → doc_store → indexers.base
+from ragling.document.chunker import Chunk as _Chunk  # noqa: F401
+
 from ragling.db import get_or_create_collection
-from ragling.doc_store import DocStore
-from ragling.document.docling_bridge import (
-    epub_to_docling_doc,
-    markdown_to_docling_doc,
-    plaintext_to_docling_doc,
-)
-from ragling.document.docling_convert import DOCLING_FORMATS, chunk_with_hybrid, convert_and_chunk
 from ragling.embeddings import get_embeddings
 from ragling.indexers.base import (
     BaseIndexer,
@@ -35,71 +33,21 @@ from ragling.indexers.base import (
     upsert_source_with_chunks,
 )
 from ragling.indexers.discovery import DiscoveredSource, discover_sources, reconcile_sub_collections
-from ragling.parsers.code import get_supported_extensions as _get_code_extensions
+from ragling.indexers.format_routing import (
+    EXTENSION_MAP,
+    SUPPORTED_EXTENSIONS as _SUPPORTED_EXTENSIONS,  # noqa: F401 — re-exported for watcher.py
+    is_supported_extension,  # noqa: F401 — re-exported public API
+    parse_and_chunk,
+)
 from ragling.parsers.code import is_code_file
-from ragling.parsers.epub import parse_epub
-from ragling.parsers.markdown import parse_markdown
-from ragling.parsers.spec import is_spec_file, parse_spec
+from ragling.parsers.spec import is_spec_file
 
 logger = logging.getLogger(__name__)
 
-# Extensions mapped to source types
-_EXTENSION_MAP: dict[str, str] = {
-    # Docling-handled formats
-    ".pdf": "pdf",
-    ".docx": "docx",
-    ".pptx": "pptx",
-    ".xlsx": "xlsx",
-    ".html": "html",
-    ".htm": "html",
-    ".epub": "epub",
-    ".txt": "plaintext",
-    ".tex": "latex",
-    ".latex": "latex",
-    ".png": "image",
-    ".jpg": "image",
-    ".jpeg": "image",
-    ".tiff": "image",
-    ".bmp": "image",
-    ".webp": "image",
-    ".csv": "csv",
-    ".adoc": "asciidoc",
-    ".vtt": "vtt",
-    ".mp3": "audio",
-    ".wav": "audio",
-    ".m4a": "audio",
-    ".aac": "audio",
-    ".ogg": "audio",
-    ".flac": "audio",
-    ".opus": "audio",
-    ".mp4": "audio",
-    ".avi": "audio",
-    ".mov": "audio",
-    ".mkv": "audio",
-    ".mka": "audio",
-    # Legacy-handled formats
-    ".md": "markdown",
-    ".json": "plaintext",
-    ".yaml": "plaintext",
-    ".yml": "plaintext",
-}
-
-_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_EXTENSION_MAP) | _get_code_extensions()
-
-
-def is_supported_extension(ext: str) -> bool:
-    """Check if a file extension is supported for indexing.
-
-    Covers both document extensions (_EXTENSION_MAP) and code extensions
-    (_CODE_EXTENSION_MAP from parsers.code).
-
-    Args:
-        ext: File extension including the dot (e.g. ".pdf").
-
-    Returns:
-        True if the extension is supported for any indexing path.
-    """
-    return ext in _SUPPORTED_EXTENSIONS
+# Re-export under the old private name for backward compatibility.
+# _SUPPORTED_EXTENSIONS is used by watcher.py (imported at runtime inside a function).
+# is_supported_extension is used by test_project_indexer.py and external callers.
+_EXTENSION_MAP = EXTENSION_MAP
 
 
 def _is_hidden(path: Path) -> bool:
@@ -116,9 +64,9 @@ def _collect_files(paths: list[Path]) -> list[Path]:
     files: list[Path] = []
     for p in paths:
         if p.is_file():
-            if not _is_hidden(p) and p.suffix.lower() in _EXTENSION_MAP:
+            if not _is_hidden(p) and p.suffix.lower() in EXTENSION_MAP:
                 files.append(p)
-            elif p.suffix.lower() not in _EXTENSION_MAP:
+            elif p.suffix.lower() not in EXTENSION_MAP:
                 logger.warning("Unsupported file extension, skipping: %s", p)
         elif p.is_dir():
             for child in sorted(p.rglob("*")):
@@ -126,101 +74,13 @@ def _collect_files(paths: list[Path]) -> list[Path]:
                     continue
                 if _is_hidden(child):
                     continue
-                if child.suffix.lower() in _EXTENSION_MAP:
+                if child.suffix.lower() in EXTENSION_MAP:
                     files.append(child)
                 else:
                     logger.debug("Skipping unsupported extension: %s", child)
         else:
             logger.warning("Path does not exist: %s", p)
     return files
-
-
-def _parse_and_chunk(
-    path: Path,
-    source_type: str,
-    config: Config,
-    doc_store: DocStore | None = None,
-    source_path: str | None = None,
-) -> list[Chunk]:
-    """Parse a file and return chunks based on its type.
-
-    Args:
-        path: Path to the file.
-        source_type: Detected source type (e.g. "markdown", "spec").
-        config: Application configuration.
-        doc_store: Optional shared document store for Docling conversion.
-        source_path: Optional source path for context in chunk metadata.
-            Used as the relative_path for SPEC.md parsing. Falls back to
-            the filename if not provided.
-    """
-    # Route Docling-handled formats through Docling when doc_store is available
-    if source_type in DOCLING_FORMATS:
-        if doc_store is None:
-            logger.error(
-                "Format '%s' requires doc_store for Docling conversion but none was provided "
-                "— this indicates a configuration error. Skipping %s",
-                source_type,
-                path,
-            )
-            return []
-        return convert_and_chunk(
-            path,
-            doc_store,
-            chunk_max_tokens=config.chunk_size_tokens,
-            source_type=source_type,
-            asr_model=config.asr.model,
-            config=config,
-        )
-
-    # SPEC.md: parse with dedicated spec parser for section-level chunking.
-    # Safe after the Docling check — "spec" and "markdown" are never in DOCLING_FORMATS.
-    if is_spec_file(path) and source_type in ("spec", "markdown"):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        spec_path = source_path or path.name
-        return parse_spec(text, spec_path, chunk_size_tokens=config.chunk_size_tokens)
-
-    # Markdown: parse with legacy parser (preserves Obsidian metadata), chunk with HybridChunker
-    if source_type == "markdown":
-        text = path.read_text(encoding="utf-8", errors="replace")
-        doc = parse_markdown(text, path.name)
-        docling_doc = markdown_to_docling_doc(doc.body_text, doc.title)
-        extra_metadata: dict[str, list[str]] = {}
-        if doc.tags:
-            extra_metadata["tags"] = doc.tags
-        if doc.links:
-            extra_metadata["links"] = doc.links
-        return chunk_with_hybrid(
-            docling_doc,
-            title=doc.title,
-            source_path=str(path),
-            extra_metadata=extra_metadata or None,
-            chunk_max_tokens=config.chunk_size_tokens,
-        )
-
-    # EPUB: parse with legacy parser, chunk with HybridChunker
-    if source_type == "epub":
-        chapters = parse_epub(path)
-        docling_doc = epub_to_docling_doc(chapters, path.name)
-        return chunk_with_hybrid(
-            docling_doc,
-            title=path.name,
-            source_path=str(path),
-            chunk_max_tokens=config.chunk_size_tokens,
-        )
-
-    # Plaintext: build minimal DoclingDocument, chunk with HybridChunker
-    if source_type == "plaintext":
-        text = path.read_text(encoding="utf-8", errors="replace")
-        docling_doc = plaintext_to_docling_doc(text, path.name)
-        return chunk_with_hybrid(
-            docling_doc,
-            title=path.name,
-            source_path=str(path),
-            chunk_max_tokens=config.chunk_size_tokens,
-        )
-
-    logger.warning("Unknown source type '%s' for %s", source_type, path)
-    return []
 
 
 def _merge_results(a: IndexResult, b: IndexResult) -> IndexResult:
@@ -352,7 +212,7 @@ class ProjectIndexer(BaseIndexer):
 
         # Index leftover files (and single files) into the parent project collection
         leftover_files = single_files + [
-            f for f in all_leftovers if f.suffix.lower() in _EXTENSION_MAP
+            f for f in all_leftovers if f.suffix.lower() in EXTENSION_MAP
         ]
         if leftover_files:
             collection_id = get_or_create_collection(conn, self.collection_name, "project")
@@ -591,7 +451,7 @@ class ProjectIndexer(BaseIndexer):
             if any(part.startswith(".") for part in rel_parts[:-1]):
                 continue
             ext = item.suffix.lower()
-            if ext in _EXTENSION_MAP and not is_code_file(item):
+            if ext in EXTENSION_MAP and not is_code_file(item):
                 doc_files.append(item)
         if not doc_files:
             return IndexResult()
@@ -626,7 +486,7 @@ class ProjectIndexer(BaseIndexer):
         if is_spec_file(file_path):
             source_type = "spec"
         else:
-            source_type = _EXTENSION_MAP.get(ext, "plaintext")
+            source_type = EXTENSION_MAP.get(ext, "plaintext")
 
         # Check if already indexed with same hash (skip when hash was pre-checked)
         if not force and precomputed_hash is None:
@@ -639,7 +499,7 @@ class ProjectIndexer(BaseIndexer):
                 return False
 
         # Parse and chunk
-        chunks = _parse_and_chunk(
+        chunks = parse_and_chunk(
             file_path,
             source_type,
             config,

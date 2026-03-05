@@ -353,7 +353,7 @@ class TestFullPipelineEndToEnd:
         # 5. Mock only embeddings and the Docling chunking path
         with (
             patch(
-                "ragling.indexers.project._parse_and_chunk",
+                "ragling.indexers.project.parse_and_chunk",
                 return_value=[
                     Chunk(
                         text=(
@@ -487,7 +487,7 @@ class TestFullPipelineEndToEnd:
 
         with (
             patch(
-                "ragling.indexers.project._parse_and_chunk",
+                "ragling.indexers.project.parse_and_chunk",
                 side_effect=mock_parse_and_chunk,
             ),
             patch(
@@ -549,7 +549,7 @@ class TestFullPipelineEndToEnd:
         # First index
         with (
             patch(
-                "ragling.indexers.project._parse_and_chunk",
+                "ragling.indexers.project.parse_and_chunk",
                 return_value=[
                     Chunk(
                         text="Original content about quantum computing.",
@@ -574,7 +574,7 @@ class TestFullPipelineEndToEnd:
         # Re-index with force
         with (
             patch(
-                "ragling.indexers.project._parse_and_chunk",
+                "ragling.indexers.project.parse_and_chunk",
                 return_value=[
                     Chunk(
                         text="Updated content about machine learning.",
