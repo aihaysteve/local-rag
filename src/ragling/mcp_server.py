@@ -19,6 +19,7 @@ from ragling.indexer_types import IndexerType
 if TYPE_CHECKING:
     from ragling.indexing_queue import IndexingQueue
     from ragling.indexing_status import IndexingStatus
+    from ragling.search.search import SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ def _build_search_response(
 
 
 def _result_to_dict(
-    r: Any,
+    r: SearchResult,
     obsidian_vaults: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
     """Convert a SearchResult to a response dict.
