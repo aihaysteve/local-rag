@@ -439,7 +439,14 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
                 else:
                     result = src.indexer.index(conn, config, force=force)
                 summary_rows.append(
-                    (src.label, result.indexed, result.skipped, result.errors, result.total_found, None)
+                    (
+                        src.label,
+                        result.indexed,
+                        result.skipped,
+                        result.errors,
+                        result.total_found,
+                        None,
+                    )
                 )
             except Exception as e:
                 summary_rows.append((src.label, 0, 0, 0, 0, str(e)))

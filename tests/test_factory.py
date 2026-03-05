@@ -148,9 +148,7 @@ class TestCreateIndexerWithExplicitType:
         from ragling.indexers.factory import create_indexer
 
         config = Config(obsidian_vaults=[Path("/tmp/vault")])
-        indexer = create_indexer(
-            "obsidian", config, indexer_type=IndexerType.OBSIDIAN
-        )
+        indexer = create_indexer("obsidian", config, indexer_type=IndexerType.OBSIDIAN)
         assert type(indexer).__name__ == "ObsidianIndexer"
 
     def test_explicit_type_overrides_name_resolution(self, tmp_path: Path) -> None:
