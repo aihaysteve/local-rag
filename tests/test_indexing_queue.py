@@ -118,7 +118,7 @@ class TestIndexingQueue:
 
         assert status.is_active() is False
 
-    def test_worker_handles_exceptions(self) -> None:
+    def test_worker_handles_exceptions(self) -> None:  # Tests Core FAIL-4
         """Worker should continue after an error in _process."""
         status = IndexingStatus()
         q = self._make_queue(status=status)
@@ -548,7 +548,7 @@ class TestIndexRequest:
 
 
 class TestSingleWriterDesign:
-    def test_indexer_runs_on_worker_thread(self) -> None:
+    def test_indexer_runs_on_worker_thread(self) -> None:  # Tests Core INV-4
         """The indexer is called from the queue's worker thread, not the submitting thread."""
         status = IndexingStatus()
         config = Config(embedding_dimensions=4)

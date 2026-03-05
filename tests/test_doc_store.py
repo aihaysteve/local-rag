@@ -58,7 +58,9 @@ class TestGetOrConvert:
         converter.assert_called_once_with(sample_file)
         assert result == {"text": "converted content"}
 
-    def test_cache_hit_skips_converter(self, store: DocStore, sample_file: Path) -> None:
+    def test_cache_hit_skips_converter(
+        self, store: DocStore, sample_file: Path
+    ) -> None:  # Tests Core INV-5
         converter = MagicMock(return_value={"text": "converted content"})
         result1 = store.get_or_convert(sample_file, converter)
         result2 = store.get_or_convert(sample_file, converter)
@@ -152,7 +154,7 @@ class TestConfigHashCaching:
 
     def test_different_config_hash_triggers_reconversion(
         self, store: DocStore, sample_file: Path
-    ) -> None:
+    ) -> None:  # Tests Core INV-5
         converter = MagicMock(side_effect=[{"v": 1}, {"v": 2}])
         r1 = store.get_or_convert(sample_file, converter, config_hash="old_hash")
         r2 = store.get_or_convert(sample_file, converter, config_hash="new_hash")

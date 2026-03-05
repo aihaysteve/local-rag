@@ -56,7 +56,7 @@ class TestConfigWatcher:
 
         assert watcher.get_config().embedding_model == "new-model"
 
-    def test_debounces_rapid_changes(self, tmp_path: Path) -> None:
+    def test_debounces_rapid_changes(self, tmp_path: Path) -> None:  # Tests Watchers FAIL-6
         """Multiple rapid config changes result in one reload."""
         from ragling.watchers.config_watcher import ConfigWatcher
 

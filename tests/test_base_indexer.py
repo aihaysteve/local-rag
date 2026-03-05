@@ -40,7 +40,7 @@ def _insert_source(conn: sqlite3.Connection, collection_id: int, source_path: st
 
 
 class TestDeleteSource:
-    def test_deletes_source_and_documents(self, tmp_path: Path) -> None:
+    def test_deletes_source_and_documents(self, tmp_path: Path) -> None:  # Tests Indexers INV-1
         conn = _make_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
@@ -84,7 +84,9 @@ class TestDeleteSource:
 
 
 class TestPruneStaleSources:
-    def test_prunes_source_whose_file_is_gone(self, tmp_path: Path) -> None:
+    def test_prunes_source_whose_file_is_gone(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers FAIL-2
         conn = _make_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
@@ -116,7 +118,7 @@ class TestPruneStaleSources:
         assert pruned == 0
         assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
 
-    def test_skips_sources_without_file_hash(self, tmp_path: Path) -> None:
+    def test_skips_sources_without_file_hash(self, tmp_path: Path) -> None:  # Tests Indexers INV-5
         """Sources like email/RSS have no file_hash and should not be pruned."""
         conn = _make_conn(tmp_path)
         from ragling.db import get_or_create_collection
@@ -136,7 +138,7 @@ class TestPruneStaleSources:
         assert pruned == 0
         assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
 
-    def test_skips_sources_with_virtual_uri(self, tmp_path: Path) -> None:
+    def test_skips_sources_with_virtual_uri(self, tmp_path: Path) -> None:  # Tests Indexers INV-5
         """Sources like calibre descriptions use virtual URIs and should not be pruned."""
         conn = _make_conn(tmp_path)
         from ragling.db import get_or_create_collection
@@ -156,7 +158,9 @@ class TestPruneStaleSources:
         assert pruned == 0
         assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
 
-    def test_mixed_sources_only_prunes_missing_files(self, tmp_path: Path) -> None:
+    def test_mixed_sources_only_prunes_missing_files(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers INV-5
         conn = _make_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
@@ -206,7 +210,7 @@ class TestIndexResultPruned:
 class TestPruneEndToEnd:
     """End-to-end: index files, delete some, prune, verify search wouldn't find them."""
 
-    def test_full_lifecycle(self, tmp_path: Path) -> None:
+    def test_full_lifecycle(self, tmp_path: Path) -> None:  # Tests Indexers INV-1
         conn = _make_conn(tmp_path)
         from ragling.db import get_or_create_collection
 

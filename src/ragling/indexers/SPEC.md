@@ -14,21 +14,11 @@ re-indexing fast across heterogeneous source types.
 
 ## Core Mechanism
 
-All indexers follow the same lifecycle: discover sources, check for changes,
-parse content, chunk, embed, and persist via `upsert_source_with_chunks()`.
-Change detection varies by source type:
-
-- **File hash** (Obsidian, Calibre, git current-state files): SHA-256 of
-  file contents compared against stored `file_hash` in the sources table.
-- **Watermark timestamp** (email, RSS): latest indexed date stored in the
-  collection description; only newer items are fetched from the external DB.
-- **HEAD SHA comparison** (git repos): commit SHA stored as a watermark in
-  the collection description; `git diff --name-only` identifies changed files.
-
-`ProjectIndexer` auto-discovers nested Obsidian vaults and git repos via
-`discover_sources()`, delegates to specialized indexers, and indexes
-leftover files directly. Repos already covered by explicit `code_groups`
-are excluded to prevent duplicate indexing.
+Two-pass indexing (scan for changes, then index changed sources) with three
+change-detection strategies: file hash, watermark timestamp, and HEAD SHA
+comparison. `ProjectIndexer` auto-discovers nested vaults and git repos,
+delegates to specialized indexers, and excludes repos already covered by
+explicit `code_groups`.
 
 **Key files:**
 - `base.py` -- `BaseIndexer` ABC, `upsert_source_with_chunks()`,
@@ -105,46 +95,6 @@ are excluded to prevent duplicate indexing.
 | FAIL-3 | Orphaned sub-collections persist after directory restructure | Vault or repo marker removed from a project directory | `reconcile_sub_collections()` deletes sub-collections not in current discovery |
 | FAIL-4 | `OllamaConnectionError` propagated, `IndexResult` records error | Ollama embedding API timeout or unavailable | Ensure Ollama is running and the configured model is pulled |
 | FAIL-5 | Full re-index triggered unexpectedly | Watermark corruption (invalid JSON, unparseable date) | Parser falls back to empty watermarks, triggering full re-index; manual fix by clearing collection description |
-
-## Testing
-
-```bash
-uv run pytest tests/test_base_indexer.py tests/test_auto_indexer.py tests/test_discovery.py tests/test_factory.py tests/test_format_routing.py tests/test_obsidian_indexer.py tests/test_email_indexer.py tests/test_calibre_indexer.py tests/test_git_commands.py tests/test_git_indexer.py tests/test_rss_indexer.py tests/test_project_indexer.py -v
-```
-
-### Coverage
-
-| Spec Item | Test | Description |
-|---|---|---|
-| INV-1 | `TestDeleteSource::test_deletes_source_and_documents` | Verifies delete removes source, documents, and vectors atomically |
-| INV-1 | `TestPruneEndToEnd::test_full_lifecycle` | End-to-end: index, delete files, prune, verify cascaded cleanup |
-| INV-2 | `TestCodeFileIndexing::test_creates_documents_in_db` | Verifies indexing produces document rows in DB |
-| INV-2 | `TestCodeFileIndexing::test_creates_vector_embeddings` | Verifies indexing produces vector embedding rows |
-| INV-3 | `TestFileHashChangeDetection::test_unchanged_file_hash_causes_skip` | Files with same content hash are skipped on incremental index |
-| INV-3 | `TestIncrementalIndexing::test_second_run_no_changes_skips` | Unchanged HEAD SHA causes full skip |
-| INV-3 | `TestCalibreIndexerIndex::test_incremental_indexing_skips_unchanged` | Unchanged book hash skips re-indexing |
-| INV-4 | `TestWatermarks::test_roundtrip` | JSON watermark serialize/parse roundtrip |
-| INV-4 | `TestWatermarks::test_parse_legacy_format` | Legacy `git:path:sha` format still parsed |
-| INV-4 | `TestWatermarkPersistence::test_stores_watermark_after_indexing` | Watermark stored in collection description after git index |
-| INV-4 | `TestMultiRepoWatermarks::test_two_repos_in_same_collection` | Both repos get watermarks in shared collection |
-| INV-5 | `TestPruneStaleSources::test_skips_sources_without_file_hash` | Sources like email with no file_hash are not pruned |
-| INV-5 | `TestPruneStaleSources::test_skips_sources_with_virtual_uri` | Virtual URIs (calibre://) are not pruned |
-| INV-5 | `TestPruneStaleSources::test_mixed_sources_only_prunes_missing_files` | Only file-backed sources with missing files are pruned |
-| INV-6 | `TestProjectIndexerDiscovery::test_repo_in_code_groups_skipped_by_discovery` | Repos in code_groups are not re-indexed by project discovery |
-| INV-6 | `TestProjectIndexerDiscovery::test_repo_not_in_code_groups_still_indexed` | Repos NOT in code_groups are still indexed |
-| INV-7 | `TestObsidianWalkVaultFiltering::test_skips_hidden_directories` | Files in .obsidian and other hidden dirs excluded |
-| INV-7 | `TestObsidianWalkVaultFiltering::test_skips_hidden_files` | Dot-prefixed files excluded |
-| INV-7 | `TestObsidianWalkVaultFiltering::test_skips_user_excluded_folders` | User-configured exclude folders honored |
-| INV-8 | `TestEmailIndexerChunking::test_index_email_uses_chunk_with_hybrid` | Email indexing uses HybridChunker pipeline (retry logic tested implicitly) |
-| INV-9 | `TestObsidianIndexerStatusReporting::test_status_file_processed_called_per_file` | Per-file processing continues after each file (error isolation) |
-| INV-10 | `TestSpecMdIndexing::test_spec_md_indexed_as_spec_source_type` | SPEC.md files get source_type='spec' in git repos |
-| INV-10 | `TestSpecMdRouting::test_spec_md_uses_spec_parser` | SPEC.md routed to spec parser for section-level chunking |
-| FAIL-1 | `TestRSSIndexerChunking::test_index_article_uses_chunk_with_hybrid` | RSS indexing pipeline functional (retry logic in _parse_with_retry) |
-| FAIL-2 | `TestPruneStaleSources::test_prunes_source_whose_file_is_gone` | Stale sources are cleaned up on next prune pass |
-| FAIL-3 | `TestReconciliation::test_stale_sub_collection_deleted` | Orphaned sub-collections deleted during reconciliation |
-| FAIL-3 | `TestReconciliation::test_current_sub_collections_preserved` | Active sub-collections are preserved |
-| FAIL-5 | `TestWatermarks::test_parse_invalid_json_returns_empty` | Invalid JSON watermark returns empty dict (triggers full re-index) |
-| FAIL-5 | `TestWatermarks::test_parse_unrecognized_string_returns_empty` | Unrecognized watermark format returns empty dict |
 
 ## Dependencies
 

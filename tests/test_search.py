@@ -126,7 +126,7 @@ class TestRRFMerge:
         expected = 0.7 / 61 + 0.3 / 61
         assert score == pytest.approx(expected)
 
-    def test_sorted_by_score_descending(self):
+    def test_sorted_by_score_descending(self):  # Tests Search INV-6
         vec = [(1, 0.1), (2, 0.2), (3, 0.3)]
         fts = [(3, -5.0), (2, -3.0), (1, -1.0)]
         result = rrf_merge(vec, fts, k=60, vector_weight=0.7, fts_weight=0.3)
@@ -709,7 +709,7 @@ class TestCheckFilters:
 class TestMarkStaleResults:
     """Tests for _mark_stale_results."""
 
-    def test_marks_missing_file_as_stale(self) -> None:
+    def test_marks_missing_file_as_stale(self) -> None:  # Tests Search FAIL-3
         from ragling.search.search import _mark_stale_results
 
         result = SearchResult(
@@ -725,7 +725,7 @@ class TestMarkStaleResults:
         _mark_stale_results([result], {})
         assert result.stale is True
 
-    def test_marks_modified_file_as_stale(self, tmp_path) -> None:
+    def test_marks_modified_file_as_stale(self, tmp_path) -> None:  # Tests Search FAIL-3
         from ragling.search.search import _mark_stale_results
 
         f = tmp_path / "test.md"

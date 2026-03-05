@@ -1082,7 +1082,9 @@ class TestCalibreIndexerIndex:
         source = conn.execute("SELECT source_type FROM sources").fetchone()
         assert source["source_type"] == "epub"
 
-    def test_incremental_indexing_skips_unchanged(self, tmp_path: Path) -> None:
+    def test_incremental_indexing_skips_unchanged(
+        self, tmp_path: Path
+    ) -> None:  # Tests Indexers INV-3
         """Running index twice with no changes skips on the second run."""
         from ragling.indexers.calibre_indexer import CalibreIndexer
 

@@ -9,7 +9,7 @@ from ragling.config import Config
 class TestEmailIndexerChunking:
     """Tests that email indexer uses HybridChunker via bridge function."""
 
-    def test_index_email_uses_chunk_with_hybrid(self) -> None:
+    def test_index_email_uses_chunk_with_hybrid(self) -> None:  # Tests Indexers INV-8
         """_index_email should call chunk_with_hybrid, not chunk_email."""
         from ragling.indexers.email_indexer import EmailIndexer
 

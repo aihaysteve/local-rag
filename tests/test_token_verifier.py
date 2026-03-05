@@ -73,7 +73,9 @@ class TestRateLimiting:
             result = self._run(verifier.verify_token("bad_key"))
             assert result is None  # Normal auth failure, not rate-limited
 
-    def test_rate_limiting_kicks_in_after_threshold_failures(self):
+    def test_rate_limiting_kicks_in_after_threshold_failures(
+        self,
+    ):  # Tests Auth INV-12, Auth FAIL-7
         """After exceeding MAX_FAILURES with the same token, verify_token
         should raise RateLimitedError instead of checking the credential."""
         verifier = self._make_verifier()
@@ -89,7 +91,7 @@ class TestRateLimiting:
         with pytest.raises(RateLimitedError):
             self._run(verifier.verify_token("bad_key"))
 
-    def test_backoff_time_increases_exponentially(self):
+    def test_backoff_time_increases_exponentially(self):  # Tests Auth INV-12
         """Each successive failure beyond the threshold should increase
         the backoff delay exponentially: 2^count seconds, capped at 300s."""
         verifier = self._make_verifier()

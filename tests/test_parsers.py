@@ -42,7 +42,7 @@ class TestFrontmatter:
         assert doc.title == "plain"
         assert "Just a plain note." in doc.body_text
 
-    def test_handles_invalid_yaml(self):
+    def test_handles_invalid_yaml(self):  # Tests Parsers INV-5, Parsers FAIL-5
         doc = parse_markdown("---\n: invalid: yaml: [[\n---\nBody.", "bad.md")
         assert doc.frontmatter == {}
         assert doc.title == "bad"
@@ -108,7 +108,7 @@ class TestTags:
         # but "#topic" without a space after # is an inline tag at line start
         assert "topic" in doc.tags
 
-    def test_tag_not_in_code_block(self):
+    def test_tag_not_in_code_block(self):  # Tests Parsers INV-6
         doc = parse_markdown("```\n#not-a-tag\n```\nOutside.", "note.md")
         assert "not-a-tag" not in doc.tags
 
@@ -116,7 +116,7 @@ class TestTags:
         doc = parse_markdown("Use `#not-a-tag` in code.", "note.md")
         assert "not-a-tag" not in doc.tags
 
-    def test_heading_not_treated_as_tag(self):
+    def test_heading_not_treated_as_tag(self):  # Tests Parsers INV-6
         doc = parse_markdown("# Heading\n\nBody text.", "note.md")
         assert "Heading" not in doc.tags
 
@@ -128,7 +128,7 @@ class TestTags:
         assert "from-fm" in doc.tags
         assert "inline-tag" in doc.tags
 
-    def test_no_duplicate_tags(self):
+    def test_no_duplicate_tags(self):  # Tests Parsers INV-6
         doc = parse_markdown("---\ntags:\n  - dup\n---\nText with #dup again.", "note.md")
         assert doc.tags.count("dup") == 1
 
@@ -160,7 +160,7 @@ class TestTitleFallback:
 
 
 class TestMinimalInput:
-    def test_empty_string(self):
+    def test_empty_string(self):  # Tests Parsers INV-5
         doc = parse_markdown("", "empty.md")
         assert doc.title == "empty"
         assert doc.body_text == ""
@@ -229,7 +229,7 @@ class TestSampleFixture:
 class TestParseMarkdownINV5:
     """INV-5: parse_markdown never raises exceptions to callers."""
 
-    def test_exception_in_helper_returns_fallback(self):
+    def test_exception_in_helper_returns_fallback(self):  # Tests Parsers INV-5
         """If an internal helper raises, parse_markdown returns a valid document."""
         from unittest.mock import patch
 

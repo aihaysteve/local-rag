@@ -355,7 +355,7 @@ comptime {
         pub_fn = blocks[1]
         assert pub_fn.text.startswith("pub ")
 
-    def test_pub_prefix_adjusts_start_line(self, tmp_path: Path) -> None:
+    def test_pub_prefix_adjusts_start_line(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """The start_line for a pub declaration includes the pub keyword line."""
         blocks = self._parse_zig(tmp_path)
         pub_fn = blocks[1]
@@ -403,7 +403,7 @@ comptime {
         assert comptime_block.symbol_name == "(comptime)"
         assert comptime_block.symbol_type == "comptime"
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_zig(tmp_path)
         # All blocks should have positive line numbers

@@ -9,26 +9,10 @@ Docling's `HybridChunker` or word-based window splitting.
 
 ## Core Mechanism
 
-`docling_convert.py` wraps Docling's `DocumentConverter` for format conversion
-and `HybridChunker` for structure-aware chunking. `get_converter()` is an
-`lru_cache` singleton configured per enrichment settings. `convert_and_chunk()`
-integrates with DocStore for content-addressed caching, with fallbacks for PDF
-(pypdfium2 text extraction) and standalone images (VLM description via SmolVLM
-or Ollama). `converter_config_hash()` produces a deterministic hash of pipeline
-settings so changing enrichments invalidates cached conversions.
-
-`docling_bridge.py` converts legacy parser output (markdown, epub, plaintext,
-email, RSS) into `DoclingDocument` objects so all formats can be chunked by
-`HybridChunker` with `contextualize()`. Each bridge function
-(`markdown_to_docling_doc`, `epub_to_docling_doc`, etc.) preserves heading
-hierarchy and paragraph structure.
-
-`chunker.py` defines the `Chunk` dataclass (text, title, metadata,
-chunk_index) and `split_into_windows()` for word-based overlapping window
-splitting.
-
-`audio_metadata.py` extracts container metadata (title, artist, album,
-duration) from audio and video files via mutagen.
+All external formats are normalized into `Chunk` objects via Docling's
+`HybridChunker` or word-based window splitting. Formats not natively supported
+by Docling are bridged into `DoclingDocument` objects so every format flows
+through the same chunking pipeline.
 
 **Key files:**
 - `chunker.py` -- Chunk dataclass and window splitting
@@ -70,14 +54,6 @@ duration) from audio and video files via mutagen.
 | FAIL-1 | `convert_and_chunk()` returns chunks from pypdfium2 text instead of Docling | Primary Docling conversion failed (corrupted PDF, missing fonts) | Automatic fallback; quality may be reduced — re-index if the source file is fixed |
 | FAIL-2 | `ValueError` raised from `convert_and_chunk()` | Unsupported `source_type` passed (not in `DOCLING_FORMATS`) | Programming error in caller — check `DOCLING_FORMATS` before calling |
 | FAIL-3 | `extract_audio_metadata()` returns empty dict | Corrupt or unsupported audio container | File is logged and skipped; metadata fields will be empty in search results |
-
-## Testing
-
-```bash
-uv run pytest tests/test_chunker.py tests/test_docling_convert.py \
-  tests/test_docling_bridge.py tests/test_audio_metadata.py \
-  tests/test_converter_config.py -v
-```
 
 ## Dependencies
 

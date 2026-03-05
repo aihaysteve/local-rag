@@ -14,9 +14,11 @@ naturally to chunk boundaries.
 
 ## Core Mechanism
 
-All parsers follow a consistent pattern: validate input, extract structure, clean
-text, enrich metadata, return domain object. Errors are caught and logged — parsers
-never raise exceptions to callers, returning `None` or empty collections instead.
+Each parser validates input, extracts structure, cleans text, enriches metadata,
+and returns a typed domain object. Parsers never raise exceptions — errors are
+logged and `None` or empty collections returned. The one exception is `spec.py`,
+which produces `Chunk` objects directly because SPEC.md sections map naturally
+to chunk boundaries.
 
 **Key files:**
 - `__init__.py` -- `open_ro()` utility for read-only SQLite access
@@ -76,47 +78,6 @@ never raise exceptions to callers, returning `None` or empty collections instead
 | FAIL-3 | `parse_epub()` returns empty list | EPUB is DRM-protected or not a valid ZIP archive | Book excluded from index; log message indicates possible DRM |
 | FAIL-4 | Chunk has section_type "other" | Unknown H2 heading in SPEC.md not in `_SECTION_MAP` | Add heading to `_SECTION_MAP` or use a standard heading |
 | FAIL-5 | `parse_markdown()` returns empty frontmatter | Invalid YAML in frontmatter block | Logged as warning; title falls back to filename stem |
-
-## Testing
-
-```bash
-uv run pytest tests/test_parsers.py tests/test_code_parser.py tests/test_spec_parser.py tests/test_swift_parser.py -v
-```
-
-### Coverage
-
-| Spec Item | Test | Description |
-|---|---|---|
-| INV-1 | -- | No direct test; `open_ro()` failure path untested |
-| INV-2 | -- | No direct test; UTF-8 `errors="replace"` behavior untested |
-| INV-3 | `TestSwiftParsing::test_start_end_lines_1_based` | All Swift blocks have 1-based start/end lines |
-| INV-3 | `TestSwiftParsing::test_class_line_numbers` | Class declaration has correct 1-based line range |
-| INV-3 | `TestZigParsing::test_start_end_lines_1_based` | All Zig blocks have 1-based start/end lines |
-| INV-3 | `TestZigParsing::test_pub_prefix_adjusts_start_line` | Pub visibility modifier included in start_line |
-| INV-4 | `TestNormalizeSectionType::test_purpose` | "Purpose" heading normalizes to "purpose" |
-| INV-4 | `TestNormalizeSectionType::test_core_mechanism` | "Core Mechanism" normalizes to "core_mechanism" |
-| INV-4 | `TestNormalizeSectionType::test_case_insensitive` | "INVARIANTS" normalizes to "invariants" |
-| INV-4 | `TestNormalizeSectionType::test_extra_whitespace` | Whitespace-padded heading normalizes correctly |
-| INV-5 | `TestMinimalInput::test_empty_string` | Empty input returns valid MarkdownDocument, no exception |
-| INV-5 | `TestFrontmatter::test_handles_invalid_yaml` | Invalid YAML returns empty frontmatter, no exception |
-| INV-5 | `TestParseMarkdownINV5::test_exception_in_helper_returns_fallback` | Internal helper exception returns valid fallback document |
-| INV-6 | `TestTags::test_no_duplicate_tags` | Frontmatter + inline duplicate tag appears only once |
-| INV-6 | `TestTags::test_heading_not_treated_as_tag` | `# Heading` not extracted as inline tag |
-| INV-6 | `TestTags::test_tag_not_in_code_block` | `#tag` inside code fences ignored |
-| INV-7 | -- | No direct test; EPUB spine ordering tested implicitly via `_parse_opf_spine` |
-| INV-8 | -- | No direct test; SHA-256 fallback ID generation in `_row_to_email` untested |
-| FAIL-2 | -- | No direct test; tree-sitter parse failure on corrupted syntax untested (empty-file tests cover a valid edge case, not the failure mode) |
-| FAIL-4 | `TestNormalizeSectionType::test_unknown_heading` | Unknown heading returns "other" section_type |
-| FAIL-5 | `TestFrontmatter::test_handles_invalid_yaml` | Invalid YAML returns empty frontmatter dict |
-
-`parse_markdown()` wraps its entire body in a top-level try/except.
-On unexpected failure, it logs the error and returns a fallback
-`MarkdownDocument` with the raw text as body and filename stem as title.
-
-**Gaps:** No automated tests for `open_ro()` failure path (INV-1, FAIL-1), EPUB
-parsing (INV-2, INV-7, FAIL-3), email parsing (INV-8), calibre parsing, or RSS
-parsing. These parsers interact with external databases and file formats that are
-difficult to fixture without integration tests.
 
 ## Dependencies
 

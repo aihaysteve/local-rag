@@ -8,16 +8,10 @@ ragling config file, routing events to the indexing pipeline.
 
 ## Core Mechanism
 
-`watcher.py` uses watchdog to monitor configured directories with a 2-second
-debounced queue (`DebouncedIndexQueue`). `_Handler` filters by file extension
-and hidden directories, and passes through git state files (`.git/HEAD`,
-`.git/refs/`). `get_watch_paths()` deduplicates paths across config sources.
-
-`system_watcher.py` monitors external SQLite databases (email, calibre, RSS)
-via `SystemCollectionWatcher` with a 10-second debounce per collection.
-
-`config_watcher.py` watches the config file via `ConfigWatcher` with a
-2-second debounce, preserving the old config on parse errors.
+Filesystem monitoring uses watchdog with a 2-second debounced queue to batch
+rapid changes. External SQLite databases (email, calibre, RSS) are polled with
+10-second debounce. Config file changes are debounced at 2 seconds with safe
+fallback to old config on parse errors.
 
 **Key files:**
 - `watcher.py` -- filesystem change monitoring with debounced queue
@@ -47,25 +41,6 @@ via `SystemCollectionWatcher` with a 10-second debounce per collection.
 | ID | Symptom | Cause | Fix |
 |---|---|---|---|
 | FAIL-6 | Config reload ignored after file change | ConfigWatcher debounce timer not expired; or parse error in new config | Check logs for parse errors; old config preserved on error |
-
-## Testing
-
-```bash
-uv run pytest tests/test_watcher.py tests/test_system_watcher.py \
-  tests/test_config_watcher.py -v
-```
-
-### Coverage
-
-| Spec Item | Test | Description |
-|---|---|---|
-| INV-10 | `test_watcher.py::TestHandlerExtensionFiltering::test_unsupported_extension_ignored_on_modified` | Unsupported extension does not enqueue |
-| INV-10 | `test_watcher.py::TestHandlerExtensionFiltering::test_filtering_is_case_insensitive` | Uppercase extension still matches |
-| INV-10 | `test_watcher.py::TestHandlerHiddenDirectoryFiltering::test_file_in_hidden_directory_not_enqueued` | Files in dotdirs skipped |
-| INV-10 | `test_watcher.py::TestHandlerGitStateFiles::test_git_head_change_is_enqueued` | `.git/HEAD` changes pass through |
-| INV-10 | `test_watcher.py::TestHandlerGitStateFiles::test_git_objects_change_is_not_enqueued` | `.git/objects/` changes filtered out |
-| INV-11 | `test_watcher.py::TestWatchPathsIncludesObsidianAndCode::test_deduplicates_overlapping_paths` | Same path in home and obsidian appears once |
-| FAIL-6 | `test_config_watcher.py::TestConfigWatcher::test_debounces_rapid_changes` | Rapid changes batched within debounce window |
 
 ## Dependencies
 

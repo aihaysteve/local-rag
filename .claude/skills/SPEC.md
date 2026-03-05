@@ -16,13 +16,8 @@ alongside the project, and tested via the same TDD methodology they prescribe
 
 Claude Code discovers skills by scanning `.claude/skills/*/SKILL.md` for YAML
 frontmatter. The `name` field maps to `/skill-name` invocation, and the
-`description` field drives automatic keyword-based triggering.
-
-**Skill loading flow:**
-1. User invokes `/skill-name` or triggers via keyword match in conversation
-2. Claude Code reads the skill's `SKILL.md` and any referenced support files
-3. Agent follows the skill's checklist/process, using referenced prompts and
-   templates as needed
+`description` field drives automatic keyword-based triggering. Skills are
+self-contained directories with all support files co-located.
 
 **Key files:**
 - `UPSTREAM-superpowers.md` — Tracks provenance and sync status for skills
@@ -58,27 +53,6 @@ frontmatter. The `name` field maps to `/skill-name` invocation, and the
 | FAIL-3 | Skill changes lost after git operations | Missing negated gitignore entry for new skill directory | Add `!.claude/skills/<name>/` to `.gitignore` |
 | FAIL-4 | Upstream sync clobbers local customizations | Skill marked "identical" in UPSTREAM-superpowers.md but has local changes | Update status to "diverged" with notes on what differs |
 | FAIL-5 | Skill references broken after rename | Cross-references use file paths instead of skill names | Update references to use `/skill-name` form |
-
-## Testing
-
-Skills are tested via the TDD methodology defined in `writing-skills/SKILL.md`:
-pressure scenarios run against subagents with and without the skill loaded.
-
-```bash
-# No automated test suite — skills are validated via subagent pressure testing
-# See writing-skills/testing-skills-with-subagents.md for the process
-```
-
-### Coverage
-
-| Spec Item | Test | Description |
-|---|---|---|
-| INV-1 | Manual: verify frontmatter parses | Each new skill is checked during `/writing-skills` process |
-| INV-2 | Manual: grep for duplicate names | Check `grep -r '^name:' .claude/skills/*/SKILL.md` for duplicates |
-| INV-3 | Manual: verify gitignore entry | Part of `/codify-subsystem` and PR review checklist |
-| INV-4 | Manual: check UPSTREAM-superpowers.md | Review during upstream sync |
-| FAIL-1 | Subagent test: skill discovery | Pressure test from `writing-skills/testing-skills-with-subagents.md` |
-| FAIL-2 | Subagent test: keyword specificity | Pressure test with ambiguous task description |
 
 ## Dependencies
 

@@ -129,7 +129,7 @@ class TestWatchPathsIncludesObsidianAndCode:
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
-    def test_deduplicates_overlapping_paths(self, tmp_path: Path) -> None:
+    def test_deduplicates_overlapping_paths(self, tmp_path: Path) -> None:  # Tests Watchers INV-11
         """Same path in home and obsidian should appear only once."""
         from ragling.watchers.watcher import get_watch_paths
 
@@ -267,7 +267,7 @@ class TestHandlerExtensionFiltering:
 
         queue.enqueue.assert_called_once_with(Path("/tmp/new_file.py"))
 
-    def test_unsupported_extension_ignored_on_modified(self) -> None:
+    def test_unsupported_extension_ignored_on_modified(self) -> None:  # Tests Watchers INV-10
         """File with unsupported extension does not enqueue on modification."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -287,7 +287,7 @@ class TestHandlerExtensionFiltering:
 
         queue.enqueue.assert_not_called()
 
-    def test_filtering_is_case_insensitive(self) -> None:
+    def test_filtering_is_case_insensitive(self) -> None:  # Tests Watchers INV-10
         """Extension check lowercases before matching."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -333,7 +333,7 @@ class TestHandlerExtensionFiltering:
 class TestHandlerHiddenDirectoryFiltering:
     """Tests for _Handler filtering out files in hidden directories."""
 
-    def test_file_in_hidden_directory_not_enqueued(self) -> None:
+    def test_file_in_hidden_directory_not_enqueued(self) -> None:  # Tests Watchers INV-10
         """A .json file inside .claude/ should not be enqueued."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".json", ".py"})
@@ -369,7 +369,7 @@ class TestHandlerHiddenDirectoryFiltering:
 class TestHandlerGitStateFiles:
     """Tests for _Handler passing through .git/HEAD and .git/refs/ changes."""
 
-    def test_git_head_change_is_enqueued(self) -> None:
+    def test_git_head_change_is_enqueued(self) -> None:  # Tests Watchers INV-10
         """Changes to .git/HEAD should be enqueued despite no extension."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -399,7 +399,7 @@ class TestHandlerGitStateFiles:
 
         queue.enqueue.assert_called_once_with(Path("/repo/.git/refs/remotes/origin/main"))
 
-    def test_git_objects_change_is_not_enqueued(self) -> None:
+    def test_git_objects_change_is_not_enqueued(self) -> None:  # Tests Watchers INV-10
         """Changes to .git/objects/ should NOT be enqueued (noisy)."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
