@@ -739,6 +739,113 @@ class TestBackgroundFlag:
         assert call_kwargs["stdout"] is subprocess.DEVNULL
 
 
+class TestDbContext:
+    """Tests for _db_context context manager."""
+
+    def test_closes_connection_on_normal_exit(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _db_context
+        from ragling.config import Config
+
+        config = Config(embedding_dimensions=4)
+        mock_conn = MagicMock()
+
+        with patch("ragling.cli._get_db", return_value=mock_conn):
+            with _db_context(config) as conn:
+                assert conn is mock_conn
+        mock_conn.close.assert_called_once()
+
+    def test_closes_connection_on_exception(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _db_context
+        from ragling.config import Config
+
+        config = Config(embedding_dimensions=4)
+        mock_conn = MagicMock()
+
+        with patch("ragling.cli._get_db", return_value=mock_conn):
+            with pytest.raises(ValueError):
+                with _db_context(config) as _conn:
+                    raise ValueError("boom")
+        mock_conn.close.assert_called_once()
+
+
+class TestDbAndDocstore:
+    """Tests for _db_and_docstore context manager."""
+
+    def _setup_mock_docstore(self):
+        """Insert a mock ragling.doc_store module to avoid circular import."""
+        import sys
+        import types
+        from unittest.mock import MagicMock
+
+        mock_docstore_instance = MagicMock()
+        mock_ds_cls = MagicMock(return_value=mock_docstore_instance)
+
+        # If the module isn't already loaded, inject a fake one
+        if "ragling.doc_store" not in sys.modules:
+            fake_mod = types.ModuleType("ragling.doc_store")
+            fake_mod.DocStore = mock_ds_cls  # type: ignore[attr-defined]
+            sys.modules["ragling.doc_store"] = fake_mod
+            return mock_ds_cls, mock_docstore_instance, True
+        else:
+            return mock_ds_cls, mock_docstore_instance, False
+
+    def test_closes_both_on_normal_exit(self, tmp_path: Path) -> None:
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _db_and_docstore
+        from ragling.config import Config
+
+        config = Config(embedding_dimensions=4, shared_db_path=tmp_path / "shared.db")
+        mock_conn = MagicMock()
+        mock_ds_cls, mock_docstore_instance, injected = self._setup_mock_docstore()
+
+        try:
+            with (
+                patch("ragling.cli._get_db", return_value=mock_conn),
+                patch.object(sys.modules["ragling.doc_store"], "DocStore", mock_ds_cls),
+            ):
+                with _db_and_docstore(config) as (conn, ds):
+                    assert conn is mock_conn
+                    assert ds is mock_docstore_instance
+        finally:
+            if injected:
+                del sys.modules["ragling.doc_store"]
+
+        mock_docstore_instance.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+    def test_closes_both_on_exception(self, tmp_path: Path) -> None:
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from ragling.cli import _db_and_docstore
+        from ragling.config import Config
+
+        config = Config(embedding_dimensions=4, shared_db_path=tmp_path / "shared.db")
+        mock_conn = MagicMock()
+        mock_ds_cls, mock_docstore_instance, injected = self._setup_mock_docstore()
+
+        try:
+            with (
+                patch("ragling.cli._get_db", return_value=mock_conn),
+                patch.object(sys.modules["ragling.doc_store"], "DocStore", mock_ds_cls),
+            ):
+                with pytest.raises(RuntimeError):
+                    with _db_and_docstore(config) as (conn, ds):
+                        raise RuntimeError("boom")
+        finally:
+            if injected:
+                del sys.modules["ragling.doc_store"]
+
+        mock_docstore_instance.close.assert_called_once()
+        mock_conn.close.assert_called_once()
+
+
 class TestInitCommand:
     """Tests for the ragling init command."""
 

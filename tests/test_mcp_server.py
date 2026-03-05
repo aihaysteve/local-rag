@@ -5,6 +5,8 @@ from types import MappingProxyType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ragling.config import Config
 
 
@@ -265,6 +267,67 @@ class TestBuildSearchResponse:
         response = _build_search_response(results)
         assert response["results"] == results
         assert len(response["results"]) == 2
+
+
+class TestResultToDict:
+    """Tests for _result_to_dict helper."""
+
+    def test_converts_search_result_to_dict(self) -> None:
+        from ragling.mcp_server import _result_to_dict
+        from ragling.search.search import SearchResult
+
+        r = SearchResult(
+            content="test content",
+            title="Test Title",
+            metadata={"tags": ["python"]},
+            score=0.87654,
+            collection="obsidian",
+            source_path="/vault/notes/test.md",
+            source_type="markdown",
+        )
+        d = _result_to_dict(r, obsidian_vaults=[])
+        assert d["title"] == "Test Title"
+        assert d["content"] == "test content"
+        assert d["collection"] == "obsidian"
+        assert d["source_type"] == "markdown"
+        assert d["source_path"] == "/vault/notes/test.md"
+        assert d["score"] == 0.8765  # rounded to 4 decimals
+        assert d["metadata"] == {"tags": ["python"]}
+        assert d["stale"] is False
+
+    def test_includes_source_uri(self) -> None:
+        from ragling.mcp_server import _result_to_dict
+        from ragling.search.search import SearchResult
+
+        r = SearchResult(
+            content="c",
+            title="t",
+            metadata={},
+            score=0.5,
+            collection="project",
+            source_path="/docs/report.pdf",
+            source_type="pdf",
+        )
+        d = _result_to_dict(r, obsidian_vaults=[])
+        assert d["source_uri"] is not None
+        assert d["source_uri"].startswith("file://")
+
+    def test_stale_flag_preserved(self) -> None:
+        from ragling.mcp_server import _result_to_dict
+        from ragling.search.search import SearchResult
+
+        r = SearchResult(
+            content="c",
+            title="t",
+            metadata={},
+            score=0.5,
+            collection="obsidian",
+            source_path="/vault/old.md",
+            source_type="markdown",
+            stale=True,
+        )
+        d = _result_to_dict(r, obsidian_vaults=[])
+        assert d["stale"] is True
 
 
 class TestConvertDocument:
@@ -1439,7 +1502,14 @@ class TestRagBatchSearch:
         assert result["indexing"]["total_remaining"] == 3
 
     def test_batch_search_idle_indexing_status(self, tmp_path: Path) -> None:
-        """Idle IndexingStatus (to_dict() returns None) must not crash."""
+        """Idle IndexingStatus produces indexing=None via _build_search_response.
+
+        Prior to the _build_search_response unification, rag_batch_search had
+        inline logic that checked ``status_dict.get("active")`` before including
+        the status. That check was redundant: IndexingStatus.to_dict() already
+        returns None when idle and always sets ``active=True`` when active.
+        This test confirms the unified path preserves the same behavior.
+        """
         from ragling.indexing_status import IndexingStatus
         from ragling.mcp_server import create_server
 
@@ -1457,3 +1527,48 @@ class TestRagBatchSearch:
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is None
+
+
+class TestRagIndexSystemCollectionDispatch:
+    """Tests for data-driven system collection dispatch in _rag_index_via_queue."""
+
+    @pytest.mark.parametrize(
+        "collection,expected_job_type,expected_indexer_type",
+        [
+            ("obsidian", "directory", "obsidian"),
+            ("email", "system_collection", "email"),
+            ("calibre", "system_collection", "calibre"),
+            ("rss", "system_collection", "rss"),
+        ],
+    )
+    def test_system_collection_creates_correct_job(
+        self,
+        tmp_path: Path,
+        collection: str,
+        expected_job_type: str,
+        expected_indexer_type: str,
+    ) -> None:
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        q = IndexingQueue(config, status)
+        server = create_server(config=config, indexing_status=status, indexing_queue=q)
+        tools = server._tool_manager._tools
+        fn = tools["rag_index"].fn
+
+        result = fn(collection=collection, path=None)
+        assert result["status"] == "submitted"
+        assert result["collection"] == collection
+
+        # Verify the job was submitted with correct type
+        # IndexingQueue stores raw IndexJob objects in _queue via submit()
+        item = q._queue.get_nowait()
+        assert item.job_type == expected_job_type
+        assert item.indexer_type.value == expected_indexer_type

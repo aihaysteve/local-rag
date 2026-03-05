@@ -6,6 +6,7 @@ import logging
 import signal
 import sys
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 
@@ -55,6 +56,32 @@ def _get_db(config: Config):
     conn = get_connection(config)
     init_db(conn, config)
     return conn
+
+
+@contextmanager
+def _db_context(config: Config):
+    """Context manager for database connection with automatic cleanup."""
+    conn = _get_db(config)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextmanager
+def _db_and_docstore(config: Config):
+    """Context manager for database connection and DocStore with automatic cleanup."""
+    from ragling.doc_store import DocStore
+
+    conn = _get_db(config)
+    try:
+        doc_store = DocStore(config.shared_db_path)
+        try:
+            yield conn, doc_store
+        finally:
+            doc_store.close()
+    finally:
+        conn.close()
 
 
 @click.group()
@@ -144,6 +171,40 @@ def _run_in_background(
     console.print(f"[green]Indexing '{collection_name}' started in background.[/green]")
 
 
+def _run_single_index(
+    ctx: click.Context,
+    collection_name: str,
+    force: bool,
+    background: bool,
+    *,
+    needs_docstore: bool = False,
+) -> None:
+    """Run a single-collection index operation.
+
+    Handles background dispatch, config loading, collection enablement check,
+    indexer creation via factory, execution, result printing, and cleanup.
+    """
+    if background:
+        _run_in_background(ctx, [collection_name], force)
+        return
+    from ragling.indexers.factory import create_indexer
+
+    config = load_config(ctx.obj.get("config_path"))
+    _check_collection_enabled(config, collection_name)
+    config = config.with_overrides(group_name=ctx.obj["group"])
+
+    if needs_docstore:
+        with _db_and_docstore(config) as (conn, doc_store):
+            indexer = create_indexer(collection_name, config, doc_store=doc_store)
+            result = indexer.index(conn, config, force=force)
+            _print_index_result(collection_name.capitalize(), result)
+    else:
+        with _db_context(config) as conn:
+            indexer = create_indexer(collection_name, config)
+            result = indexer.index(conn, config, force=force)
+            _print_index_result(collection_name.capitalize(), result)
+
+
 @index.command("obsidian")
 @click.option(
     "--vault",
@@ -160,33 +221,29 @@ def index_obsidian(
     ctx: click.Context, vaults: tuple[Path, ...], force: bool, background: bool
 ) -> None:
     """Index Obsidian vault(s)."""
+    if not vaults:
+        if not background:
+            config = load_config(ctx.obj.get("config_path"))
+            if not config.obsidian_vaults:
+                click.echo(
+                    "Error: No vault paths provided. Use --vault or set obsidian_vaults in config.",
+                    err=True,
+                )
+                sys.exit(1)
+        _run_single_index(ctx, "obsidian", force, background, needs_docstore=True)
+        return
     if background:
         _run_in_background(ctx, ["obsidian"], force)
         return
-    from ragling.doc_store import DocStore
-    from ragling.indexers.obsidian import ObsidianIndexer
+    from ragling.indexers.factory import create_indexer
 
     config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "obsidian")
-    vault_paths = list(vaults) if vaults else config.obsidian_vaults
-
-    if not vault_paths:
-        click.echo(
-            "Error: No vault paths provided. Use --vault or set obsidian_vaults in config.",
-            err=True,
-        )
-        sys.exit(1)
-
-    config = config.with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    doc_store = DocStore(config.shared_db_path)
-    try:
-        indexer = ObsidianIndexer(vault_paths, config.obsidian_exclude_folders, doc_store=doc_store)
+    config = config.with_overrides(group_name=ctx.obj["group"], obsidian_vaults=list(vaults))
+    with _db_and_docstore(config) as (conn, doc_store):
+        indexer = create_indexer("obsidian", config, doc_store=doc_store)
         result = indexer.index(conn, config, force=force)
         _print_index_result("Obsidian", result)
-    finally:
-        doc_store.close()
-        conn.close()
 
 
 @index.command("email")
@@ -195,21 +252,7 @@ def index_obsidian(
 @click.pass_context
 def index_email(ctx: click.Context, force: bool, background: bool) -> None:
     """Index eM Client emails."""
-    if background:
-        _run_in_background(ctx, ["email"], force)
-        return
-    from ragling.indexers.email_indexer import EmailIndexer
-
-    config = load_config(ctx.obj.get("config_path"))
-    _check_collection_enabled(config, "email")
-    config = config.with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    try:
-        indexer = EmailIndexer(str(config.emclient_db_path))
-        result = indexer.index(conn, config, force=force)
-        _print_index_result("Email", result)
-    finally:
-        conn.close()
+    _run_single_index(ctx, "email", force, background)
 
 
 @index.command("calibre")
@@ -228,33 +271,29 @@ def index_calibre(
     ctx: click.Context, libraries: tuple[Path, ...], force: bool, background: bool
 ) -> None:
     """Index Calibre ebook library/libraries."""
+    if not libraries:
+        if not background:
+            config = load_config(ctx.obj.get("config_path"))
+            if not config.calibre_libraries:
+                click.echo(
+                    "Error: No library paths provided. Use --library or set calibre_libraries in config.",
+                    err=True,
+                )
+                sys.exit(1)
+        _run_single_index(ctx, "calibre", force, background, needs_docstore=True)
+        return
     if background:
         _run_in_background(ctx, ["calibre"], force)
         return
-    from ragling.doc_store import DocStore
-    from ragling.indexers.calibre_indexer import CalibreIndexer
+    from ragling.indexers.factory import create_indexer
 
     config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, "calibre")
-    library_paths = list(libraries) if libraries else config.calibre_libraries
-
-    if not library_paths:
-        click.echo(
-            "Error: No library paths provided. Use --library or set calibre_libraries in config.",
-            err=True,
-        )
-        sys.exit(1)
-
-    config = config.with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    doc_store = DocStore(config.shared_db_path)
-    try:
-        indexer = CalibreIndexer(library_paths, doc_store=doc_store)
+    config = config.with_overrides(group_name=ctx.obj["group"], calibre_libraries=list(libraries))
+    with _db_and_docstore(config) as (conn, doc_store):
+        indexer = create_indexer("calibre", config, doc_store=doc_store)
         result = indexer.index(conn, config, force=force)
         _print_index_result("Calibre", result)
-    finally:
-        doc_store.close()
-        conn.close()
 
 
 @index.command("rss")
@@ -263,21 +302,7 @@ def index_calibre(
 @click.pass_context
 def index_rss(ctx: click.Context, force: bool, background: bool) -> None:
     """Index NetNewsWire RSS articles."""
-    if background:
-        _run_in_background(ctx, ["rss"], force)
-        return
-    from ragling.indexers.rss_indexer import RSSIndexer
-
-    config = load_config(ctx.obj.get("config_path"))
-    _check_collection_enabled(config, "rss")
-    config = config.with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    try:
-        indexer = RSSIndexer(str(config.netnewswire_db_path))
-        result = indexer.index(conn, config, force=force)
-        _print_index_result("RSS", result)
-    finally:
-        conn.close()
+    _run_single_index(ctx, "rss", force, background)
 
 
 @index.command("project")
@@ -293,21 +318,15 @@ def index_project(
     if background:
         _run_in_background(ctx, ["project", name], force, extra_args=[str(p) for p in paths])
         return
-    from ragling.doc_store import DocStore
     from ragling.indexers.project import ProjectIndexer
 
     config = load_config(ctx.obj.get("config_path"))
     _check_collection_enabled(config, name)
     config = config.with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    doc_store = DocStore(config.shared_db_path)
-    try:
+    with _db_and_docstore(config) as (conn, doc_store):
         indexer = ProjectIndexer(name, list(paths), doc_store=doc_store)
         result = indexer.index(conn, config, force=force)
         _print_index_result(name, result)
-    finally:
-        doc_store.close()
-        conn.close()
 
 
 @index.command("group")
@@ -347,8 +366,7 @@ def index_group(
         sys.exit(1)
 
     config = config.with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    try:
+    with _db_context(config) as conn:
         for code_group_name, repo_paths in groups.items():
             _check_collection_enabled(config, code_group_name)
             for repo_path in repo_paths:
@@ -356,8 +374,6 @@ def index_group(
                 indexer = GitRepoIndexer(repo_path, collection_name=code_group_name)
                 result = indexer.index(conn, config, force=force, index_history=history)
                 _print_index_result(f"{code_group_name}/{repo_path.name}", result)
-    finally:
-        conn.close()
 
 
 @index.command("all")
@@ -374,7 +390,6 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
     if background:
         _run_in_background(ctx, ["all"], force)
         return
-    from ragling.doc_store import DocStore
     from ragling.indexers.base import BaseIndexer
     from ragling.indexers.factory import create_indexer
 
@@ -384,52 +399,54 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
         is_git: bool
 
     config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    doc_store = DocStore(config.shared_db_path)
-
-    sources: list[IndexSource] = []
-
-    if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
-        sources.append(
-            IndexSource("obsidian", create_indexer("obsidian", config, doc_store=doc_store), False)
-        )
-
-    if (
-        config.is_collection_enabled("email")
-        and config.emclient_db_path
-        and config.emclient_db_path.exists()
-    ):
-        sources.append(IndexSource("email", create_indexer("email", config), False))
-
-    if config.is_collection_enabled("calibre") and config.calibre_libraries:
-        sources.append(
-            IndexSource("calibre", create_indexer("calibre", config, doc_store=doc_store), False)
-        )
-
-    if (
-        config.is_collection_enabled("rss")
-        and config.netnewswire_db_path
-        and config.netnewswire_db_path.exists()
-    ):
-        sources.append(IndexSource("rss", create_indexer("rss", config), False))
-
-    for group_name, repo_paths in config.code_groups.items():
-        if config.is_collection_enabled(group_name):
-            for repo_path in repo_paths:
-                label = f"{group_name}/{repo_path.name}"
-                sources.append(
-                    IndexSource(label, create_indexer(group_name, config, path=repo_path), True)
-                )
-
-    if not sources:
-        click.echo("No sources configured. Set paths in ~/.ragling/config.json.", err=True)
-        sys.exit(1)
-
-    click.echo(f"Indexing {len(sources)} source(s)...\n")
 
     summary_rows: list[tuple[str, int, int, int, int, str | None]] = []
 
-    try:
+    with _db_and_docstore(config) as (conn, doc_store):
+        sources: list[IndexSource] = []
+
+        if config.is_collection_enabled("obsidian") and config.obsidian_vaults:
+            sources.append(
+                IndexSource(
+                    "obsidian", create_indexer("obsidian", config, doc_store=doc_store), False
+                )
+            )
+
+        if (
+            config.is_collection_enabled("email")
+            and config.emclient_db_path
+            and config.emclient_db_path.exists()
+        ):
+            sources.append(IndexSource("email", create_indexer("email", config), False))
+
+        if config.is_collection_enabled("calibre") and config.calibre_libraries:
+            sources.append(
+                IndexSource(
+                    "calibre", create_indexer("calibre", config, doc_store=doc_store), False
+                )
+            )
+
+        if (
+            config.is_collection_enabled("rss")
+            and config.netnewswire_db_path
+            and config.netnewswire_db_path.exists()
+        ):
+            sources.append(IndexSource("rss", create_indexer("rss", config), False))
+
+        for group_name, repo_paths in config.code_groups.items():
+            if config.is_collection_enabled(group_name):
+                for repo_path in repo_paths:
+                    label = f"{group_name}/{repo_path.name}"
+                    sources.append(
+                        IndexSource(label, create_indexer(group_name, config, path=repo_path), True)
+                    )
+
+        if not sources:
+            click.echo("No sources configured. Set paths in ~/.ragling/config.json.", err=True)
+            sys.exit(1)
+
+        click.echo(f"Indexing {len(sources)} source(s)...\n")
+
         for src in sources:
             click.echo(f"  {src.label}...")
             try:
@@ -450,9 +467,6 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
                 )
             except Exception as e:
                 summary_rows.append((src.label, 0, 0, 0, 0, str(e)))
-    finally:
-        doc_store.close()
-        conn.close()
 
     table = Table(title="Indexing Summary")
     table.add_column("Collection", style="bold")
@@ -581,8 +595,7 @@ def collections() -> None:
 def collections_list(ctx: click.Context) -> None:
     """List all collections with document counts."""
     config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    try:
+    with _db_context(config) as conn:
         rows = conn.execute("""
             SELECT c.name, c.collection_type, c.created_at,
                    (SELECT COUNT(*) FROM sources s WHERE s.collection_id = c.id) as source_count,
@@ -612,8 +625,6 @@ def collections_list(ctx: click.Context) -> None:
             )
 
         console.print(table)
-    finally:
-        conn.close()
 
 
 @collections.command("info")
@@ -622,8 +633,7 @@ def collections_list(ctx: click.Context) -> None:
 def collections_info(ctx: click.Context, name: str) -> None:
     """Show detailed info about a collection."""
     config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    try:
+    with _db_context(config) as conn:
         row = conn.execute("SELECT * FROM collections WHERE name = ?", (name,)).fetchone()
         if not row:
             click.echo(f"Error: Collection '{name}' not found.", err=True)
@@ -680,8 +690,6 @@ def collections_info(ctx: click.Context, name: str) -> None:
             console.print("[bold]Sample titles[/bold]")
             for st in sample_titles:
                 console.print(f"  - {st['title']}")
-    finally:
-        conn.close()
 
 
 @collections.command("delete")
@@ -691,8 +699,7 @@ def collections_info(ctx: click.Context, name: str) -> None:
 def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
     """Delete a collection and all its data."""
     config = load_config(ctx.obj.get("config_path")).with_overrides(group_name=ctx.obj["group"])
-    conn = _get_db(config)
-    try:
+    with _db_context(config) as conn:
         row = conn.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
         if not row:
             click.echo(f"Error: Collection '{name}' not found.", err=True)
@@ -711,8 +718,6 @@ def collections_delete(ctx: click.Context, name: str, yes: bool) -> None:
 
         delete_collection(conn, name)
         click.echo(f"Collection '{name}' deleted.")
-    finally:
-        conn.close()
 
 
 # ── Status command ──────────────────────────────────────────────────────
@@ -734,8 +739,7 @@ def status(ctx: click.Context) -> None:
         click.echo("Database not found. Run 'ragling index' to get started.")
         return
 
-    conn = _get_db(config)
-    try:
+    with _db_context(config) as conn:
         coll_count = conn.execute("SELECT COUNT(*) as cnt FROM collections").fetchone()["cnt"]
         doc_count = conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
         source_count = conn.execute("SELECT COUNT(*) as cnt FROM sources").fetchone()["cnt"]
@@ -764,8 +768,6 @@ def status(ctx: click.Context) -> None:
         )
         table.add_row("Leader", "active" if leader_active else "none")
         console.print(table)
-    finally:
-        conn.close()
 
 
 # ── Serve command ───────────────────────────────────────────────────────

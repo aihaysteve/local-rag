@@ -19,8 +19,17 @@ from ragling.indexer_types import IndexerType
 if TYPE_CHECKING:
     from ragling.indexing_queue import IndexingQueue
     from ragling.indexing_status import IndexingStatus
+    from ragling.search.search import SearchResult
 
 logger = logging.getLogger(__name__)
+
+# System collection name -> (job_type, IndexerType) for _rag_index_via_queue dispatch
+_SYSTEM_COLLECTION_JOBS: dict[str, tuple[str, IndexerType]] = {
+    "obsidian": ("directory", IndexerType.OBSIDIAN),
+    "email": ("system_collection", IndexerType.EMAIL),
+    "calibre": ("system_collection", IndexerType.CALIBRE),
+    "rss": ("system_collection", IndexerType.RSS),
+}
 
 
 def _build_source_uri(
@@ -133,13 +142,14 @@ def _apply_user_context_to_results(
 
 
 def _build_search_response(
-    results: list[dict[str, Any]],
+    results: list[dict[str, Any]] | list[list[dict[str, Any]]],
     indexing_status: IndexingStatus | None = None,
 ) -> dict[str, Any]:
     """Build search response with optional indexing status.
 
     Args:
-        results: List of search result dicts.
+        results: List of search result dicts (single search) or list of
+            per-query result lists (batch search).
         indexing_status: Optional indexing status tracker.
 
     Returns:
@@ -148,6 +158,39 @@ def _build_search_response(
     return {
         "results": results,
         "indexing": indexing_status.to_dict() if indexing_status else None,
+    }
+
+
+def _result_to_dict(
+    r: SearchResult,
+    obsidian_vaults: Sequence[Any] | None = None,
+) -> dict[str, Any]:
+    """Convert a SearchResult to a response dict.
+
+    Args:
+        r: A SearchResult object.
+        obsidian_vaults: Obsidian vault paths for URI construction.
+
+    Returns:
+        Dict with title, content, collection, source_type, source_path,
+        source_uri, score, metadata, and stale fields.
+    """
+    return {
+        "title": r.title,
+        "content": r.content,
+        "collection": r.collection,
+        "source_type": r.source_type,
+        "source_path": r.source_path,
+        "source_uri": _build_source_uri(
+            r.source_path,
+            r.source_type,
+            r.metadata,
+            r.collection,
+            obsidian_vaults,
+        ),
+        "score": round(r.score, 4),
+        "metadata": r.metadata,
+        "stale": r.stale,
     }
 
 
@@ -537,26 +580,7 @@ def create_server(
 
         obsidian_vaults = (server_config or load_config()).obsidian_vaults
 
-        result_dicts = [
-            {
-                "title": r.title,
-                "content": r.content,
-                "collection": r.collection,
-                "source_type": r.source_type,
-                "source_path": r.source_path,
-                "source_uri": _build_source_uri(
-                    r.source_path,
-                    r.source_type,
-                    r.metadata,
-                    r.collection,
-                    obsidian_vaults,
-                ),
-                "score": round(r.score, 4),
-                "metadata": r.metadata,
-                "stale": r.stale,
-            }
-            for r in results
-        ]
+        result_dicts = [_result_to_dict(r, obsidian_vaults) for r in results]
 
         # Log query for ACE telemetry
         cfg = _get_config()
@@ -656,39 +680,12 @@ def create_server(
 
         all_result_dicts = []
         for result_list in all_results:
-            result_dicts = [
-                {
-                    "title": r.title,
-                    "content": r.content,
-                    "collection": r.collection,
-                    "source_type": r.source_type,
-                    "source_path": r.source_path,
-                    "source_uri": _build_source_uri(
-                        r.source_path,
-                        r.source_type,
-                        r.metadata,
-                        r.collection,
-                        obsidian_vaults,
-                    ),
-                    "score": round(r.score, 4),
-                    "metadata": r.metadata,
-                    "stale": r.stale,
-                }
-                for r in result_list
-            ]
+            result_dicts = [_result_to_dict(r, obsidian_vaults) for r in result_list]
             if user_ctx:
                 result_dicts = _apply_user_context_to_results(result_dicts, user_ctx)
             all_result_dicts.append(result_dicts)
 
-        response: dict[str, Any] = {"results": all_result_dicts}
-        if indexing_status:
-            status_dict = indexing_status.to_dict()
-            response["indexing"] = (
-                status_dict if status_dict and status_dict.get("active") else None
-            )
-        else:
-            response["indexing"] = None
-        return response
+        return _build_search_response(all_result_dicts, indexing_status)
 
     @mcp.tool()
     def rag_list_collections() -> dict[str, Any]:
@@ -911,19 +908,19 @@ def create_server(
                 "indexing": indexing_status.to_dict(),
             }
 
-        if collection == "obsidian":
-            job = IndexJob("directory", P(path) if path else None, "obsidian", IndexerType.OBSIDIAN)
-        elif collection == "email":
-            job = IndexJob(
-                "system_collection", P(path) if path else None, "email", IndexerType.EMAIL
-            )
-        elif collection == "calibre":
-            job = IndexJob(
-                "system_collection", P(path) if path else None, "calibre", IndexerType.CALIBRE
-            )
-        elif collection == "rss":
-            job = IndexJob("system_collection", P(path) if path else None, "rss", IndexerType.RSS)
-        elif collection in config.code_groups:
+        # System collections: single job with fixed (job_type, indexer_type)
+        if collection in _SYSTEM_COLLECTION_JOBS:
+            job_type, indexer_type = _SYSTEM_COLLECTION_JOBS[collection]
+            job = IndexJob(job_type, P(path) if path else None, collection, indexer_type)
+            q.submit(job)
+            return {
+                "status": "submitted",
+                "collection": collection,
+                "indexing": indexing_status.to_dict() if indexing_status else None,
+            }
+
+        # Code groups: one job per repo
+        if collection in config.code_groups:
             for repo_path in config.code_groups[collection]:
                 job = IndexJob("directory", repo_path, collection, IndexerType.CODE)
                 q.submit(job)
@@ -933,7 +930,9 @@ def create_server(
                 "repos": len(config.code_groups[collection]),
                 "indexing": indexing_status.to_dict() if indexing_status else None,
             }
-        elif collection in config.watch:
+
+        # Watch collections: auto-detect type per path
+        if collection in config.watch:
             from ragling.indexers.auto_indexer import detect_directory_type
 
             for watch_path in config.watch[collection]:
@@ -946,18 +945,17 @@ def create_server(
                 "paths": len(config.watch[collection]),
                 "indexing": indexing_status.to_dict() if indexing_status else None,
             }
-        elif path:
+
+        # Fallback: project collection (requires path)
+        if path:
             job = IndexJob("directory", P(path), collection, IndexerType.PROJECT)
-        else:
+            q.submit(job)
             return {
-                "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
+                "status": "submitted",
+                "collection": collection,
+                "indexing": indexing_status.to_dict() if indexing_status else None,
             }
 
-        q.submit(job)
-        return {
-            "status": "submitted",
-            "collection": collection,
-            "indexing": indexing_status.to_dict() if indexing_status else None,
-        }
+        return {"error": f"Unknown collection '{collection}'. Provide a path for project indexing."}
 
     return mcp
