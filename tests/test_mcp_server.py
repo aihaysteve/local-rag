@@ -5,6 +5,8 @@ from types import MappingProxyType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ragling.config import Config
 
 
@@ -1518,3 +1520,48 @@ class TestRagBatchSearch:
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is None
+
+
+class TestRagIndexSystemCollectionDispatch:
+    """Tests for data-driven system collection dispatch in _rag_index_via_queue."""
+
+    @pytest.mark.parametrize(
+        "collection,expected_job_type,expected_indexer_type",
+        [
+            ("obsidian", "directory", "obsidian"),
+            ("email", "system_collection", "email"),
+            ("calibre", "system_collection", "calibre"),
+            ("rss", "system_collection", "rss"),
+        ],
+    )
+    def test_system_collection_creates_correct_job(
+        self,
+        tmp_path: Path,
+        collection: str,
+        expected_job_type: str,
+        expected_indexer_type: str,
+    ) -> None:
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+        status = IndexingStatus()
+        q = IndexingQueue(config, status)
+        server = create_server(config=config, indexing_status=status, indexing_queue=q)
+        tools = server._tool_manager._tools
+        fn = tools["rag_index"].fn
+
+        result = fn(collection=collection, path=None)
+        assert result["status"] == "submitted"
+        assert result["collection"] == collection
+
+        # Verify the job was submitted with correct type
+        # IndexingQueue stores raw IndexJob objects in _queue via submit()
+        item = q._queue.get_nowait()
+        assert item.job_type == expected_job_type
+        assert item.indexer_type.value == expected_indexer_type

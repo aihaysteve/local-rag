@@ -22,6 +22,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# System collection name -> (job_type, IndexerType) for _rag_index_via_queue dispatch
+_SYSTEM_COLLECTION_JOBS: dict[str, tuple[str, IndexerType]] = {
+    "obsidian": ("directory", IndexerType.OBSIDIAN),
+    "email": ("system_collection", IndexerType.EMAIL),
+    "calibre": ("system_collection", IndexerType.CALIBRE),
+    "rss": ("system_collection", IndexerType.RSS),
+}
+
 
 def _build_source_uri(
     source_path: str,
@@ -899,19 +907,19 @@ def create_server(
                 "indexing": indexing_status.to_dict(),
             }
 
-        if collection == "obsidian":
-            job = IndexJob("directory", P(path) if path else None, "obsidian", IndexerType.OBSIDIAN)
-        elif collection == "email":
-            job = IndexJob(
-                "system_collection", P(path) if path else None, "email", IndexerType.EMAIL
-            )
-        elif collection == "calibre":
-            job = IndexJob(
-                "system_collection", P(path) if path else None, "calibre", IndexerType.CALIBRE
-            )
-        elif collection == "rss":
-            job = IndexJob("system_collection", P(path) if path else None, "rss", IndexerType.RSS)
-        elif collection in config.code_groups:
+        # System collections: single job with fixed (job_type, indexer_type)
+        if collection in _SYSTEM_COLLECTION_JOBS:
+            job_type, indexer_type = _SYSTEM_COLLECTION_JOBS[collection]
+            job = IndexJob(job_type, P(path) if path else None, collection, indexer_type)
+            q.submit(job)
+            return {
+                "status": "submitted",
+                "collection": collection,
+                "indexing": indexing_status.to_dict() if indexing_status else None,
+            }
+
+        # Code groups: one job per repo
+        if collection in config.code_groups:
             for repo_path in config.code_groups[collection]:
                 job = IndexJob("directory", repo_path, collection, IndexerType.CODE)
                 q.submit(job)
@@ -921,7 +929,9 @@ def create_server(
                 "repos": len(config.code_groups[collection]),
                 "indexing": indexing_status.to_dict() if indexing_status else None,
             }
-        elif collection in config.watch:
+
+        # Watch collections: auto-detect type per path
+        if collection in config.watch:
             from ragling.indexers.auto_indexer import detect_directory_type
 
             for watch_path in config.watch[collection]:
@@ -934,18 +944,17 @@ def create_server(
                 "paths": len(config.watch[collection]),
                 "indexing": indexing_status.to_dict() if indexing_status else None,
             }
-        elif path:
+
+        # Fallback: project collection (requires path)
+        if path:
             job = IndexJob("directory", P(path), collection, IndexerType.PROJECT)
-        else:
+            q.submit(job)
             return {
-                "error": f"Unknown collection '{collection}'. Provide a path for project indexing."
+                "status": "submitted",
+                "collection": collection,
+                "indexing": indexing_status.to_dict() if indexing_status else None,
             }
 
-        q.submit(job)
-        return {
-            "status": "submitted",
-            "collection": collection,
-            "indexing": indexing_status.to_dict() if indexing_status else None,
-        }
+        return {"error": f"Unknown collection '{collection}'. Provide a path for project indexing."}
 
     return mcp
