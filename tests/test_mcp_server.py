@@ -267,6 +267,67 @@ class TestBuildSearchResponse:
         assert len(response["results"]) == 2
 
 
+class TestResultToDict:
+    """Tests for _result_to_dict helper."""
+
+    def test_converts_search_result_to_dict(self) -> None:
+        from ragling.mcp_server import _result_to_dict
+        from ragling.search.search import SearchResult
+
+        r = SearchResult(
+            content="test content",
+            title="Test Title",
+            metadata={"tags": ["python"]},
+            score=0.87654,
+            collection="obsidian",
+            source_path="/vault/notes/test.md",
+            source_type="markdown",
+        )
+        d = _result_to_dict(r, obsidian_vaults=[])
+        assert d["title"] == "Test Title"
+        assert d["content"] == "test content"
+        assert d["collection"] == "obsidian"
+        assert d["source_type"] == "markdown"
+        assert d["source_path"] == "/vault/notes/test.md"
+        assert d["score"] == 0.8765  # rounded to 4 decimals
+        assert d["metadata"] == {"tags": ["python"]}
+        assert d["stale"] is False
+
+    def test_includes_source_uri(self) -> None:
+        from ragling.mcp_server import _result_to_dict
+        from ragling.search.search import SearchResult
+
+        r = SearchResult(
+            content="c",
+            title="t",
+            metadata={},
+            score=0.5,
+            collection="project",
+            source_path="/docs/report.pdf",
+            source_type="pdf",
+        )
+        d = _result_to_dict(r, obsidian_vaults=[])
+        assert d["source_uri"] is not None
+        assert d["source_uri"].startswith("file://")
+
+    def test_stale_flag_preserved(self) -> None:
+        from ragling.mcp_server import _result_to_dict
+        from ragling.search.search import SearchResult
+
+        r = SearchResult(
+            content="c",
+            title="t",
+            metadata={},
+            score=0.5,
+            collection="obsidian",
+            source_path="/vault/old.md",
+            source_type="markdown",
+            stale=True,
+        )
+        d = _result_to_dict(r, obsidian_vaults=[])
+        assert d["stale"] is True
+
+
 class TestConvertDocument:
     """Tests for the _convert_document helper."""
 

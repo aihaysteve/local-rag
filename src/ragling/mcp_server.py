@@ -133,13 +133,14 @@ def _apply_user_context_to_results(
 
 
 def _build_search_response(
-    results: list[dict[str, Any]],
+    results: list[dict[str, Any]] | list[list[dict[str, Any]]],
     indexing_status: IndexingStatus | None = None,
 ) -> dict[str, Any]:
     """Build search response with optional indexing status.
 
     Args:
-        results: List of search result dicts.
+        results: List of search result dicts (single search) or list of
+            per-query result lists (batch search).
         indexing_status: Optional indexing status tracker.
 
     Returns:
@@ -148,6 +149,39 @@ def _build_search_response(
     return {
         "results": results,
         "indexing": indexing_status.to_dict() if indexing_status else None,
+    }
+
+
+def _result_to_dict(
+    r: Any,
+    obsidian_vaults: Sequence[Any] | None = None,
+) -> dict[str, Any]:
+    """Convert a SearchResult to a response dict.
+
+    Args:
+        r: A SearchResult object.
+        obsidian_vaults: Obsidian vault paths for URI construction.
+
+    Returns:
+        Dict with title, content, collection, source_type, source_path,
+        source_uri, score, metadata, and stale fields.
+    """
+    return {
+        "title": r.title,
+        "content": r.content,
+        "collection": r.collection,
+        "source_type": r.source_type,
+        "source_path": r.source_path,
+        "source_uri": _build_source_uri(
+            r.source_path,
+            r.source_type,
+            r.metadata,
+            r.collection,
+            obsidian_vaults,
+        ),
+        "score": round(r.score, 4),
+        "metadata": r.metadata,
+        "stale": r.stale,
     }
 
 
@@ -537,26 +571,7 @@ def create_server(
 
         obsidian_vaults = (server_config or load_config()).obsidian_vaults
 
-        result_dicts = [
-            {
-                "title": r.title,
-                "content": r.content,
-                "collection": r.collection,
-                "source_type": r.source_type,
-                "source_path": r.source_path,
-                "source_uri": _build_source_uri(
-                    r.source_path,
-                    r.source_type,
-                    r.metadata,
-                    r.collection,
-                    obsidian_vaults,
-                ),
-                "score": round(r.score, 4),
-                "metadata": r.metadata,
-                "stale": r.stale,
-            }
-            for r in results
-        ]
+        result_dicts = [_result_to_dict(r, obsidian_vaults) for r in results]
 
         # Log query for ACE telemetry
         cfg = _get_config()
@@ -656,39 +671,12 @@ def create_server(
 
         all_result_dicts = []
         for result_list in all_results:
-            result_dicts = [
-                {
-                    "title": r.title,
-                    "content": r.content,
-                    "collection": r.collection,
-                    "source_type": r.source_type,
-                    "source_path": r.source_path,
-                    "source_uri": _build_source_uri(
-                        r.source_path,
-                        r.source_type,
-                        r.metadata,
-                        r.collection,
-                        obsidian_vaults,
-                    ),
-                    "score": round(r.score, 4),
-                    "metadata": r.metadata,
-                    "stale": r.stale,
-                }
-                for r in result_list
-            ]
+            result_dicts = [_result_to_dict(r, obsidian_vaults) for r in result_list]
             if user_ctx:
                 result_dicts = _apply_user_context_to_results(result_dicts, user_ctx)
             all_result_dicts.append(result_dicts)
 
-        response: dict[str, Any] = {"results": all_result_dicts}
-        if indexing_status:
-            status_dict = indexing_status.to_dict()
-            response["indexing"] = (
-                status_dict if status_dict and status_dict.get("active") else None
-            )
-        else:
-            response["indexing"] = None
-        return response
+        return _build_search_response(all_result_dicts, indexing_status)
 
     @mcp.tool()
     def rag_list_collections() -> dict[str, Any]:
