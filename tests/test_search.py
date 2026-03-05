@@ -705,6 +705,33 @@ class TestCheckFilters:
         assert _check_filters(row, SearchFilters(date_from="2025-07-01")) is False
         assert _check_filters(row, SearchFilters(date_to="2025-05-01")) is False
 
+    def test_subsystem_filter(self):
+        from ragling.search.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({"subsystem_name": "Auth"}))
+        assert _check_filters(row, SearchFilters(subsystem="Auth")) is True
+        assert _check_filters(row, SearchFilters(subsystem="auth")) is True
+        assert _check_filters(row, SearchFilters(subsystem="Core")) is False
+
+    def test_subsystem_filter_missing_metadata(self):
+        from ragling.search.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({}))
+        assert _check_filters(row, SearchFilters(subsystem="Auth")) is False
+
+    def test_section_type_filter(self):
+        from ragling.search.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({"section_type": "decision_framework"}))
+        assert _check_filters(row, SearchFilters(section_type="decision_framework")) is True
+        assert _check_filters(row, SearchFilters(section_type="invariants")) is False
+
+    def test_section_type_filter_missing_metadata(self):
+        from ragling.search.search import _check_filters
+
+        row = self._make_row(metadata=json.dumps({}))
+        assert _check_filters(row, SearchFilters(section_type="decision_framework")) is False
+
 
 class TestMarkStaleResults:
     """Tests for _mark_stale_results."""

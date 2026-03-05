@@ -6,6 +6,7 @@ from ragling.parsers.spec import (
     find_nearest_spec,
     is_spec_file,
     normalize_section_type,
+    parse_dependency_edges,
     parse_spec,
     split_spec_sections,
 )
@@ -34,6 +35,9 @@ class TestNormalizeSectionType:
 
     def test_dependencies(self) -> None:
         assert normalize_section_type("Dependencies") == "dependencies"
+
+    def test_decision_framework(self) -> None:
+        assert normalize_section_type("Decision Framework") == "decision_framework"
 
     def test_unknown_heading(self) -> None:  # Tests Parsers FAIL-4
         assert normalize_section_type("Custom Section") == "other"
@@ -98,6 +102,22 @@ class TestSplitSpecSections:
         text = "# Auth\n\n## Failure Modes\nTimeout errors.\n"
         _subsystem, sections = split_spec_sections(text)
         assert sections[0].section_type == "failure_modes"
+
+    def test_decision_framework_section(self) -> None:
+        text = (
+            "# Core\n\n"
+            "## Invariants\n"
+            "| ID | Invariant |\n|---|---|\n| INV-1 | Config frozen |\n\n"
+            "## Decision Framework\n"
+            "| Situation | Action | Invariant |\n"
+            "|---|---|---|\n"
+            "| Need DB writes | Submit IndexJob | INV-4 |\n"
+        )
+        _subsystem, sections = split_spec_sections(text)
+        assert len(sections) == 2
+        assert sections[1].section_type == "decision_framework"
+        assert sections[1].heading == "Decision Framework"
+        assert "Submit IndexJob" in sections[1].body
 
     def test_empty_body_still_produces_section(self) -> None:
         text = "# Auth\n\n## Purpose\n\n## Dependencies\nUses bcrypt.\n"
@@ -351,3 +371,70 @@ class TestFindNearestSpec:
         (tmp_path / "SPEC.md").write_text("# Root\n")
         result = find_nearest_spec(sub / "foo.py", sub)
         assert result is None
+
+
+class TestParseDependencyEdges:
+    """Tests for parse_dependency_edges — extracting internal SPEC.md paths."""
+
+    def test_extracts_internal_deps(self) -> None:
+        text = """\
+| Dependency | Type | SPEC.md Path |
+|---|---|---|
+| Document | internal | `src/ragling/document/SPEC.md` -- document conversion |
+| Auth | internal | `src/ragling/auth/SPEC.md` -- API key resolution |
+| sqlite-vec | external | N/A -- SQLite extension |
+"""
+        edges = parse_dependency_edges(text)
+        assert edges == [
+            "src/ragling/document/SPEC.md",
+            "src/ragling/auth/SPEC.md",
+        ]
+
+    def test_handles_circular_internal(self) -> None:
+        text = """\
+| Indexers | internal (circular) | `src/ragling/indexers/SPEC.md` -- mutual dependency |
+"""
+        edges = parse_dependency_edges(text)
+        assert edges == ["src/ragling/indexers/SPEC.md"]
+
+    def test_ignores_external_deps(self) -> None:
+        text = """\
+| sqlite-vec | external | N/A |
+| Ollama | external | N/A |
+"""
+        edges = parse_dependency_edges(text)
+        assert edges == []
+
+    def test_empty_text(self) -> None:
+        assert parse_dependency_edges("") == []
+
+    def test_ignores_header_row(self) -> None:
+        text = """\
+| Dependency | Type | SPEC.md Path |
+|---|---|---|
+"""
+        edges = parse_dependency_edges(text)
+        assert edges == []
+
+    def test_real_core_deps(self) -> None:
+        """Test against the actual Core SPEC.md Dependencies format."""
+        text = """\
+| Dependency | Type | SPEC.md Path |
+|---|---|---|
+| Document | internal | `src/ragling/document/SPEC.md` -- document conversion, chunking, format bridging |
+| Auth | internal | `src/ragling/auth/SPEC.md` -- API key resolution, TLS, token verification |
+| Search | internal | `src/ragling/search/SPEC.md` -- hybrid search with RRF |
+| Watchers | internal | `src/ragling/watchers/SPEC.md` -- filesystem, database, config change monitoring |
+| Indexers | internal (circular) | `src/ragling/indexers/SPEC.md` -- Core dispatches to indexers via IndexingQueue; indexers depend on Core utilities. Mutual dependency by design. |
+| sqlite-vec | external | N/A -- SQLite extension for vector similarity search |
+| Ollama | external | N/A -- local LLM/embedding server |
+| FastMCP | external | N/A -- MCP server framework |
+| Click | external | N/A -- CLI framework |
+"""
+        edges = parse_dependency_edges(text)
+        assert len(edges) == 5
+        assert "src/ragling/document/SPEC.md" in edges
+        assert "src/ragling/auth/SPEC.md" in edges
+        assert "src/ragling/search/SPEC.md" in edges
+        assert "src/ragling/watchers/SPEC.md" in edges
+        assert "src/ragling/indexers/SPEC.md" in edges

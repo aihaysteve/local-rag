@@ -31,7 +31,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, quality gates, and
 
 | Subsystem | Path | Purpose |
 |---|---|---|
-| Core | `src/ragling/` | Configuration, storage, embeddings, indexing orchestration, MCP server, CLI |
+| Core | `src/ragling/` | Configuration, storage, embeddings, indexing orchestration, MCP server facade, CLI |
+| Tools | `src/ragling/tools/` | MCP tool modules — one tool per file with `register(mcp, ctx: ToolContext)` pattern |
 | Document | `src/ragling/document/` | Document conversion, chunking, and format bridging |
 | Auth | `src/ragling/auth/` | API key resolution, TLS certificates, token verification |
 | Search | `src/ragling/search/` | Hybrid vector + full-text search with RRF |

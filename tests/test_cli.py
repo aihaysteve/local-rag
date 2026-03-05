@@ -127,31 +127,31 @@ class TestBuildSourceUri:
     """Tests for _build_source_uri in mcp_server."""
 
     def test_rss_returns_url_from_metadata(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri("art-123", "rss", {"url": "https://example.com/article"}, "rss")
         assert uri == "https://example.com/article"
 
     def test_rss_without_url_returns_none(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri("art-123", "rss", {}, "rss")
         assert uri is None
 
     def test_email_returns_none(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri("msg-123", "email", {}, "email")
         assert uri is None
 
     def test_commit_returns_none(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri("git://sha", "commit", {}, "my-org")
         assert uri is None
 
     def test_code_returns_vscode_uri(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri("/home/user/repo/main.py", "code", {"start_line": 42}, "my-org")
         assert uri is not None
@@ -160,7 +160,7 @@ class TestBuildSourceUri:
         assert ":42" in uri
 
     def test_file_returns_file_uri(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri("/home/user/docs/report.pdf", "pdf", {}, "my-project")
         assert uri is not None
@@ -168,7 +168,7 @@ class TestBuildSourceUri:
         assert "report.pdf" in uri
 
     def test_calibre_virtual_path_returns_none(self) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         uri = _build_source_uri(
             "calibre:///Library/Author/book", "calibre-description", {}, "calibre"
@@ -176,7 +176,7 @@ class TestBuildSourceUri:
         assert uri is None
 
     def test_obsidian_returns_obsidian_uri(self, tmp_path: Path) -> None:
-        from ragling.mcp_server import _build_source_uri
+        from ragling.tools.helpers import _build_source_uri
 
         vault = tmp_path / "MyVault"
         vault.mkdir()

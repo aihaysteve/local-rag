@@ -27,6 +27,7 @@ _SECTION_MAP: dict[str, str] = {
     "failure modes": "failure_modes",
     "testing": "testing",
     "dependencies": "dependencies",
+    "decision framework": "decision_framework",
 }
 
 
@@ -218,6 +219,36 @@ def split_spec_sections(text: str) -> tuple[str, list[SpecSection]]:
         )
 
     return subsystem, sections
+
+
+def parse_dependency_edges(text: str) -> list[str]:
+    """Extract internal SPEC.md paths from a Dependencies section body.
+
+    Parses the markdown table rows in a Dependencies section and returns
+    the SPEC.md paths for internal dependencies.
+
+    Args:
+        text: Raw text of a Dependencies section (including the body
+            after the ``## Dependencies`` heading).
+
+    Returns:
+        List of relative SPEC.md paths (e.g., ``src/ragling/auth/SPEC.md``).
+    """
+    edges: list[str] = []
+    for line in text.splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        # Filter empty strings from leading/trailing pipes
+        parts = [p for p in parts if p]
+        if len(parts) >= 3 and parts[1].startswith("internal"):
+            # Extract path, stripping backticks and trailing descriptions
+            raw_path = parts[2]
+            # Handle backtick-wrapped paths like `src/ragling/auth/SPEC.md`
+            path_match = re.search(r"`([^`]+SPEC\.md)`", raw_path)
+            if path_match:
+                edges.append(path_match.group(1))
+            elif raw_path.strip().endswith("SPEC.md"):
+                edges.append(raw_path.strip().split()[0])
+    return edges
 
 
 def parse_spec(text: str, relative_path: str, chunk_size_tokens: int = 1024) -> list[Chunk]:

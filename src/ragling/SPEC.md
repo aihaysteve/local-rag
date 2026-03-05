@@ -28,7 +28,11 @@ the kernel for automatic cleanup on process death.
 - `indexing_status.py` -- thread-safe progress tracking
 - `leader.py` -- per-group leader election via flock
 - `sync.py` -- startup discovery and file routing
-- `mcp_server.py` -- FastMCP tool definitions
+- `mcp_server.py` -- thin facade: auth setup, `ToolContext` creation, `create_server()`, re-exports for backward compat
+- `tools/` -- MCP tool package; each tool in its own module with `register(mcp, ctx)` pattern
+- `tools/context.py` -- `ToolContext` dataclass replacing closure captures (group_name, server_config, indexing_status, config_getter, queue_getter, role_getter)
+- `tools/helpers.py` -- shared helpers: `_build_source_uri`, `_result_to_dict`, `_get_user_context`, `_convert_document`, etc.
+- `tools/{search,batch_search,list_collections,collection_info,index,indexing_status,doc_store_info,search_task,convert}.py` -- one tool per module
 - `server.py` -- `ServerOrchestrator` class: startup orchestration (leader election, queue management, config watching, watcher startup, shutdown)
 - `cli.py` -- Click CLI commands; `serve` delegates to `ServerOrchestrator`
 - `path_mapping.py` -- host/container path translation
@@ -62,7 +66,7 @@ the kernel for automatic cleanup on process death.
 | INV-1 | Config is a frozen dataclass; mutation raises `FrozenInstanceError` | Shared across threads; mutation would cause race conditions |
 | INV-2 | `load_config()` never raises on malformed input; returns default Config | Server must start even with broken config file |
 | INV-3 | All SQLite databases use WAL journal mode with retry on first access | Multiple MCP instances read concurrently; WAL avoids reader/writer blocking |
-| INV-4 | Only the IndexingQueue worker thread writes to the per-group index database. The MCP `rag_index` tool requires a running queue; direct indexing from `mcp_server.py` has been removed. | Eliminates write contention; no locking needed in indexers |
+| INV-4 | Only the IndexingQueue worker thread writes to the per-group index database. The MCP `rag_index` tool (in `tools/index.py`) requires a running queue; direct indexing has been removed. | Eliminates write contention; no locking needed in indexers |
 | INV-5 | DocStore keys documents by SHA-256 file hash + config_hash; identical content is never converted twice | Avoids redundant Docling conversions that can take minutes per document |
 | INV-8 | LeaderLock uses `fcntl.flock()`; kernel releases the lock when the process dies | No stale locks, no PID files, no heartbeat mechanism needed |
 | INV-9 | Embedding batch failures fall back to individual embedding with truncation retry | One bad text in a batch must not block the entire batch |
