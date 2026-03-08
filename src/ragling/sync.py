@@ -179,21 +179,54 @@ def run_startup_sync(
                     )
 
             # --- Watch directories ---
+            from ragling.indexers.discovery import discover_sources
+
             for watch_name, watch_paths in config.watch.items():
                 if not config.is_collection_enabled(watch_name):
                     continue
                 for watch_path in watch_paths:
                     if not watch_path.is_dir():
                         continue
-                    dir_type = detect_directory_type(watch_path)
-                    queue.submit(
-                        IndexJob(
-                            job_type="directory",
-                            path=watch_path,
-                            collection_name=watch_name,
-                            indexer_type=dir_type,
+                    discovery = discover_sources(watch_path)
+                    if not discovery.vaults and not discovery.repos:
+                        # No markers found — treat entire dir as project
+                        queue.submit(
+                            IndexJob(
+                                job_type="directory",
+                                path=watch_path,
+                                collection_name=watch_name,
+                                indexer_type=IndexerType.PROJECT,
+                            )
                         )
-                    )
+                    else:
+                        for vault in discovery.vaults:
+                            if config.is_collection_enabled("obsidian"):
+                                queue.submit(
+                                    IndexJob(
+                                        job_type="directory",
+                                        path=vault.path,
+                                        collection_name="obsidian",
+                                        indexer_type=IndexerType.OBSIDIAN,
+                                    )
+                                )
+                        for repo in discovery.repos:
+                            queue.submit(
+                                IndexJob(
+                                    job_type="directory",
+                                    path=repo.path,
+                                    collection_name=watch_name,
+                                    indexer_type=IndexerType.CODE,
+                                )
+                            )
+                        if discovery.leftover_paths:
+                            queue.submit(
+                                IndexJob(
+                                    job_type="directory",
+                                    path=watch_path,
+                                    collection_name=watch_name,
+                                    indexer_type=IndexerType.PROJECT,
+                                )
+                            )
 
             # --- System collections ---
             if (

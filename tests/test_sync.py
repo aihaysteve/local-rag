@@ -877,12 +877,13 @@ class TestRunStartupSyncWatch:
 
         queue.submit.assert_not_called()
 
-    def test_watch_uses_detect_directory_type(self, tmp_path: Path) -> None:
-        """Watch uses auto-detection, not hardcoded IndexerType."""
+    def test_watch_uses_discover_sources(self, tmp_path: Path) -> None:
+        """Watch uses discover_sources for recursive marker detection."""
         from ragling.sync import run_startup_sync
 
         watch_dir = tmp_path / "repo"
         watch_dir.mkdir()
+        (watch_dir / ".git").mkdir()
 
         config = Config(
             watch=MappingProxyType({"repo": (watch_dir,)}),
@@ -891,12 +892,153 @@ class TestRunStartupSyncWatch:
         queue = MagicMock()
         done = threading.Event()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="code"):
-            run_startup_sync(config, queue, done_event=done)
-            done.wait(timeout=5.0)
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
 
         job = queue.submit.call_args_list[0][0][0]
         assert job.indexer_type == "code"
+
+
+class TestRunStartupSyncWatchDiscovery:
+    """Tests for watch directories discovering nested vaults and repos."""
+
+    def test_watch_with_nested_obsidian_vault_submits_obsidian_job(self, tmp_path: Path) -> None:
+        """A watch dir containing a nested .obsidian vault submits an obsidian job."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "project"
+        watch_dir.mkdir()
+        (watch_dir / ".git").mkdir()
+        vault = watch_dir / "docs" / "notes"
+        vault.mkdir(parents=True)
+        (vault / ".obsidian").mkdir()
+        (vault / "note.md").write_text("# Note")
+
+        config = Config(
+            watch=MappingProxyType({"my-project": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        obsidian_jobs = [j for j in jobs if j.indexer_type == "obsidian"]
+        assert len(obsidian_jobs) == 1
+        assert obsidian_jobs[0].collection_name == "obsidian"
+        assert obsidian_jobs[0].path == vault
+
+    def test_watch_with_nested_git_repo_submits_code_job(self, tmp_path: Path) -> None:
+        """A watch dir with a nested git repo submits a code job under watch name."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "workspace"
+        watch_dir.mkdir()
+        repo = watch_dir / "tools" / "mylib"
+        repo.mkdir(parents=True)
+        (repo / ".git").mkdir()
+
+        config = Config(
+            watch=MappingProxyType({"my-ws": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        code_jobs = [j for j in jobs if j.indexer_type == "code"]
+        assert len(code_jobs) == 1
+        assert code_jobs[0].collection_name == "my-ws"
+        assert code_jobs[0].path == repo
+
+    def test_watch_no_markers_submits_project_job(self, tmp_path: Path) -> None:
+        """A watch dir with no markers submits a single project job (backward compat)."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "plain"
+        watch_dir.mkdir()
+        (watch_dir / "readme.md").write_text("# Hello")
+
+        config = Config(
+            watch=MappingProxyType({"docs": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        assert len(jobs) == 1
+        assert jobs[0].indexer_type == "project"
+        assert jobs[0].collection_name == "docs"
+        assert jobs[0].path == watch_dir
+
+    def test_watch_with_vault_and_repo_submits_both(self, tmp_path: Path) -> None:
+        """A watch dir with both a nested vault and repo submits separate jobs."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "workspace"
+        watch_dir.mkdir()
+        vault = watch_dir / "notes"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        repo = watch_dir / "code"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        config = Config(
+            watch=MappingProxyType({"my-ws": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        indexer_types = {j.indexer_type for j in jobs}
+        assert "obsidian" in indexer_types
+        assert "code" in indexer_types
+
+    def test_watch_root_has_git_nested_vault_gets_both(self, tmp_path: Path) -> None:
+        """Real-world case: watch at repo root with nested obsidian vault inside."""
+        from ragling.sync import run_startup_sync
+
+        watch_dir = tmp_path / "open-brain"
+        watch_dir.mkdir()
+        (watch_dir / ".git").mkdir()
+        vault = watch_dir / "tools" / "tampermonkey" / "server" / "output"
+        vault.mkdir(parents=True)
+        (vault / ".obsidian").mkdir()
+        (vault / "conversation.md").write_text("# Chat")
+
+        config = Config(
+            watch=MappingProxyType({"open-brain": (watch_dir,)}),
+            disabled_collections=frozenset({"email", "calibre", "rss"}),
+        )
+        queue = MagicMock()
+        done = threading.Event()
+
+        run_startup_sync(config, queue, done_event=done)
+        done.wait(timeout=5.0)
+
+        jobs = [call[0][0] for call in queue.submit.call_args_list]
+        obsidian_jobs = [j for j in jobs if j.indexer_type == "obsidian"]
+        code_jobs = [j for j in jobs if j.indexer_type == "code"]
+        assert len(obsidian_jobs) == 1
+        assert obsidian_jobs[0].collection_name == "obsidian"
+        assert obsidian_jobs[0].path == vault
+        assert len(code_jobs) == 1
+        assert code_jobs[0].collection_name == "open-brain"
+        assert code_jobs[0].path == watch_dir
 
 
 class TestStartupSyncThreadProperties:
