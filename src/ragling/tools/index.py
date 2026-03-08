@@ -107,18 +107,37 @@ def _rag_index_via_queue(
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
-    # Watch collections: auto-detect type per path
+    # Watch collections: discover nested vaults and repos
     if collection in config.watch:
-        from ragling.indexers.auto_indexer import detect_directory_type
+        from ragling.indexers.discovery import discover_sources
 
+        job_count = 0
         for watch_path in config.watch[collection]:
-            dir_type = detect_directory_type(watch_path)
-            job = IndexJob("directory", watch_path, collection, dir_type)
-            q.submit(job)
+            if not watch_path.is_dir():
+                continue
+            discovery = discover_sources(watch_path)
+            if not discovery.vaults and not discovery.repos:
+                job = IndexJob("directory", watch_path, collection, IndexerType.PROJECT)
+                q.submit(job)
+                job_count += 1
+            else:
+                for vault in discovery.vaults:
+                    if config.is_collection_enabled("obsidian"):
+                        job = IndexJob("directory", vault.path, "obsidian", IndexerType.OBSIDIAN)
+                        q.submit(job)
+                        job_count += 1
+                for repo in discovery.repos:
+                    job = IndexJob("directory", repo.path, collection, IndexerType.CODE)
+                    q.submit(job)
+                    job_count += 1
+                if discovery.leftover_paths:
+                    job = IndexJob("directory", watch_path, collection, IndexerType.PROJECT)
+                    q.submit(job)
+                    job_count += 1
         return {
             "status": "submitted",
             "collection": collection,
-            "paths": len(config.watch[collection]),
+            "jobs": job_count,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 

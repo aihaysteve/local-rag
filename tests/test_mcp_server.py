@@ -821,15 +821,14 @@ class TestRagIndexWatch:
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            result: dict[str, Any] = rag_index_fn(collection="research")
+        result: dict[str, Any] = rag_index_fn(collection="research")
 
         assert queue.submit.call_count == 2
         jobs = [call[0][0] for call in queue.submit.call_args_list]
         assert all(j.collection_name == "research" for j in jobs)
         assert {j.path for j in jobs} == {dir1, dir2}
         assert result["status"] == "submitted"
-        assert result["paths"] == 2
+        assert result["jobs"] == 2
 
     def test_rag_index_no_queue_watch_returns_error(self, tmp_path: Path) -> None:
         """Without a queue, rag_index returns an error for watch collections."""
