@@ -5,9 +5,11 @@ from pathlib import Path
 from ragling.indexers.walker import (
     BUILTIN_EXCLUDES,
     ExclusionConfig,
-    FileRoute,  # noqa: F401
-    WalkResult,  # noqa: F401
-    WalkStats,  # noqa: F401
+    FileRoute,
+    WalkResult,
+    WalkStats,
+    assign_collection,
+    format_plan,
     route_file,
     walk,
 )
@@ -452,3 +454,105 @@ class TestGlobalRagignore:
         names = {r.path.name for r in result.routes}
         assert "important.log" in names
         assert "debug.log" not in names
+
+
+class TestAssignCollection:
+    """Tests for collection assignment.  # Tests INV-6"""
+
+    def test_vault_file_gets_vault_collection(self, tmp_path: Path) -> None:
+        vault = tmp_path / "notes"
+        route = FileRoute(
+            path=vault / "note.md",
+            parser="markdown",
+            git_root=tmp_path,
+            vault_root=vault,
+        )
+        coll = assign_collection(route, watch_name="workspace", watch_root=tmp_path)
+        assert coll == "workspace/notes"
+
+    def test_repo_file_gets_repo_collection(self, tmp_path: Path) -> None:
+        repo = tmp_path / "myrepo"
+        route = FileRoute(
+            path=repo / "main.py",
+            parser="treesitter",
+            git_root=repo,
+            vault_root=None,
+        )
+        coll = assign_collection(route, watch_name="workspace", watch_root=tmp_path)
+        assert coll == "workspace/myrepo"
+
+    def test_plain_file_gets_watch_collection(self, tmp_path: Path) -> None:
+        route = FileRoute(
+            path=tmp_path / "readme.txt",
+            parser="plaintext",
+            git_root=None,
+            vault_root=None,
+        )
+        coll = assign_collection(route, watch_name="workspace", watch_root=tmp_path)
+        assert coll == "workspace"
+
+    def test_root_level_repo_gets_watch_collection(self, tmp_path: Path) -> None:
+        """When git_root IS the watch_root, use watch_name directly."""
+        route = FileRoute(
+            path=tmp_path / "main.py",
+            parser="treesitter",
+            git_root=tmp_path,
+            vault_root=None,
+        )
+        coll = assign_collection(route, watch_name="workspace", watch_root=tmp_path)
+        assert coll == "workspace"
+
+    def test_root_level_vault_gets_watch_collection(self, tmp_path: Path) -> None:
+        """When vault_root IS the watch_root, use watch_name directly."""
+        route = FileRoute(
+            path=tmp_path / "note.md",
+            parser="markdown",
+            git_root=None,
+            vault_root=tmp_path,
+        )
+        coll = assign_collection(route, watch_name="workspace", watch_root=tmp_path)
+        assert coll == "workspace"
+
+    def test_deeply_nested_vault_in_repo(self, tmp_path: Path) -> None:
+        vault = tmp_path / "project" / "docs" / "vault"
+        route = FileRoute(
+            path=vault / "note.md",
+            parser="markdown",
+            git_root=tmp_path / "project",
+            vault_root=vault,
+        )
+        coll = assign_collection(route, watch_name="ws", watch_root=tmp_path)
+        assert coll == "ws/project/docs/vault"
+
+
+class TestFormatPlan:
+    """Tests for dry-run plan formatting."""
+
+    def test_format_plan_shows_counts(self, tmp_path: Path) -> None:
+        result = WalkResult(
+            routes=[
+                FileRoute(tmp_path / "a.py", "treesitter", None, None),
+                FileRoute(tmp_path / "b.md", "markdown", None, None),
+            ],
+            git_roots=set(),
+            stats=WalkStats(
+                by_parser={"treesitter": 1, "markdown": 1},
+                skipped=2,
+                directories=3,
+            ),
+        )
+        output = format_plan(result, watch_name="test", watch_root=tmp_path)
+        assert "2 files" in output
+        assert "3 directories" in output
+        assert "treesitter" in output
+        assert "markdown" in output
+        assert "skipped" in output.lower() or "2" in output
+
+    def test_format_plan_shows_git_roots(self, tmp_path: Path) -> None:
+        result = WalkResult(
+            routes=[],
+            git_roots={tmp_path / "repo1", tmp_path / "repo2"},
+            stats=WalkStats(directories=1),
+        )
+        output = format_plan(result, watch_name="test", watch_root=tmp_path)
+        assert "2" in output  # 2 repos

@@ -185,6 +185,65 @@ class WalkResult:
     stats: WalkStats = field(default_factory=WalkStats)
 
 
+def assign_collection(
+    route: FileRoute,
+    *,
+    watch_name: str,
+    watch_root: Path,
+) -> str:
+    """Assign a collection name based on file context.
+
+    Policy: collection follows context (vault_root > git_root > watch_root).
+    If the context root IS the watch root, use watch_name directly.
+    Otherwise, use watch_name/relative_path.
+    """
+    context_root = route.vault_root or route.git_root
+
+    if context_root is None or context_root == watch_root:
+        return watch_name
+
+    try:
+        relative = context_root.relative_to(watch_root)
+        return f"{watch_name}/{relative}"
+    except ValueError:
+        return watch_name
+
+
+def format_plan(
+    result: WalkResult,
+    *,
+    watch_name: str,
+    watch_root: Path,
+) -> str:
+    """Format a WalkResult as a human-readable dry-run plan."""
+    total_files = len(result.routes)
+    lines = [
+        f"Walk complete: {total_files} files in {result.stats.directories} directories",
+        "",
+    ]
+
+    for parser, count in sorted(result.stats.by_parser.items()):
+        lines.append(f"  {parser:12s} {count:>5d} files")
+    lines.append(f"  {'skipped':12s} {result.stats.skipped:>5d} files")
+    lines.append("")
+
+    collections: dict[str, int] = {}
+    for route in result.routes:
+        coll = assign_collection(route, watch_name=watch_name, watch_root=watch_root)
+        collections[coll] = collections.get(coll, 0) + 1
+
+    if collections:
+        lines.append("Collections:")
+        for coll, count in sorted(collections.items()):
+            lines.append(f"  {coll}: {count} files")
+        lines.append("")
+
+    if result.git_roots:
+        lines.append(f"Git history: {len(result.git_roots)} repo(s)")
+
+    return "\n".join(lines)
+
+
 def walk(
     root: Path, *, exclusion_config: ExclusionConfig | None = None
 ) -> WalkResult:
