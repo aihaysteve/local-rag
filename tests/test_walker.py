@@ -16,7 +16,7 @@ from ragling.indexers.walker import (
 
 
 class TestRouteFile:
-    """Tests for file routing logic.  # Tests INV-10"""
+    """Tests for file routing logic.  # Tests INV-6"""
 
     def test_spec_md_routes_to_spec(self) -> None:
         assert route_file(Path("SPEC.md")) == "spec"
