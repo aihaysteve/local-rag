@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,7 +20,10 @@ def _fake_embeddings(texts: list[str], config: Config) -> list[list[float]]:
 
 
 def _fake_parse_route(
-    route: FileRoute, config: Config, doc_store: object, watch_root: Path,
+    route: FileRoute,
+    config: Config,
+    doc_store: object,
+    watch_root: Path,
 ) -> list[Chunk]:
     """Return a single chunk for any file that exists."""
     if not route.path.exists():
@@ -135,15 +138,20 @@ class TestProcessWalkResult:
 
         config = _make_config(tmp_path)
         result = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
 
         assert result.indexed >= 1
         assert result.errors == 0
 
         # Verify collection was created
-        row = conn.execute("SELECT name FROM collections WHERE name = ?", ("test-watch",)).fetchone()
+        row = conn.execute(
+            "SELECT name FROM collections WHERE name = ?", ("test-watch",)
+        ).fetchone()
         assert row is not None
 
     def test_skips_unchanged_files(self, tmp_path: Path) -> None:
@@ -166,14 +174,18 @@ class TestProcessWalkResult:
 
         # First run: indexes
         result1 = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
         assert result1.indexed >= 1
 
         # Simulate the source existing in the DB with matching hash
         # (upsert was mocked, so we insert manually for change detection)
         from ragling.indexers.base import file_hash
+
         coll_id = conn.execute(
             "SELECT id FROM collections WHERE name = ?", ("test-watch",)
         ).fetchone()["id"]
@@ -186,8 +198,11 @@ class TestProcessWalkResult:
 
         # Second run: skips (file unchanged)
         result2 = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
         assert result2.skipped >= 1
         assert result2.indexed == 0
@@ -212,12 +227,16 @@ class TestProcessWalkResult:
 
         # First run
         process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
 
         # Simulate the source existing with matching hash
         from ragling.indexers.base import file_hash
+
         coll_id = conn.execute(
             "SELECT id FROM collections WHERE name = ?", ("test-watch",)
         ).fetchone()["id"]
@@ -230,8 +249,11 @@ class TestProcessWalkResult:
 
         # Force re-index — should still index even though hash matches
         result = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
             force=True,
         )
         assert result.indexed >= 1
@@ -262,8 +284,11 @@ class TestProcessWalkResult:
         bad.unlink()
 
         result = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
         # Good file should still be indexed
         assert result.indexed >= 1
@@ -288,8 +313,11 @@ class TestProcessWalkResult:
         config = _make_config(tmp_path)
 
         result = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
 
         assert result.indexed >= 1
@@ -314,8 +342,11 @@ class TestProcessWalkResult:
 
         config = _make_config(tmp_path)
         result = process_walk_result(
-            walk_result, conn, config,
-            watch_name="test-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="test-watch",
+            watch_root=root,
         )
 
         assert result.total_found == 2
@@ -340,8 +371,11 @@ class TestProcessWalkResult:
 
         config = _make_config(tmp_path)
         process_walk_result(
-            walk_result, conn, config,
-            watch_name="my-watch", watch_root=root,
+            walk_result,
+            conn,
+            config,
+            watch_name="my-watch",
+            watch_root=root,
         )
 
         # The collection should have been created with the watch_name

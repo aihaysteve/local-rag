@@ -158,14 +158,10 @@ def run_startup_sync(
                 if config.home and config.home.is_dir():
                     for username in config.users:
                         user_dir = config.home / username
-                        if not user_dir.is_dir() or not config.is_collection_enabled(
-                            username
-                        ):
+                        if not user_dir.is_dir() or not config.is_collection_enabled(username):
                             continue
                         try:
-                            result = _sync_directory_source(
-                                conn, config, username, user_dir
-                            )
+                            result = _sync_directory_source(conn, config, username, user_dir)
                             logger.info("Synced %s: %s", username, result)
                         except Exception:
                             logger.exception("Error syncing user dir: %s", username)
@@ -176,16 +172,10 @@ def run_startup_sync(
                         if not global_path.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(
-                                conn, config, "global", global_path
-                            )
-                            logger.info(
-                                "Synced global (%s): %s", global_path, result
-                            )
+                            result = _sync_directory_source(conn, config, "global", global_path)
+                            logger.info("Synced global (%s): %s", global_path, result)
                         except Exception:
-                            logger.exception(
-                                "Error syncing global path: %s", global_path
-                            )
+                            logger.exception("Error syncing global path: %s", global_path)
 
                 # --- Obsidian vaults ---
                 if config.is_collection_enabled("obsidian"):
@@ -193,14 +183,10 @@ def run_startup_sync(
                         if not vault.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(
-                                conn, config, "obsidian", vault
-                            )
+                            result = _sync_directory_source(conn, config, "obsidian", vault)
                             logger.info("Synced obsidian (%s): %s", vault, result)
                         except Exception:
-                            logger.exception(
-                                "Error syncing obsidian vault: %s", vault
-                            )
+                            logger.exception("Error syncing obsidian vault: %s", vault)
 
                 # --- Code groups ---
                 for group_name, repo_paths in config.code_groups.items():
@@ -210,9 +196,7 @@ def run_startup_sync(
                         if not repo_path.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(
-                                conn, config, group_name, repo_path
-                            )
+                            result = _sync_directory_source(conn, config, group_name, repo_path)
                             logger.info(
                                 "Synced code group %s (%s): %s",
                                 group_name,
@@ -234,9 +218,7 @@ def run_startup_sync(
                         if not watch_path.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(
-                                conn, config, watch_name, watch_path
-                            )
+                            result = _sync_directory_source(conn, config, watch_name, watch_path)
                             logger.info(
                                 "Synced watch %s (%s): %s",
                                 watch_name,
@@ -244,9 +226,7 @@ def run_startup_sync(
                                 result,
                             )
                         except Exception:
-                            logger.exception(
-                                "Error syncing watch: %s/%s", watch_name, watch_path
-                            )
+                            logger.exception("Error syncing watch: %s/%s", watch_name, watch_path)
             finally:
                 conn.close()
 

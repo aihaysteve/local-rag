@@ -62,33 +62,35 @@ PLAINTEXT_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 
-BUILTIN_EXCLUDES: frozenset[str] = frozenset({
-    "node_modules/",
-    "__pycache__/",
-    "*.pyc",
-    ".DS_Store",
-    "vendor/",
-    ".terraform/",
-    ".venv/",
-    ".env/",
-    "dist/",
-    "build/",
-    ".idea/",
-    ".vscode/",
-    ".mypy_cache/",
-    ".pytest_cache/",
-    ".tox/",
-    ".egg-info/",
-    "cdk.out/",
-    "package-lock.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
-    "Cargo.lock",
-    "poetry.lock",
-    "uv.lock",
-    "go.sum",
-    ".terraform.lock.hcl",
-})
+BUILTIN_EXCLUDES: frozenset[str] = frozenset(
+    {
+        "node_modules/",
+        "__pycache__/",
+        "*.pyc",
+        ".DS_Store",
+        "vendor/",
+        ".terraform/",
+        ".venv/",
+        ".env/",
+        "dist/",
+        "build/",
+        ".idea/",
+        ".vscode/",
+        ".mypy_cache/",
+        ".pytest_cache/",
+        ".tox/",
+        ".egg-info/",
+        "cdk.out/",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Cargo.lock",
+        "poetry.lock",
+        "uv.lock",
+        "go.sum",
+        ".terraform.lock.hcl",
+    }
+)
 
 _BUILTIN_SPEC = pathspec.PathSpec.from_lines("gitignore", BUILTIN_EXCLUDES)
 
@@ -244,9 +246,7 @@ def format_plan(
     return "\n".join(lines)
 
 
-def walk(
-    root: Path, *, exclusion_config: ExclusionConfig | None = None
-) -> WalkResult:
+def walk(root: Path, *, exclusion_config: ExclusionConfig | None = None) -> WalkResult:
     """Walk a directory tree and produce a routing manifest.
 
     Single depth-first traversal that detects .git and .obsidian markers,
@@ -405,6 +405,12 @@ def _walk_recursive(
             if not target.is_relative_to(root):
                 continue
         _walk_recursive(
-            dir_path, root, git_root, vault_root, result, visited,
-            user_spec, local_specs,
+            dir_path,
+            root,
+            git_root,
+            vault_root,
+            result,
+            visited,
+            user_spec,
+            local_specs,
         )

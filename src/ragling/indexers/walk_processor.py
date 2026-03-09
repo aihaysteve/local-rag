@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 from ragling.db import get_or_create_collection
 from ragling.document.chunker import Chunk
 from ragling.embeddings import get_embeddings
-from ragling.indexers.base import IndexResult, file_hash, prune_stale_sources, upsert_source_with_chunks
+from ragling.indexers.base import (
+    IndexResult,
+    file_hash,
+    prune_stale_sources,
+    upsert_source_with_chunks,
+)
 from ragling.indexers.walker import FileRoute, WalkResult, assign_collection
 
 if TYPE_CHECKING:
@@ -45,13 +50,16 @@ def process_walk_result(
     # Cache collection IDs
     collection_ids: dict[str, int] = {}
 
-    for i, route in enumerate(walk_result.routes):
-        if status:
-            status.update_file_progress(str(route.path), i + 1, total)
+    if status:
+        status.set_file_total(watch_name, total)
 
+    for i, route in enumerate(walk_result.routes):
         try:
             _process_file(
-                route, conn, config, result,
+                route,
+                conn,
+                config,
+                result,
                 watch_name=watch_name,
                 watch_root=watch_root,
                 force=force,
@@ -62,6 +70,9 @@ def process_walk_result(
             logger.exception("Error processing %s", route.path)
             result.errors += 1
             result.error_messages.append(str(route.path))
+        finally:
+            if status:
+                status.file_processed(watch_name)
 
     # Prune stale sources for each collection we touched
     for coll_name, coll_id in collection_ids.items():
@@ -118,9 +129,7 @@ def _process_file(
 
     # Embed and persist
     embeddings = get_embeddings([c.text for c in chunks], config)
-    modified_at = datetime.fromtimestamp(
-        path.stat().st_mtime, tz=timezone.utc
-    ).isoformat()
+    modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
 
     upsert_source_with_chunks(
         conn,
@@ -158,6 +167,7 @@ def _parse_route(
     elif route.parser == "docling":
         ext = path.suffix.lower()
         from ragling.indexers.walker import DOCLING_EXTENSIONS
+
         source_type = DOCLING_EXTENSIONS.get(ext, "pdf")
     elif route.parser == "plaintext":
         source_type = "plaintext"

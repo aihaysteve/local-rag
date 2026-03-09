@@ -12,7 +12,10 @@ class TestSyncDirectorySource:
     @patch("ragling.indexers.walk_processor.process_walk_result")
     @patch("ragling.indexers.walker.walk")
     def test_calls_walk_and_process(
-        self, mock_walk: MagicMock, mock_process: MagicMock, tmp_path: Path,
+        self,
+        mock_walk: MagicMock,
+        mock_process: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """_sync_directory_source should call walk() then process_walk_result()."""
         from ragling.indexers.base import IndexResult
@@ -38,7 +41,10 @@ class TestSyncDirectorySource:
     @patch("ragling.indexers.walk_processor.process_walk_result")
     @patch("ragling.indexers.walker.walk")
     def test_passes_exclusion_config(
-        self, mock_walk: MagicMock, mock_process: MagicMock, tmp_path: Path,
+        self,
+        mock_walk: MagicMock,
+        mock_process: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Should pass ExclusionConfig with global ragignore path."""
         from ragling.indexers.base import IndexResult
@@ -58,7 +64,10 @@ class TestSyncDirectorySource:
     @patch("ragling.indexers.walk_processor.process_walk_result")
     @patch("ragling.indexers.walker.walk")
     def test_passes_force_flag(
-        self, mock_walk: MagicMock, mock_process: MagicMock, tmp_path: Path,
+        self,
+        mock_walk: MagicMock,
+        mock_process: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Should pass force flag through to process_walk_result."""
         from ragling.indexers.base import IndexResult
@@ -82,7 +91,10 @@ class TestSyncDirectorySource:
     @patch("ragling.indexers.walk_processor.process_walk_result")
     @patch("ragling.indexers.walker.walk")
     def test_passes_watch_name_and_root(
-        self, mock_walk: MagicMock, mock_process: MagicMock, tmp_path: Path,
+        self,
+        mock_walk: MagicMock,
+        mock_process: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Should pass watch_name and watch_root to process_walk_result."""
         from ragling.indexers.base import IndexResult

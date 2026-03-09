@@ -69,17 +69,13 @@ class TestDuplicateIndexingRegression:
         # Assign collections for each route
         collections_per_file: dict[str, list[str]] = {}
         for route in walk_result.routes:
-            coll = assign_collection(
-                route, watch_name="workspace", watch_root=workspace
-            )
+            coll = assign_collection(route, watch_name="workspace", watch_root=workspace)
             fname = route.path.name
             collections_per_file.setdefault(fname, []).append(coll)
 
         # No file should appear in more than one collection
         for fname, colls in collections_per_file.items():
-            assert len(colls) == 1, (
-                f"{fname} appears in multiple collections: {colls}"
-            )
+            assert len(colls) == 1, f"{fname} appears in multiple collections: {colls}"
 
     def test_vault_files_in_vault_collection(self, workspace: Path) -> None:
         """Files inside the vault should be in the vault collection."""
@@ -87,9 +83,7 @@ class TestDuplicateIndexingRegression:
 
         vault_files = []
         for route in walk_result.routes:
-            coll = assign_collection(
-                route, watch_name="workspace", watch_root=workspace
-            )
+            coll = assign_collection(route, watch_name="workspace", watch_root=workspace)
             if coll == "workspace/notes":
                 vault_files.append(route.path.name)
 
@@ -102,9 +96,7 @@ class TestDuplicateIndexingRegression:
 
         repo_files = []
         for route in walk_result.routes:
-            coll = assign_collection(
-                route, watch_name="workspace", watch_root=workspace
-            )
+            coll = assign_collection(route, watch_name="workspace", watch_root=workspace)
             if coll == "workspace":
                 repo_files.append(route.path.name)
 
@@ -138,9 +130,7 @@ class TestDuplicateIndexingRegression:
                 assert route.vault_root is None
 
     @patch("ragling.indexers.walk_processor.prune_stale_sources", return_value=0)
-    @patch(
-        "ragling.indexers.walk_processor.upsert_source_with_chunks", return_value=1
-    )
+    @patch("ragling.indexers.walk_processor.upsert_source_with_chunks", return_value=1)
     @patch("ragling.indexers.walk_processor.get_embeddings")
     @patch("ragling.indexers.walk_processor._parse_route")
     @patch("ragling.indexers.walk_processor.file_hash", return_value="fakehash123")
@@ -167,9 +157,7 @@ class TestDuplicateIndexingRegression:
 
         # Use a mock conn since we can't use real sqlite-vec
         mock_conn = MagicMock()
-        mock_conn.execute.return_value.fetchone.return_value = (
-            None  # No existing source
-        )
+        mock_conn.execute.return_value.fetchone.return_value = None  # No existing source
 
         config = MagicMock()
         process_walk_result(
@@ -181,9 +169,7 @@ class TestDuplicateIndexingRegression:
         )
 
         # Verify collections were created
-        coll_names = {
-            call_args[0][1] for call_args in mock_get_coll.call_args_list
-        }
+        coll_names = {call_args[0][1] for call_args in mock_get_coll.call_args_list}
         assert "workspace" in coll_names  # for repo files
         assert "workspace/notes" in coll_names  # for vault files
 

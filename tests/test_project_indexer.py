@@ -541,7 +541,6 @@ class TestBackwardCompatibility:
         conn.close()
 
 
-
 # Discovery-aware duplicate prevention tests removed — this is now handled
 # by the unified DFS walker (see tests/test_walker.py integration tests).
 
