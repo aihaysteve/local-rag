@@ -176,6 +176,10 @@ def migrate_config_dict(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]
 
     Folds code_groups and obsidian_vaults into watch entries.
     Returns the migrated dict and a list of deprecation warnings.
+
+    NOTE: Not yet wired into load_config because sync.py and other code
+    still read config.obsidian_vaults and config.code_groups directly.
+    Wire in after those consumers are migrated to use config.watch.
     """
     warnings: list[str] = []
     result = dict(raw)
