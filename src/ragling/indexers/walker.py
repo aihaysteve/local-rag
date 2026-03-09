@@ -63,6 +63,8 @@ PLAINTEXT_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 
+# Dot-prefixed directories (.venv, .idea, etc.) are already skipped by the walker,
+# but are listed here for documentation and to match the ragignore template.
 BUILTIN_EXCLUDES: frozenset[str] = frozenset(
     {
         "node_modules/",
