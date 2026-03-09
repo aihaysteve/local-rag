@@ -171,6 +171,61 @@ def _expand_path_str(p: str) -> str:
     return expanded
 
 
+def migrate_config_dict(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Migrate legacy config fields into the unified watch model.
+
+    Folds code_groups and obsidian_vaults into watch entries.
+    Returns the migrated dict and a list of deprecation warnings.
+    """
+    warnings: list[str] = []
+    result = dict(raw)
+    watch: dict[str, list[str]] = {}
+
+    # Preserve existing watch entries
+    if "watch" in result:
+        for name, paths in result["watch"].items():
+            watch[name] = list(paths) if isinstance(paths, list) else [paths]
+
+    # Migrate code_groups
+    if "code_groups" in result:
+        for name, paths in result["code_groups"].items():
+            path_list = list(paths) if isinstance(paths, list) else [paths]
+            if name in watch:
+                existing = set(watch[name])
+                for p in path_list:
+                    if p not in existing:
+                        watch[name].append(p)
+            else:
+                watch[name] = path_list
+        warnings.append(
+            "Deprecated: 'code_groups' has been migrated to 'watch'. "
+            "The walker auto-detects git repos. Please update your config."
+        )
+        del result["code_groups"]
+
+    # Migrate obsidian_vaults
+    if "obsidian_vaults" in result:
+        vault_paths = result["obsidian_vaults"]
+        if isinstance(vault_paths, list) and vault_paths:
+            if "obsidian" in watch:
+                existing = set(watch["obsidian"])
+                for p in vault_paths:
+                    if p not in existing:
+                        watch["obsidian"].append(p)
+            else:
+                watch["obsidian"] = list(vault_paths)
+            warnings.append(
+                "Deprecated: 'obsidian_vaults' has been migrated to 'watch'. "
+                "The walker auto-detects Obsidian vaults. Please update your config."
+            )
+        del result["obsidian_vaults"]
+
+    if watch:
+        result["watch"] = watch
+
+    return result, warnings
+
+
 def load_config(path: Path | None = None) -> Config:
     """Load configuration from a JSON file, falling back to defaults.
 
