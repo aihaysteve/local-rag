@@ -320,7 +320,12 @@ def _walk_recursive(
 
     result.stats.directories += 1
 
-    # Load per-directory ignore files; copy dir_specs so siblings don't share
+    # Load per-directory ignore files; copy dir_specs so siblings don't share.
+    # NOTE: patterns are matched against paths relative to the walk root, not
+    # relative to the directory containing the ignore file. This means anchored
+    # patterns like "/build/" in a subdirectory .gitignore won't scope correctly.
+    # Simple globs (*.log, *.pyc) work fine. Fix requires pairing each spec
+    # with its origin directory for relative matching.
     local_specs = list(dir_specs)
     for ignore_name in (".gitignore", ".ragignore"):
         ignore_file = current / ignore_name
