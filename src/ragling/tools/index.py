@@ -52,7 +52,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
 
         q = ctx.get_queue()
         if q is not None:
-            return _rag_index_via_queue(collection, path, config, q, ctx)
+            return _rag_index_dispatch(collection, path, config, q, ctx)
 
         # queue_getter present but returned None -> follower mode
         if ctx.queue_getter is not None:
@@ -106,14 +106,19 @@ def _rag_index_plan(
     }
 
 
-def _rag_index_via_queue(
+def _rag_index_dispatch(
     collection: str,
     path: str | None,
     config: Config,
     q: IndexingQueue,
     ctx: ToolContext,
 ) -> dict[str, Any]:
-    """Route indexing through the IndexingQueue (non-blocking)."""
+    """Dispatch indexing: queue for system collections, synchronous walker for directories.
+
+    System collections (email, calibre, rss) are submitted to the queue (non-blocking).
+    Directory sources (code groups, watch) run the walker pipeline synchronously —
+    the MCP tool call blocks until indexing completes.
+    """
     from pathlib import Path as P
 
     from ragling.indexer_types import IndexerType
