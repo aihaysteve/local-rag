@@ -22,6 +22,7 @@ dependencies = [
     "transformers>=4.30.0",
     "watchdog>=4.0",
     "cryptography>=41.0",
+    "pathspec>=1.0.4",
 ]
 
 [project.scripts]
@@ -58,3 +59,8 @@ extend-select = ["S608"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
