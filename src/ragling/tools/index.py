@@ -79,11 +79,9 @@ def _rag_index_plan(
     if collection in _SYSTEM_COLLECTION_JOBS:
         return {"error": f"Plan mode is not supported for system collection '{collection}'."}
 
-    # Collect paths to walk
+    # Collect paths to walk (code_groups are auto-migrated into watch by load_config)
     paths: list[P] = []
-    if collection in config.code_groups:
-        paths = [p for p in config.code_groups[collection] if p.is_dir()]
-    elif collection in config.watch:
+    if collection in config.watch:
         paths = [p for p in config.watch[collection] if p.is_dir()]
     elif path:
         paths = [P(path)]
@@ -146,33 +144,7 @@ def _rag_index_dispatch(
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
-    # Code groups: use unified walker pipeline
-    if collection in config.code_groups:
-        from ragling.db import get_connection, init_db
-        from ragling.sync import sync_directory_source
-
-        conn = get_connection(config)
-        init_db(conn, config)
-        try:
-            total_indexed = 0
-            for repo_path in config.code_groups[collection]:
-                if not repo_path.is_dir():
-                    continue
-                result = sync_directory_source(
-                    conn, config, collection, repo_path, status=indexing_status
-                )
-                total_indexed += result.indexed
-        finally:
-            conn.close()
-        return {
-            "status": "completed",
-            "collection": collection,
-            "repos": len(config.code_groups[collection]),
-            "indexed": total_indexed,
-            "indexing": indexing_status.to_dict() if indexing_status else None,
-        }
-
-    # Watch collections: use unified walker pipeline
+    # Directory sources (code_groups are auto-migrated into watch by load_config)
     if collection in config.watch:
         from ragling.db import get_connection, init_db
         from ragling.sync import sync_directory_source

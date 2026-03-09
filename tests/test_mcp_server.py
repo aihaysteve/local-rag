@@ -703,8 +703,8 @@ class TestRagIndexQueueRouting:
         assert result["collection"] == "email"
         assert "indexing" in result
 
-    def test_rag_index_code_group_syncs_all_repos(self, tmp_path: Path) -> None:
-        """Code groups sync each repo via the unified walker pipeline."""
+    def test_rag_index_watch_syncs_all_paths_via_walker(self, tmp_path: Path) -> None:
+        """Watch collections sync each path via the unified walker pipeline."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -719,7 +719,7 @@ class TestRagIndexQueueRouting:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            code_groups={"mycode": [repo1, repo2]},
+            watch=MappingProxyType({"mycode": (repo1, repo2)}),
         )
 
         status = IndexingStatus()
@@ -748,7 +748,7 @@ class TestRagIndexQueueRouting:
         queue.submit.assert_not_called()
         assert result["status"] == "completed"
         assert result["collection"] == "mycode"
-        assert result["repos"] == 2
+        assert result["paths"] == 2
         assert "indexing" in result
 
     def test_rag_index_disabled_collection(self, tmp_path: Path) -> None:
@@ -1569,7 +1569,7 @@ class TestRagIndexPlan:
     """Tests for rag_index plan (dry-run) mode."""
 
     def test_plan_code_group_returns_walk_plan(self, tmp_path: Path) -> None:
-        """plan=True for code group runs walk and returns formatted plan."""
+        """plan=True for code group (migrated to watch) runs walk and returns formatted plan."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -1583,7 +1583,7 @@ class TestRagIndexPlan:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            code_groups={"mycode": [repo]},
+            watch=MappingProxyType({"mycode": (repo,)}),
         )
 
         status = IndexingStatus()
@@ -1731,7 +1731,7 @@ class TestRagIndexPlan:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            code_groups={"mycode": (repo,)},
+            watch=MappingProxyType({"mycode": (repo,)}),
         )
 
         status = IndexingStatus()
