@@ -286,7 +286,10 @@ def _is_excluded(
     """Check if a path is excluded by any exclusion layer.
 
     Built-in excludes cannot be negated. User and directory specs support
-    negation via gitignore syntax.
+    negation via gitignore syntax, but only within a single spec. Cross-layer
+    negation (e.g. user spec excludes ``*.log``, directory ``.ragignore``
+    negates ``!important.log``) does not work — each layer is evaluated
+    independently and the first match wins.
     """
     if builtin_spec.match_file(rel_path):
         return True
