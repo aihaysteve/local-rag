@@ -95,30 +95,55 @@ def _rag_index_via_queue(
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
-    # Code groups: one job per repo
+    # Code groups: use unified walker pipeline
     if collection in config.code_groups:
-        for repo_path in config.code_groups[collection]:
-            job = IndexJob("directory", repo_path, collection, IndexerType.CODE)
-            q.submit(job)
+        from ragling.db import get_connection, init_db
+        from ragling.sync import _sync_directory_source
+
+        conn = get_connection(config)
+        init_db(conn, config)
+        try:
+            total_indexed = 0
+            for repo_path in config.code_groups[collection]:
+                if not repo_path.is_dir():
+                    continue
+                result = _sync_directory_source(
+                    conn, config, collection, repo_path, status=indexing_status
+                )
+                total_indexed += result.indexed
+        finally:
+            conn.close()
         return {
-            "status": "submitted",
+            "status": "completed",
             "collection": collection,
             "repos": len(config.code_groups[collection]),
+            "indexed": total_indexed,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
-    # Watch collections: auto-detect type per path
+    # Watch collections: use unified walker pipeline
     if collection in config.watch:
-        from ragling.indexers.auto_indexer import detect_directory_type
+        from ragling.db import get_connection, init_db
+        from ragling.sync import _sync_directory_source
 
-        for watch_path in config.watch[collection]:
-            dir_type = detect_directory_type(watch_path)
-            job = IndexJob("directory", watch_path, collection, dir_type)
-            q.submit(job)
+        conn = get_connection(config)
+        init_db(conn, config)
+        try:
+            total_indexed = 0
+            for watch_path in config.watch[collection]:
+                if not watch_path.is_dir():
+                    continue
+                result = _sync_directory_source(
+                    conn, config, collection, watch_path, status=indexing_status
+                )
+                total_indexed += result.indexed
+        finally:
+            conn.close()
         return {
-            "status": "submitted",
+            "status": "completed",
             "collection": collection,
             "paths": len(config.watch[collection]),
+            "indexed": total_indexed,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
