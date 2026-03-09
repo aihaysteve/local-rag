@@ -73,15 +73,18 @@ def ensure_ragignore(config_dir: Path) -> None:
     Args:
         config_dir: The ragling config directory (e.g. ~/.ragling).
     """
-    config_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
 
-    user_file = config_dir / "ragignore"
-    default_file = config_dir / "ragignore.default"
+        user_file = config_dir / "ragignore"
+        default_file = config_dir / "ragignore.default"
 
-    # Always update the reference copy
-    default_file.write_text(RAGIGNORE_TEMPLATE)
+        # Always update the reference copy
+        default_file.write_text(RAGIGNORE_TEMPLATE)
 
-    # Only create user file if it doesn't exist
-    if not user_file.exists():
-        user_file.write_text(RAGIGNORE_TEMPLATE)
-        logger.info("Created %s", user_file)
+        # Only create user file if it doesn't exist
+        if not user_file.exists():
+            user_file.write_text(RAGIGNORE_TEMPLATE)
+            logger.info("Created %s", user_file)
+    except OSError:
+        logger.warning("Could not write ragignore files to %s", config_dir, exc_info=True)
