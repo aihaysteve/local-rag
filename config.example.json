@@ -17,7 +17,7 @@
         "~/CalibreLibrary"
     ],
     "netnewswire_db_path": "~/Library/Containers/com.ranchero.NetNewsWire-Evergreen/Data/Library/Application Support/NetNewsWire/Accounts",
-    "code_groups": {
+    "watch": {
         "my-org": [
             "~/Repository/my-org/repo1",
             "~/Repository/my-org/repo2"
@@ -25,9 +25,7 @@
         "terraform": [
             "~/Repository/my-org/tf-infra",
             "~/Repository/other-org/tf-modules"
-        ]
-    },
-    "watch": {
+        ],
         "movie-rec": "~/Projects/movie-rec",
         "research": [
             "~/Documents/papers",

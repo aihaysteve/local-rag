@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import signal
 import sys
-from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -329,53 +328,6 @@ def index_project(
         _print_index_result(name, result)
 
 
-@index.command("group")
-@click.argument("name", required=False)
-@click.option("--force", is_flag=True, help="Force re-index all files.")
-@click.option("--history", is_flag=True, help="Also index commit history (last N months).")
-@click.option("--background", is_flag=True, help="Run indexing in a background process.")
-@click.pass_context
-def index_group(
-    ctx: click.Context, name: str | None, force: bool, history: bool, background: bool
-) -> None:
-    """Index code group(s) from config.
-
-    If NAME is given, indexes only that group's repos. If omitted, indexes
-    all groups defined in code_groups config.
-    """
-    if background:
-        subcmd = ["group", name] if name else ["group"]
-        extra: list[str] = []
-        if history:
-            extra.append("--history")
-        _run_in_background(ctx, subcmd, force, extra_args=extra or None)
-        return
-    from ragling.indexers.git_indexer import GitRepoIndexer
-
-    config = load_config(ctx.obj.get("config_path"))
-
-    if name:
-        if name not in config.code_groups:
-            click.echo(f"Error: Group '{name}' not found in code_groups config.", err=True)
-            sys.exit(1)
-        groups: Mapping[str, tuple[Path, ...]] = {name: config.code_groups[name]}
-    elif config.code_groups:
-        groups = config.code_groups
-    else:
-        click.echo("Error: No code_groups configured in ~/.ragling/config.json.", err=True)
-        sys.exit(1)
-
-    config = config.with_overrides(group_name=ctx.obj["group"])
-    with _db_context(config) as conn:
-        for code_group_name, repo_paths in groups.items():
-            _check_collection_enabled(config, code_group_name)
-            for repo_path in repo_paths:
-                click.echo(f"  {code_group_name}: {repo_path}")
-                indexer = GitRepoIndexer(repo_path, collection_name=code_group_name)
-                result = indexer.index(conn, config, force=force, index_history=history)
-                _print_index_result(f"{code_group_name}/{repo_path.name}", result)
-
-
 @index.command("all")
 @click.option("--force", is_flag=True, help="Force re-index all sources.")
 @click.option("--background", is_flag=True, help="Run indexing in a background process.")
@@ -383,8 +335,8 @@ def index_group(
 def index_all(ctx: click.Context, force: bool, background: bool) -> None:
     """Index all configured sources at once.
 
-    Indexes obsidian, email, calibre, rss, and code groups based on what
-    is configured in ~/.ragling/config.json. Skips any source that
+    Indexes obsidian, email, calibre, rss, and watch collections based on
+    what is configured in ~/.ragling/config.json. Skips any source that
     has no paths configured.
     """
     if background:
@@ -432,14 +384,6 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
             and config.netnewswire_db_path.exists()
         ):
             sources.append(IndexSource("rss", create_indexer("rss", config), False))
-
-        for group_name, repo_paths in config.code_groups.items():
-            if config.is_collection_enabled(group_name):
-                for repo_path in repo_paths:
-                    label = f"{group_name}/{repo_path.name}"
-                    sources.append(
-                        IndexSource(label, create_indexer(group_name, config, path=repo_path), True)
-                    )
 
         if not sources:
             click.echo("No sources configured. Set paths in ~/.ragling/config.json.", err=True)

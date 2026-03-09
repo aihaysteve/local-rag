@@ -275,14 +275,12 @@ class IndexingQueue:
         self, conn: sqlite3.Connection, job: IndexJob, doc_store: DocStore
     ) -> None:
         """Run the document pass for code repos (non-code files like docx, pdf)."""
-        from ragling.indexers.discovery import DiscoveredSource
         from ragling.indexers.project import ProjectIndexer
 
         path = self._require_path(job)
-        repo_source = DiscoveredSource(path=path, source_type="code", relative_name="")
         proj = ProjectIndexer(job.collection_name, [path], doc_store=doc_store)
         doc_result = proj._index_repo_documents(
-            conn, self._config, repo_source, job.collection_name, job.force
+            conn, self._config, path, job.collection_name, job.force
         )
         if doc_result.indexed > 0:
             logger.info("Document pass for %s: %d indexed", job.collection_name, doc_result.indexed)

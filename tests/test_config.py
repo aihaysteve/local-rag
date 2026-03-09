@@ -277,14 +277,6 @@ class TestConfigImmutability:
         config = Config(obsidian_exclude_folders=("_Inbox",))
         assert isinstance(config.obsidian_exclude_folders, tuple)
 
-    def test_code_groups_is_mapping_proxy(self) -> None:
-        config = Config(code_groups=MappingProxyType({"org": (Path("/repo"),)}))
-        assert isinstance(config.code_groups, MappingProxyType)
-
-    def test_code_groups_values_are_tuples(self) -> None:
-        config = Config(code_groups=MappingProxyType({"org": (Path("/repo"),)}))
-        assert isinstance(config.code_groups["org"], tuple)
-
     def test_git_commit_subject_blacklist_is_tuple(self) -> None:
         config = Config(git_commit_subject_blacklist=("merge",))
         assert isinstance(config.git_commit_subject_blacklist, tuple)
@@ -295,7 +287,6 @@ class TestConfigImmutability:
         assert isinstance(config.obsidian_vaults, tuple)
         assert isinstance(config.obsidian_exclude_folders, tuple)
         assert isinstance(config.calibre_libraries, tuple)
-        assert isinstance(config.code_groups, MappingProxyType)
         assert isinstance(config.disabled_collections, frozenset)
         assert isinstance(config.git_commit_subject_blacklist, tuple)
         assert isinstance(config.global_paths, tuple)
@@ -308,7 +299,7 @@ class TestConfigImmutability:
                 {
                     "obsidian_vaults": [str(tmp_path / "vault")],
                     "calibre_libraries": [str(tmp_path / "calibre")],
-                    "code_groups": {"org": [str(tmp_path / "repo")]},
+                    "watch": {"docs": [str(tmp_path / "docs")]},
                     "disabled_collections": ["email"],
                     "git_commit_subject_blacklist": ["merge"],
                     "global_paths": [str(tmp_path / "global")],
@@ -318,17 +309,13 @@ class TestConfigImmutability:
         config = load_config(config_file)
         assert isinstance(config.obsidian_vaults, tuple)
         assert isinstance(config.calibre_libraries, tuple)
-        assert isinstance(config.code_groups, MappingProxyType)
-        assert isinstance(config.code_groups["org"], tuple)
+        assert isinstance(config.watch, MappingProxyType)
+        assert isinstance(config.watch["docs"], tuple)
+        # obsidian_vaults auto-migrated to watch["obsidian"]
+        assert isinstance(config.watch["obsidian"], tuple)
         assert isinstance(config.disabled_collections, frozenset)
         assert isinstance(config.git_commit_subject_blacklist, tuple)
         assert isinstance(config.global_paths, tuple)
-
-    def test_with_overrides_converts_code_groups_dict(self) -> None:
-        """with_overrides should accept a plain dict for code_groups and convert it."""
-        config = Config()
-        new_config = config.with_overrides(code_groups={"org": (Path("/repo"),)})
-        assert isinstance(new_config.code_groups, MappingProxyType)
 
 
 class TestOllamaHostConfig:
@@ -518,25 +505,32 @@ class TestWatchConfig:
         config = load_config(config_file)
         assert isinstance(config.watch, MappingProxyType)
 
-    @pytest.mark.parametrize("name", ["obsidian", "email", "calibre", "rss", "global"])
+    @pytest.mark.parametrize("name", ["email", "calibre", "rss", "global"])
     def test_rejects_watch_name_matching_system_collection(self, tmp_path: Path, name: str) -> None:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"watch": {name: str(tmp_path / "dir")}}))
         with pytest.raises(ValueError, match="system collection"):
             load_config(config_file)
 
-    def test_rejects_watch_name_matching_code_group(self, tmp_path: Path) -> None:
+    def test_code_group_and_watch_name_collision_merges(self, tmp_path: Path) -> None:
+        """When code_groups and watch share a name, migration merges paths."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        watch_dir = tmp_path / "dir"
+        watch_dir.mkdir()
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
                 {
-                    "code_groups": {"my-org": [str(tmp_path / "repo")]},
-                    "watch": {"my-org": str(tmp_path / "dir")},
+                    "code_groups": {"my-org": [str(repo)]},
+                    "watch": {"my-org": [str(watch_dir)]},
                 }
             )
         )
-        with pytest.raises(ValueError, match="code_groups"):
-            load_config(config_file)
+        config = load_config(config_file)
+        # Both paths should be merged into watch
+        assert repo in config.watch["my-org"]
+        assert watch_dir in config.watch["my-org"]
 
 
 class TestConfigAutoDiscovery:

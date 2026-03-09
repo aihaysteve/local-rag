@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 def get_watch_paths(config: Config) -> list[Path]:
     """Compute which directories to watch based on config.
 
-    Includes home directory, global paths, obsidian vaults, code group
-    repos, and watch directories. Only includes paths that exist on disk.
-    Deduplicates by resolved path.
+    Includes home directory, global paths, obsidian vaults, and watch
+    directories. Only includes paths that exist on disk. Deduplicates
+    by resolved path.
 
     Args:
         config: Application configuration.
@@ -42,9 +42,6 @@ def get_watch_paths(config: Config) -> list[Path]:
         _add(gp)
     for vault in config.obsidian_vaults:
         _add(vault)
-    for repo_paths in config.code_groups.values():
-        for repo_path in repo_paths:
-            _add(repo_path)
     for watch_paths in config.watch.values():
         for watch_path in watch_paths:
             _add(watch_path)

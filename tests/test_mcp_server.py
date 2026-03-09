@@ -595,7 +595,6 @@ class TestRagIndexQueueRouting:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[tmp_path / "vault"],
         )
 
         status = IndexingStatus()
@@ -620,7 +619,6 @@ class TestRagIndexQueueRouting:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[tmp_path / "vault"],
         )
 
         # No indexing_queue — rag_index should return error
@@ -632,25 +630,21 @@ class TestRagIndexQueueRouting:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result: dict[str, Any] = rag_index_fn(collection="email")
         assert "error" in result
         assert "No indexing queue available" in result["error"]
 
     def test_rag_index_via_queue_returns_submitted_status(self, tmp_path: Path) -> None:
-        """rag_index returns immediately with 'submitted' status."""
+        """rag_index returns immediately with 'submitted' status for system collections."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
         from ragling.mcp_server import create_server
 
-        vault_dir = tmp_path / "vault"
-        vault_dir.mkdir()
-
         config = Config(
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[vault_dir],
         )
 
         status = IndexingStatus()
@@ -665,13 +659,13 @@ class TestRagIndexQueueRouting:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result: dict[str, Any] = rag_index_fn(collection="email")
 
         # Should use submit (fire-and-forget), NOT submit_and_wait
         queue.submit.assert_called_once()
         queue.submit_and_wait.assert_not_called()
         assert result["status"] == "submitted"
-        assert result["collection"] == "obsidian"
+        assert result["collection"] == "email"
         assert "indexing" in result
 
     def test_rag_index_via_queue_dedup_rejects_when_active(self, tmp_path: Path) -> None:
@@ -681,18 +675,14 @@ class TestRagIndexQueueRouting:
         from ragling.indexing_status import IndexingStatus
         from ragling.mcp_server import create_server
 
-        vault_dir = tmp_path / "vault"
-        vault_dir.mkdir()
-
         config = Config(
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[vault_dir],
         )
 
         status = IndexingStatus()
-        status.increment("obsidian")  # simulate active indexing
+        status.increment("email")  # simulate active indexing
 
         queue = MagicMock(spec=IndexingQueue)
 
@@ -705,16 +695,16 @@ class TestRagIndexQueueRouting:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result: dict[str, Any] = rag_index_fn(collection="email")
 
         queue.submit.assert_not_called()
         queue.submit_and_wait.assert_not_called()
         assert result["status"] == "already_indexing"
-        assert result["collection"] == "obsidian"
+        assert result["collection"] == "email"
         assert "indexing" in result
 
-    def test_rag_index_via_queue_code_group_submits_all_repos(self, tmp_path: Path) -> None:
-        """Code groups submit one job per repo via fire-and-forget."""
+    def test_rag_index_watch_syncs_all_paths_via_walker(self, tmp_path: Path) -> None:
+        """Watch collections sync each path via the unified walker pipeline."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -729,7 +719,7 @@ class TestRagIndexQueueRouting:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            code_groups={"mycode": [repo1, repo2]},
+            watch=MappingProxyType({"mycode": (repo1, repo2)}),
         )
 
         status = IndexingStatus()
@@ -744,13 +734,21 @@ class TestRagIndexQueueRouting:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="mycode")
 
-        assert queue.submit.call_count == 2
-        queue.submit_and_wait.assert_not_called()
-        assert result["status"] == "submitted"
+        mock_result = MagicMock(indexed=5)
+        with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
+            with (
+                patch("ragling.db.get_connection", return_value=MagicMock()),
+                patch("ragling.db.init_db"),
+            ):
+                result: dict[str, Any] = rag_index_fn(collection="mycode")
+
+            assert mock_sync.call_count == 2
+
+        queue.submit.assert_not_called()
+        assert result["status"] == "completed"
         assert result["collection"] == "mycode"
-        assert result["repos"] == 2
+        assert result["paths"] == 2
         assert "indexing" in result
 
     def test_rag_index_disabled_collection(self, tmp_path: Path) -> None:
@@ -789,8 +787,8 @@ class TestRagIndexQueueRouting:
 class TestRagIndexWatch:
     """Tests for rag_index routing watch collections."""
 
-    def test_rag_index_via_queue_watch_submits_jobs(self, tmp_path: Path) -> None:
-        """Watch collections submit auto-detected jobs via queue."""
+    def test_rag_index_watch_syncs_all_paths(self, tmp_path: Path) -> None:
+        """Watch collections sync each path via the unified walker pipeline."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -821,14 +819,18 @@ class TestRagIndexWatch:
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            result: dict[str, Any] = rag_index_fn(collection="research")
+        mock_result = MagicMock(indexed=3)
+        with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
+            with (
+                patch("ragling.db.get_connection", return_value=MagicMock()),
+                patch("ragling.db.init_db"),
+            ):
+                result: dict[str, Any] = rag_index_fn(collection="research")
 
-        assert queue.submit.call_count == 2
-        jobs = [call[0][0] for call in queue.submit.call_args_list]
-        assert all(j.collection_name == "research" for j in jobs)
-        assert {j.path for j in jobs} == {dir1, dir2}
-        assert result["status"] == "submitted"
+            assert mock_sync.call_count == 2
+
+        queue.submit.assert_not_called()
+        assert result["status"] == "completed"
         assert result["paths"] == 2
 
     def test_rag_index_no_queue_watch_returns_error(self, tmp_path: Path) -> None:
@@ -933,9 +935,7 @@ class TestRagIndexFollowerMode:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[tmp_path / "vault"],
         )
-        (tmp_path / "vault").mkdir(exist_ok=True)
 
         static_queue = MagicMock(spec=IndexingQueue)
         dynamic_queue = MagicMock(spec=IndexingQueue)
@@ -948,7 +948,7 @@ class TestRagIndexFollowerMode:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result: dict[str, Any] = rag_index_fn(collection="email")
 
         # dynamic_queue should be used, not static_queue
         dynamic_queue.submit.assert_called_once()
@@ -964,9 +964,7 @@ class TestRagIndexFollowerMode:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[tmp_path / "vault"],
         )
-        (tmp_path / "vault").mkdir(exist_ok=True)
 
         promoted_queue = MagicMock(spec=IndexingQueue)
 
@@ -985,7 +983,7 @@ class TestRagIndexFollowerMode:
         rag_index_fn = tools["rag_index"].fn
 
         # As follower, should return error
-        result1: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result1: dict[str, Any] = rag_index_fn(collection="email")
         assert "error" in result1
         assert "read-only" in result1["error"].lower()
 
@@ -993,7 +991,7 @@ class TestRagIndexFollowerMode:
         current_queue = promoted_queue
 
         # Now should route through the queue
-        result2: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result2: dict[str, Any] = rag_index_fn(collection="email")
         assert "error" not in result2
         assert result2["status"] == "submitted"
         promoted_queue.submit.assert_called_once()
@@ -1007,9 +1005,7 @@ class TestRagIndexFollowerMode:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=[tmp_path / "vault"],
         )
-        (tmp_path / "vault").mkdir(exist_ok=True)
 
         queue = MagicMock(spec=IndexingQueue)
 
@@ -1021,7 +1017,7 @@ class TestRagIndexFollowerMode:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="obsidian")
+        result: dict[str, Any] = rag_index_fn(collection="email")
 
         queue.submit.assert_called_once()
         assert result["status"] == "submitted"
@@ -1210,15 +1206,13 @@ class TestVisibilityFiltering:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=(tmp_path / "vault",),
             users={
                 "kitchen": UserConfig(
                     api_key="test-key",
-                    system_collections=["obsidian"],
+                    system_collections=["email"],
                 ),
             },
         )
-        (tmp_path / "vault").mkdir(exist_ok=True)
 
         queue = MagicMock(spec=IndexingQueue)
         server = create_server(
@@ -1232,7 +1226,7 @@ class TestVisibilityFiltering:
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
         with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
-            result = fn(collection="obsidian")
+            result = fn(collection="email")
 
         assert "error" not in result
         assert result["status"] == "submitted"
@@ -1247,9 +1241,7 @@ class TestVisibilityFiltering:
             db_path=tmp_path / "test.db",
             shared_db_path=tmp_path / "doc_store.sqlite",
             embedding_dimensions=4,
-            obsidian_vaults=(tmp_path / "vault",),
         )
-        (tmp_path / "vault").mkdir(exist_ok=True)
 
         queue = MagicMock(spec=IndexingQueue)
         server = create_server(
@@ -1261,7 +1253,7 @@ class TestVisibilityFiltering:
         fn = tools["rag_index"].fn
 
         with patch("ragling.tools.helpers.get_access_token", return_value=None):
-            result = fn(collection="obsidian")
+            result = fn(collection="email")
 
         assert "error" not in result
         assert result["status"] == "submitted"
@@ -1535,7 +1527,6 @@ class TestRagIndexSystemCollectionDispatch:
     @pytest.mark.parametrize(
         "collection,expected_job_type,expected_indexer_type",
         [
-            ("obsidian", "directory", "obsidian"),
             ("email", "system_collection", "email"),
             ("calibre", "system_collection", "calibre"),
             ("rss", "system_collection", "rss"),
@@ -1572,3 +1563,195 @@ class TestRagIndexSystemCollectionDispatch:
         item = q._queue.get_nowait()
         assert item.job_type == expected_job_type
         assert item.indexer_type.value == expected_indexer_type
+
+
+class TestRagIndexPlan:
+    """Tests for rag_index plan (dry-run) mode."""
+
+    def test_plan_code_group_returns_walk_plan(self, tmp_path: Path) -> None:
+        """plan=True for code group (migrated to watch) runs walk and returns formatted plan."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("print('hello')")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"mycode": (repo,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="mycode", plan=True)
+
+        assert result["status"] == "plan"
+        assert "plan" in result
+        assert "Walk complete" in result["plan"]
+        queue.submit.assert_not_called()
+
+    def test_plan_watch_collection_returns_walk_plan(self, tmp_path: Path) -> None:
+        """plan=True for watch collection runs walk and returns formatted plan."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        dir1 = tmp_path / "docs"
+        dir1.mkdir()
+        (dir1 / "readme.md").write_text("# Hello")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"research": (dir1,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="research", plan=True)
+
+        assert result["status"] == "plan"
+        assert "Walk complete" in result["plan"]
+        queue.submit.assert_not_called()
+
+    def test_plan_system_collection_returns_error(self, tmp_path: Path) -> None:
+        """plan=True for system collections (email, calibre, rss) returns an error."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="email", plan=True)
+
+        assert "error" in result
+        assert "plan" in result["error"].lower() or "system" in result["error"].lower()
+
+    def test_plan_no_queue_still_works(self, tmp_path: Path) -> None:
+        """plan=True works even without an indexing queue (read-only)."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        dir1 = tmp_path / "docs"
+        dir1.mkdir()
+        (dir1 / "notes.md").write_text("# Notes")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"research": (dir1,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="research", plan=True)
+
+        assert result["status"] == "plan"
+        assert "Walk complete" in result["plan"]
+
+    def test_plan_respects_ragignore_exclusions(self, tmp_path: Path) -> None:
+        """plan=True should apply ragignore exclusions to match real indexing."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("print('hello')")
+        (repo / "excluded.draft.md").write_text("# Draft")
+
+        # Create a ragignore at the path the code will look for
+        ragling_dir = tmp_path / ".ragling"
+        ragling_dir.mkdir()
+        (ragling_dir / "ragignore").write_text("*.draft.md\n")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"mycode": (repo,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        # Patch Path.home() so ragignore is found at tmp_path
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            result: dict[str, Any] = rag_index_fn(collection="mycode", plan=True)
+
+        assert result["status"] == "plan"
+        # The draft file should be excluded, only main.py should be in the plan
+        assert "excluded.draft.md" not in result["plan"]
+        assert "treesitter" in result["plan"]

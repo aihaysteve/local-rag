@@ -540,71 +540,6 @@ class TestBackgroundFlag:
         mock_bg.assert_called_once()
         assert mock_bg.call_args[0][1] == ["all"]
 
-    def test_index_group_background_flag(self, tmp_path: Path) -> None:
-        """--background flag is accepted by index group command with a name."""
-        from unittest.mock import patch
-
-        runner = CliRunner()
-        config_path = tmp_path / "config.yaml"
-        config_path.write_text("{}\n")
-
-        with patch("ragling.cli._run_in_background") as mock_bg:
-            result = runner.invoke(
-                main,
-                ["--config", str(config_path), "index", "group", "mygroup", "--background"],
-            )
-
-        assert result.exit_code == 0
-        mock_bg.assert_called_once()
-        assert mock_bg.call_args[0][1] == ["group", "mygroup"]
-
-    def test_index_group_background_no_name(self, tmp_path: Path) -> None:
-        """--background flag with no group name passes ['group'] as subcommand."""
-        from unittest.mock import patch
-
-        runner = CliRunner()
-        config_path = tmp_path / "config.yaml"
-        config_path.write_text("{}\n")
-
-        with patch("ragling.cli._run_in_background") as mock_bg:
-            result = runner.invoke(
-                main,
-                ["--config", str(config_path), "index", "group", "--background"],
-            )
-
-        assert result.exit_code == 0
-        mock_bg.assert_called_once()
-        assert mock_bg.call_args[0][1] == ["group"]
-
-    def test_index_group_background_with_history(self, tmp_path: Path) -> None:
-        """--background with --history forwards the --history flag via extra_args."""
-        from unittest.mock import patch
-
-        runner = CliRunner()
-        config_path = tmp_path / "config.yaml"
-        config_path.write_text("{}\n")
-
-        with patch("ragling.cli._run_in_background") as mock_bg:
-            result = runner.invoke(
-                main,
-                [
-                    "--config",
-                    str(config_path),
-                    "index",
-                    "group",
-                    "mygroup",
-                    "--background",
-                    "--history",
-                ],
-            )
-
-        assert result.exit_code == 0
-        mock_bg.assert_called_once()
-        assert mock_bg.call_args[0][1] == ["group", "mygroup"]
-        assert mock_bg.call_args[1].get("extra_args") == ["--history"] or mock_bg.call_args[0][
-            3
-        ] == ["--history"]
-
     def test_index_project_background_forwards_paths(self, tmp_path: Path) -> None:
         """--background on index project forwards paths as extra_args."""
         from unittest.mock import patch
@@ -954,7 +889,7 @@ class TestInitCommand:
         data = json.loads((project_dir / "ragling.json").read_text())
         assert "old-name" in data["watch"]  # unchanged
 
-    @pytest.mark.parametrize("name", ["obsidian", "email", "calibre", "rss", "global"])
+    @pytest.mark.parametrize("name", ["email", "calibre", "rss", "global"])
     def test_init_rejects_reserved_names(
         self, tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch, fake_ragling_dir: Path
     ) -> None:

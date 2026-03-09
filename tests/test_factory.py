@@ -1,7 +1,7 @@
 """Tests for indexers.factory — centralized indexer creation."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -46,23 +46,6 @@ class TestCreateIndexer:
         indexer = create_indexer("rss", config)
         assert isinstance(indexer, RSSIndexer)
 
-    def test_code_group_returns_git_indexer(self, tmp_path: Path) -> None:
-        from ragling.config import Config
-        from ragling.indexers.factory import create_indexer
-        from ragling.indexers.git_indexer import GitRepoIndexer
-
-        config = Config(code_groups={"mygroup": (tmp_path,)})
-        indexer = create_indexer("mygroup", config, path=tmp_path)
-        assert isinstance(indexer, GitRepoIndexer)
-
-    def test_code_group_without_path_raises(self) -> None:
-        from ragling.config import Config
-        from ragling.indexers.factory import create_indexer
-
-        config = Config(code_groups={"mygroup": (Path("/tmp/repo"),)})
-        with pytest.raises(ValueError, match="requires a path"):
-            create_indexer("mygroup", config)
-
     def test_project_with_path_returns_project_indexer(self, tmp_path: Path) -> None:
         from ragling.config import Config
         from ragling.indexers.factory import create_indexer
@@ -80,22 +63,8 @@ class TestCreateIndexer:
         with pytest.raises(ValueError, match="Unknown collection"):
             create_indexer("nonexistent", config)
 
-    def test_watch_code_returns_git_indexer(self, tmp_path: Path) -> None:
-        from types import MappingProxyType
-
-        from ragling.config import Config
-        from ragling.indexers.factory import create_indexer
-        from ragling.indexers.git_indexer import GitRepoIndexer
-
-        config = Config(watch=MappingProxyType({"mywatch": (tmp_path,)}))
-        with patch(
-            "ragling.indexers.auto_indexer.detect_directory_type",
-            return_value=IndexerType.CODE,
-        ):
-            indexer = create_indexer("mywatch", config, path=tmp_path)
-        assert isinstance(indexer, GitRepoIndexer)
-
-    def test_watch_project_returns_project_indexer(self, tmp_path: Path) -> None:
+    def test_watch_returns_project_indexer(self, tmp_path: Path) -> None:
+        """Watch collections always resolve to ProjectIndexer (walker handles routing)."""
         from types import MappingProxyType
 
         from ragling.config import Config
@@ -103,11 +72,7 @@ class TestCreateIndexer:
         from ragling.indexers.project import ProjectIndexer
 
         config = Config(watch=MappingProxyType({"mywatch": (tmp_path,)}))
-        with patch(
-            "ragling.indexers.auto_indexer.detect_directory_type",
-            return_value=IndexerType.PROJECT,
-        ):
-            indexer = create_indexer("mywatch", config, path=tmp_path)
+        indexer = create_indexer("mywatch", config, path=tmp_path)
         assert isinstance(indexer, ProjectIndexer)
 
     def test_watch_without_path_raises(self) -> None:
@@ -183,13 +148,6 @@ class TestResolveIndexerType:
         assert _resolve_indexer_type("email", config, None) == IndexerType.EMAIL
         assert _resolve_indexer_type("calibre", config, None) == IndexerType.CALIBRE
         assert _resolve_indexer_type("rss", config, None) == IndexerType.RSS
-
-    def test_code_group(self) -> None:
-        from ragling.config import Config
-        from ragling.indexers.factory import _resolve_indexer_type
-
-        config = Config(code_groups={"mygroup": (Path("/tmp/repo"),)})
-        assert _resolve_indexer_type("mygroup", config, None) == IndexerType.CODE
 
     def test_fallback_with_path_returns_project(self, tmp_path: Path) -> None:
         from ragling.config import Config

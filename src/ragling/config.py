@@ -17,7 +17,7 @@ DEFAULT_DB_PATH = DEFAULT_CONFIG_DIR / "rag.db"
 DEFAULT_SHARED_DB_PATH = DEFAULT_CONFIG_DIR / "doc_store.sqlite"
 DEFAULT_GROUP_DB_DIR = DEFAULT_CONFIG_DIR / "groups"
 
-RESERVED_COLLECTION_NAMES = frozenset({"obsidian", "email", "calibre", "rss", "global"})
+RESERVED_COLLECTION_NAMES = frozenset({"email", "calibre", "rss", "global"})
 
 
 @dataclass
@@ -99,9 +99,6 @@ class Config:
             / "Accounts"
         )
     )
-    code_groups: MappingProxyType[str, tuple[Path, ...]] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
     watch: MappingProxyType[str, tuple[Path, ...]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -140,7 +137,7 @@ class Config:
     def with_overrides(self, **kwargs: Any) -> Config:
         """Return a new Config with the specified fields replaced.
 
-        Automatically converts plain dicts for ``code_groups`` and
+        Automatically converts plain dicts for ``watch`` and
         ``users`` to ``MappingProxyType`` so callers don't need to import it.
 
         Args:
@@ -149,8 +146,6 @@ class Config:
         Returns:
             A new Config instance with the overridden fields.
         """
-        if "code_groups" in kwargs and isinstance(kwargs["code_groups"], dict):
-            kwargs["code_groups"] = MappingProxyType(kwargs["code_groups"])
         if "watch" in kwargs and isinstance(kwargs["watch"], dict):
             kwargs["watch"] = MappingProxyType(kwargs["watch"])
         if "users" in kwargs and isinstance(kwargs["users"], dict):
@@ -169,6 +164,62 @@ def _expand_path_str(p: str) -> str:
     if p.endswith("/") and not expanded.endswith("/"):
         expanded += "/"
     return expanded
+
+
+def migrate_config_dict(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Migrate legacy config fields into the unified watch model.
+
+    Folds code_groups and obsidian_vaults into watch entries.
+    Returns the migrated dict and a list of deprecation warnings.
+
+    Called automatically by load_config to handle legacy configs.
+    """
+    warnings: list[str] = []
+    result = dict(raw)
+    watch: dict[str, list[str]] = {}
+
+    # Preserve existing watch entries
+    if "watch" in result:
+        for name, paths in result["watch"].items():
+            watch[name] = list(paths) if isinstance(paths, list) else [paths]
+
+    # Migrate code_groups
+    if "code_groups" in result:
+        for name, paths in result["code_groups"].items():
+            path_list = list(paths) if isinstance(paths, list) else [paths]
+            if name in watch:
+                existing = set(watch[name])
+                for p in path_list:
+                    if p not in existing:
+                        watch[name].append(p)
+            else:
+                watch[name] = path_list
+        warnings.append(
+            "Deprecated: 'code_groups' has been migrated to 'watch'. "
+            "The walker auto-detects git repos. Please update your config."
+        )
+        del result["code_groups"]
+
+    # Migrate obsidian_vaults into watch (keep original for URI construction)
+    if "obsidian_vaults" in result:
+        vault_paths = result["obsidian_vaults"]
+        if isinstance(vault_paths, list) and vault_paths:
+            if "obsidian" in watch:
+                existing = set(watch["obsidian"])
+                for p in vault_paths:
+                    if p not in existing:
+                        watch["obsidian"].append(p)
+            else:
+                watch["obsidian"] = list(vault_paths)
+            warnings.append(
+                "Deprecated: 'obsidian_vaults' has been migrated to 'watch'. "
+                "The walker auto-detects Obsidian vaults. Please update your config."
+            )
+
+    if watch:
+        result["watch"] = watch
+
+    return result, warnings
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -206,6 +257,19 @@ def load_config(path: Path | None = None) -> Config:
         logger.info("No config file found at %s, using defaults", config_path)
         data = {}
 
+    # system_sources provides an alternative location for source config fields,
+    # with top-level keys taking precedence for backwards compatibility.
+    # Promote to top-level before migration so migrate_config_dict sees them.
+    system_sources = data.get("system_sources", {})
+    for _ss_key in ("obsidian_vaults", "calibre_libraries"):
+        if _ss_key not in data and _ss_key in system_sources:
+            data[_ss_key] = system_sources[_ss_key]
+
+    # Auto-migrate legacy config fields (code_groups, obsidian_vaults -> watch)
+    data, migration_warnings = migrate_config_dict(data)
+    for warning in migration_warnings:
+        logger.warning(warning)
+
     search_data = data.get("search_defaults", {})
     search_defaults = SearchDefaults(
         top_k=search_data.get("top_k", 10),
@@ -214,38 +278,19 @@ def load_config(path: Path | None = None) -> Config:
         fts_weight=search_data.get("fts_weight", 0.3),
     )
 
-    # system_sources provides an alternative location for source config fields,
-    # with top-level keys taking precedence for backwards compatibility.
-    system_sources = data.get("system_sources", {})
-
-    obsidian_vaults_raw = (
-        data["obsidian_vaults"]
-        if "obsidian_vaults" in data
-        else system_sources.get("obsidian_vaults", [])
-    )
+    # obsidian_vaults: still populated for URI construction (obsidian:// links),
+    # but indexing now goes through the watch pipeline.
+    obsidian_vaults_raw = data.get("obsidian_vaults", [])
     obsidian_vaults = tuple(_expand_path(v) for v in obsidian_vaults_raw)
     obsidian_exclude_folders = tuple(data.get("obsidian_exclude_folders", []))
 
-    calibre_raw = (
-        data["calibre_libraries"]
-        if "calibre_libraries" in data
-        else system_sources.get("calibre_libraries", [])
-    )
+    calibre_raw = data.get("calibre_libraries", [])
     calibre_libraries = tuple(_expand_path(v) for v in calibre_raw)
-
-    code_groups_raw: dict[str, tuple[Path, ...]] = {}
-    for cg_name, paths in data.get("code_groups", {}).items():
-        code_groups_raw[cg_name] = tuple(_expand_path(p) for p in paths)
-    code_groups: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(code_groups_raw)
 
     watch_raw: dict[str, tuple[Path, ...]] = {}
     for w_name, w_paths in data.get("watch", {}).items():
         if w_name in RESERVED_COLLECTION_NAMES:
             raise ValueError(f"watch name '{w_name}' conflicts with system collection name")
-        if w_name in code_groups_raw:
-            raise ValueError(
-                f"watch name '{w_name}' conflicts with code_groups entry of the same name"
-            )
         if isinstance(w_paths, str):
             watch_raw[w_name] = (_expand_path(w_paths),)
         else:
@@ -336,7 +381,6 @@ def load_config(path: Path | None = None) -> Config:
         emclient_db_path=emclient_db_path,
         calibre_libraries=calibre_libraries,
         netnewswire_db_path=netnewswire_db_path,
-        code_groups=code_groups,
         watch=watch,
         disabled_collections=disabled_collections,
         git_history_in_months=data.get("git_history_in_months", 6),

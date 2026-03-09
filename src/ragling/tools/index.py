@@ -16,7 +16,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
     """Register the rag_index tool."""
 
     @mcp.tool()
-    def rag_index(collection: str, path: str | None = None) -> dict[str, Any]:
+    def rag_index(collection: str, path: str | None = None, plan: bool = False) -> dict[str, Any]:
         """Trigger indexing for a collection.
 
         Submits an indexing job and returns immediately. Use rag_indexing_status
@@ -24,7 +24,6 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         has queued work.
 
         For system collections ('obsidian', 'email', 'calibre', 'rss'), uses configured paths.
-        For code groups (matching a key in config code_groups), indexes all repos in that group.
         For watch collections (matching a key in config watch), indexes all paths in that entry.
         For project collections, a path argument is required.
 
@@ -33,6 +32,8 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                 name, a watch collection name, or a project name).
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
+            plan: When True, run a dry-run walk and return the formatted manifest
+                without any indexing, parsing, or database writes.
         """
         from ragling.tools.helpers import _get_visible_collections
 
@@ -45,9 +46,12 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         if not config.is_collection_enabled(collection):
             return {"error": f"Collection '{collection}' is disabled in config."}
 
+        if plan:
+            return _rag_index_plan(collection, path, config)
+
         q = ctx.get_queue()
         if q is not None:
-            return _rag_index_via_queue(collection, path, config, q, ctx)
+            return _rag_index_dispatch(collection, path, config, q, ctx)
 
         # queue_getter present but returned None -> follower mode
         if ctx.queue_getter is not None:
@@ -60,14 +64,58 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         return {"error": "No indexing queue available. Use 'ragling serve' to start the server."}
 
 
-def _rag_index_via_queue(
+def _rag_index_plan(
+    collection: str,
+    path: str | None,
+    config: Config,
+) -> dict[str, Any]:
+    """Run walk-only dry-run and return a formatted manifest."""
+    from pathlib import Path as P
+
+    from ragling.indexers.walker import ExclusionConfig, format_plan, walk
+    from ragling.tools.helpers import _SYSTEM_COLLECTION_JOBS
+
+    if collection in _SYSTEM_COLLECTION_JOBS:
+        return {"error": f"Plan mode is not supported for system collection '{collection}'."}
+
+    # Collect paths to walk
+    paths: list[P] = []
+    if collection in config.watch:
+        paths = [p for p in config.watch[collection] if p.is_dir()]
+    elif path:
+        paths = [P(path)]
+    else:
+        return {"error": f"Unknown collection '{collection}'. Provide a path for plan mode."}
+
+    exclusion_config = ExclusionConfig(
+        global_ragignore_path=P.home() / ".ragling" / "ragignore",
+    )
+
+    plan_parts: list[str] = []
+    for walk_path in paths:
+        result = walk(walk_path, exclusion_config=exclusion_config)
+        plan_parts.append(format_plan(result, watch_name=collection, watch_root=walk_path))
+
+    return {
+        "status": "plan",
+        "collection": collection,
+        "plan": "\n---\n".join(plan_parts),
+    }
+
+
+def _rag_index_dispatch(
     collection: str,
     path: str | None,
     config: Config,
     q: IndexingQueue,
     ctx: ToolContext,
 ) -> dict[str, Any]:
-    """Route indexing through the IndexingQueue (non-blocking)."""
+    """Dispatch indexing: queue for system collections, synchronous walker for directories.
+
+    System collections (email, calibre, rss) are submitted to the queue (non-blocking).
+    Directory sources (code groups, watch) run the walker pipeline synchronously —
+    the MCP tool call blocks until indexing completes.
+    """
     from pathlib import Path as P
 
     from ragling.indexer_types import IndexerType
@@ -95,30 +143,29 @@ def _rag_index_via_queue(
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
-    # Code groups: one job per repo
-    if collection in config.code_groups:
-        for repo_path in config.code_groups[collection]:
-            job = IndexJob("directory", repo_path, collection, IndexerType.CODE)
-            q.submit(job)
-        return {
-            "status": "submitted",
-            "collection": collection,
-            "repos": len(config.code_groups[collection]),
-            "indexing": indexing_status.to_dict() if indexing_status else None,
-        }
-
-    # Watch collections: auto-detect type per path
+    # Directory sources
     if collection in config.watch:
-        from ragling.indexers.auto_indexer import detect_directory_type
+        from ragling.db import get_connection, init_db
+        from ragling.sync import sync_directory_source
 
-        for watch_path in config.watch[collection]:
-            dir_type = detect_directory_type(watch_path)
-            job = IndexJob("directory", watch_path, collection, dir_type)
-            q.submit(job)
+        conn = get_connection(config)
+        init_db(conn, config)
+        try:
+            total_indexed = 0
+            for watch_path in config.watch[collection]:
+                if not watch_path.is_dir():
+                    continue
+                result = sync_directory_source(
+                    conn, config, collection, watch_path, status=indexing_status
+                )
+                total_indexed += result.indexed
+        finally:
+            conn.close()
         return {
-            "status": "submitted",
+            "status": "completed",
             "collection": collection,
             "paths": len(config.watch[collection]),
+            "indexed": total_indexed,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 

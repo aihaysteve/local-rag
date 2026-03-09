@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 # System collection name -> (job_type, IndexerType) for _rag_index_via_queue dispatch
 _SYSTEM_COLLECTION_JOBS: dict[str, tuple[str, IndexerType]] = {
-    "obsidian": ("directory", IndexerType.OBSIDIAN),
     "email": ("system_collection", IndexerType.EMAIL),
     "calibre": ("system_collection", IndexerType.CALIBRE),
     "rss": ("system_collection", IndexerType.RSS),
@@ -218,8 +217,7 @@ def _get_allowed_paths(config: Config) -> list[Path]:
     """Collect all configured source directories for path validation.
 
     Gathers resolved absolute paths from all configured sources: obsidian vaults,
-    calibre libraries, code group repos, home directory, global paths, and watch
-    directories.
+    calibre libraries, home directory, global paths, and watch directories.
 
     Args:
         config: Application configuration.
@@ -234,10 +232,6 @@ def _get_allowed_paths(config: Config) -> list[Path]:
 
     for lib in config.calibre_libraries:
         allowed.append(Path(lib).resolve())
-
-    for _group_name, repo_paths in config.code_groups.items():
-        for repo_path in repo_paths:
-            allowed.append(Path(repo_path).resolve())
 
     if config.home is not None:
         allowed.append(Path(config.home).resolve())

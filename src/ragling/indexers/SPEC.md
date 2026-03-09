@@ -16,17 +16,19 @@ re-indexing fast across heterogeneous source types.
 
 Two-pass indexing (scan for changes, then index changed sources) with three
 change-detection strategies: file hash, watermark timestamp, and HEAD SHA
-comparison. `ProjectIndexer` auto-discovers nested vaults and git repos,
-delegates to specialized indexers, and excludes repos already covered by
-explicit `code_groups`.
+comparison. The unified DFS walker (`walker.py`) traverses directory trees,
+routing each file to exactly one parser. `walk_processor.py` handles the
+parse/embed/persist pipeline for walker results.
 
 **Key files:**
 - `base.py` -- `BaseIndexer` ABC, `upsert_source_with_chunks()`,
   `delete_source()`, `prune_stale_sources()`, `IndexResult`, `file_hash()`
 - `auto_indexer.py` -- `detect_directory_type()`,
   `detect_indexer_type_for_file()`, `collect_indexable_directories()`
-- `discovery.py` -- `discover_sources()`, `reconcile_sub_collections()`,
-  `DiscoveredSource`, `DiscoveryResult`
+- `walker.py` -- unified DFS walker: `walk()`, `route_file()`, `FileRoute`,
+  `WalkResult`, `WalkStats`, `ExclusionConfig`, `assign_collection()`,
+  `format_plan()`
+- `walk_processor.py` -- `process_walk_result()`: parse, embed, persist pipeline
 - `obsidian.py` -- `ObsidianIndexer` for Obsidian vault files
 - `email_indexer.py` -- `EmailIndexer` for eM Client emails
 - `calibre_indexer.py` -- `CalibreIndexer` for Calibre ebooks
@@ -57,8 +59,10 @@ explicit `code_groups`.
 | `detect_directory_type()` | `ProjectIndexer`, sync module | Returns `IndexerType.OBSIDIAN`, `CODE`, or `PROJECT` based on marker files |
 | `detect_indexer_type_for_file()` | Sync module | Walks parent directories for `.obsidian`/`.git` markers; returns `IndexerType` |
 | `collect_indexable_directories()` | Sync module | Filters configured usernames against existing subdirectories |
-| `discover_sources()` | `ProjectIndexer` | Recursively scans for `.obsidian`/`.git` markers; returns `DiscoveryResult` |
-| `reconcile_sub_collections()` | `ProjectIndexer` | Deletes sub-collections whose markers no longer exist |
+| `walk()` | `sync.py`, `tools/index.py` | DFS traversal returning `WalkResult` with routing decisions |
+| `process_walk_result()` | `sync.py`, `tools/index.py` | Parse/embed/persist pipeline for walker output |
+| `route_file()` | `walk()` internal, tests | Routes a single file to its parser type |
+| `assign_collection()` | `walk_processor.py`, `format_plan()` | Maps file context to collection name |
 | `ObsidianIndexer` | `indexing_queue.py`, `ProjectIndexer` | Indexes all supported file types in Obsidian vaults |
 | `EmailIndexer` | `indexing_queue.py` | Indexes emails from eM Client with watermark-based incrementality |
 | `CalibreIndexer` | `indexing_queue.py` | Indexes ebooks from Calibre libraries with rich metadata enrichment |
@@ -80,7 +84,7 @@ explicit `code_groups`.
 | INV-3 | File-backed sources use SHA-256 content hash for change detection; virtual sources (email, RSS, commits) use source_path + watermark | Mixing strategies causes either missed updates or unnecessary re-indexing |
 | INV-4 | Git repo watermarks stored as JSON dict in `collections.description` (system of record). Email/RSS watermarks computed from `MAX(json_extract(d.metadata, '$.date'))` in documents table; `collections.description` updated with human-readable tracking string as side effect | Watermark loss triggers full re-index; corruption must fall back gracefully |
 | INV-5 | `prune_stale_sources()` only removes file-backed sources whose files no longer exist; skips virtual URIs (non-`/` prefix) and sources without file_hash | Pruning virtual sources (email, RSS, calibre descriptions) would permanently delete valid data |
-| INV-6 | `ProjectIndexer` excludes repos already covered by explicit `code_groups` to prevent duplicate indexing | Duplicate indexing wastes resources and produces duplicate search results |
+| INV-6 | The unified walker routes each file to exactly one parser (spec > docling > markdown > treesitter > plaintext > skip) | Duplicate or conflicting parsing wastes resources and produces inconsistent chunks |
 | INV-7 | Obsidian indexer skips hidden dirs, `.obsidian`, `.trash`, `.git`, and user-excluded folders | Indexing system/config files pollutes search results with non-content data |
 | INV-8 | Database lock retry: 3 attempts with 2s delay for eM Client and NetNewsWire databases | External apps hold locks during normal operation; immediate failure would prevent indexing |
 | INV-9 | Per-item errors do not cascade: logged, counted in `IndexResult`, execution continues | One corrupt file or email must not abort the entire indexing run |

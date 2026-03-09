@@ -106,12 +106,12 @@ class TestWatchPathsIncludesObsidianAndCode:
         paths = get_watch_paths(config)
         assert vault in paths
 
-    def test_includes_code_group_repos(self, tmp_path: Path) -> None:
+    def test_includes_watch_collection_paths(self, tmp_path: Path) -> None:
         from ragling.watchers.watcher import get_watch_paths
 
         repo = tmp_path / "repo"
         repo.mkdir()
-        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
+        config = Config(watch=MappingProxyType({"mycode": (repo,)}))
         paths = get_watch_paths(config)
         assert repo in paths
 
@@ -122,10 +122,10 @@ class TestWatchPathsIncludesObsidianAndCode:
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
-    def test_skips_nonexistent_code_repos(self, tmp_path: Path) -> None:
+    def test_skips_nonexistent_watch_paths(self, tmp_path: Path) -> None:
         from ragling.watchers.watcher import get_watch_paths
 
-        config = Config(code_groups=MappingProxyType({"org": (tmp_path / "nonexistent",)}))
+        config = Config(watch=MappingProxyType({"mycode": (tmp_path / "nonexistent",)}))
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
@@ -148,23 +148,20 @@ class TestWatchPathsIncludesObsidianAndCode:
         home = tmp_path / "home"
         global_dir = tmp_path / "global"
         vault = tmp_path / "vault"
-        repo = tmp_path / "repo"
         watch_dir = tmp_path / "watched"
-        for d in (home, global_dir, vault, repo, watch_dir):
+        for d in (home, global_dir, vault, watch_dir):
             d.mkdir()
 
         config = Config(
             home=home,
             global_paths=(global_dir,),
             obsidian_vaults=(vault,),
-            code_groups=MappingProxyType({"org": (repo,)}),
             watch=MappingProxyType({"proj": (watch_dir,)}),
         )
         paths = get_watch_paths(config)
         assert home in paths
         assert global_dir in paths
         assert vault in paths
-        assert repo in paths
         assert watch_dir in paths
 
 
@@ -199,14 +196,14 @@ class TestWatchPathsIncludesWatch:
         paths = get_watch_paths(config)
         assert len(paths) == 0
 
-    def test_deduplicates_watch_with_code_groups(self, tmp_path: Path) -> None:
-        """Same path in watch and code_groups appears only once."""
+    def test_deduplicates_watch_with_obsidian(self, tmp_path: Path) -> None:
+        """Same path in watch and obsidian_vaults appears only once."""
         from ragling.watchers.watcher import get_watch_paths
 
         shared = tmp_path / "repo"
         shared.mkdir()
         config = Config(
-            code_groups=MappingProxyType({"org": (shared,)}),
+            obsidian_vaults=(shared,),
             watch=MappingProxyType({"also-repo": (shared,)}),
         )
         paths = get_watch_paths(config)
