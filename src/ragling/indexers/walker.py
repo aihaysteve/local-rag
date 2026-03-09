@@ -45,7 +45,7 @@ DOCLING_EXTENSIONS: dict[str, str] = {
     ".ogg": "audio",
     ".flac": "audio",
     ".opus": "audio",
-    ".mp4": "audio",
+    ".mp4": "audio",  # video containers — Docling extracts audio track for transcription
     ".avi": "audio",
     ".mov": "audio",
     ".mkv": "audio",
