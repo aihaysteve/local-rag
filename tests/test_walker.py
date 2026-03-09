@@ -3,6 +3,8 @@
 from pathlib import Path
 
 from ragling.indexers.walker import (
+    BUILTIN_EXCLUDES,
+    ExclusionConfig,
     FileRoute,  # noqa: F401
     WalkResult,  # noqa: F401
     WalkStats,  # noqa: F401
@@ -192,7 +194,7 @@ class TestWalk:
 
     def test_nested_git_repo_overrides_parent(self, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
-        subrepo = tmp_path / "vendor" / "lib"
+        subrepo = tmp_path / "libs" / "mylib"
         (subrepo / ".git").mkdir(parents=True)
         (subrepo / "lib.py").write_text("x = 1")
         (tmp_path / "main.py").write_text("import lib")
@@ -268,3 +270,185 @@ class TestWalk:
         routes_by_name = {r.path.name: r for r in result.routes}
         assert routes_by_name["note.md"].vault_root == tmp_path
         assert routes_by_name["note.md"].git_root == tmp_path
+
+
+class TestBuiltinExcludes:
+    """Tests for built-in exclusion patterns."""
+
+    def test_node_modules_excluded(self, tmp_path: Path) -> None:
+        nm = tmp_path / "node_modules"
+        nm.mkdir()
+        (nm / "lodash.js").write_text("module.exports = {}")
+        (tmp_path / "app.js").write_text("const _ = require('lodash')")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "app.js" in names
+        assert "lodash.js" not in names
+
+    def test_pycache_excluded(self, tmp_path: Path) -> None:
+        cache = tmp_path / "__pycache__"
+        cache.mkdir()
+        (cache / "module.cpython-312.pyc").write_text("")
+        (tmp_path / "module.py").write_text("x = 1")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "module.py" in names
+        assert "module.cpython-312.pyc" not in names
+
+    def test_venv_excluded(self, tmp_path: Path) -> None:
+        venv = tmp_path / ".venv"
+        venv.mkdir()
+        (venv / "pyvenv.cfg").write_text("home = /usr/bin")
+        (tmp_path / "main.py").write_text("print('hi')")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "main.py" in names
+
+    def test_dist_excluded(self, tmp_path: Path) -> None:
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        (dist / "bundle.js").write_text("var x = 1")
+        (tmp_path / "src.js").write_text("var y = 2")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "src.js" in names
+        assert "bundle.js" not in names
+
+    def test_lock_files_excluded(self, tmp_path: Path) -> None:
+        (tmp_path / "package-lock.json").write_text("{}")
+        (tmp_path / "uv.lock").write_text("")
+        (tmp_path / "main.py").write_text("x = 1")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "main.py" in names
+        assert "package-lock.json" not in names
+        assert "uv.lock" not in names
+
+    def test_builtin_excludes_constant_exists(self) -> None:
+        assert "node_modules/" in BUILTIN_EXCLUDES
+        assert "__pycache__/" in BUILTIN_EXCLUDES
+        assert "dist/" in BUILTIN_EXCLUDES
+        assert "build/" in BUILTIN_EXCLUDES
+
+
+class TestGitignore:
+    """Tests for .gitignore pattern handling during walk."""
+
+    def test_gitignore_excludes_files(self, tmp_path: Path) -> None:
+        (tmp_path / ".gitignore").write_text("*.log\n")
+        (tmp_path / "app.log").write_text("log entry")
+        (tmp_path / "app.py").write_text("print('hi')")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "app.py" in names
+        assert "app.log" not in names
+
+    def test_gitignore_excludes_directories(self, tmp_path: Path) -> None:
+        (tmp_path / ".gitignore").write_text("output/\n")
+        out = tmp_path / "output"
+        out.mkdir()
+        (out / "result.txt").write_text("result")
+        (tmp_path / "input.txt").write_text("input")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "input.txt" in names
+        assert "result.txt" not in names
+
+    def test_gitignore_scoped_to_subtree(self, tmp_path: Path) -> None:
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / ".gitignore").write_text("*.log\n")
+        (sub / "sub.log").write_text("sub log")
+        (tmp_path / "root.log").write_text("root log")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        # sub.log is excluded by sub/.gitignore
+        assert "sub.log" not in names
+
+
+class TestRagignore:
+    """Tests for .ragignore pattern handling during walk."""
+
+    def test_ragignore_in_directory(self, tmp_path: Path) -> None:
+        (tmp_path / ".ragignore").write_text("*.draft.md\n")
+        (tmp_path / "published.md").write_text("# Published")
+        (tmp_path / "wip.draft.md").write_text("# WIP")
+
+        result = walk(tmp_path)
+
+        names = {r.path.name for r in result.routes}
+        assert "published.md" in names
+        assert "wip.draft.md" not in names
+
+
+class TestGlobalRagignore:
+    """Tests for global ragignore file."""
+
+    def test_global_ragignore_applied(self, tmp_path: Path) -> None:
+        ragignore = tmp_path / "ragignore"
+        ragignore.write_text("*.draft.md\n")
+        (tmp_path / "root").mkdir()
+        (tmp_path / "root" / "published.md").write_text("# Published")
+        (tmp_path / "root" / "wip.draft.md").write_text("# WIP")
+
+        config = ExclusionConfig(global_ragignore_path=ragignore)
+        result = walk(tmp_path / "root", exclusion_config=config)
+
+        names = {r.path.name for r in result.routes}
+        assert "published.md" in names
+        assert "wip.draft.md" not in names
+
+    def test_per_group_ragignore_replaces_global(self, tmp_path: Path) -> None:
+        global_ignore = tmp_path / "global_ragignore"
+        global_ignore.write_text("*.draft.md\n")
+        group_ignore = tmp_path / "group_ragignore"
+        group_ignore.write_text("*.wip.md\n")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "a.draft.md").write_text("# Draft")
+        (root / "b.wip.md").write_text("# WIP")
+        (root / "c.md").write_text("# Normal")
+
+        config = ExclusionConfig(
+            global_ragignore_path=global_ignore,
+            group_ragignore_path=group_ignore,
+        )
+        result = walk(root, exclusion_config=config)
+
+        names = {r.path.name for r in result.routes}
+        # Group ragignore replaces global, so *.draft.md is NOT excluded
+        assert "a.draft.md" in names
+        # But *.wip.md IS excluded by group ragignore
+        assert "b.wip.md" not in names
+        assert "c.md" in names
+
+    def test_negation_in_ragignore(self, tmp_path: Path) -> None:
+        ragignore = tmp_path / "ragignore"
+        ragignore.write_text("*.log\n!important.log\n")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "debug.log").write_text("debug")
+        (root / "important.log").write_text("important")
+
+        config = ExclusionConfig(global_ragignore_path=ragignore)
+        result = walk(root, exclusion_config=config)
+
+        names = {r.path.name for r in result.routes}
+        assert "important.log" in names
+        assert "debug.log" not in names

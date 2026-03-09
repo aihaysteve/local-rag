@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pathspec
+
 from ragling.parsers.code import _CODE_EXTENSION_MAP, _CODE_FILENAME_MAP
 from ragling.parsers.spec import is_spec_file
 
@@ -58,6 +60,54 @@ PLAINTEXT_EXTENSIONS: frozenset[str] = frozenset(
         ".cfg",
     }
 )
+
+
+BUILTIN_EXCLUDES: frozenset[str] = frozenset({
+    "node_modules/",
+    "__pycache__/",
+    "*.pyc",
+    ".DS_Store",
+    "vendor/",
+    ".terraform/",
+    ".venv/",
+    ".env/",
+    "dist/",
+    "build/",
+    ".idea/",
+    ".vscode/",
+    ".mypy_cache/",
+    ".pytest_cache/",
+    ".tox/",
+    ".egg-info/",
+    "cdk.out/",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "Cargo.lock",
+    "poetry.lock",
+    "uv.lock",
+    "go.sum",
+    ".terraform.lock.hcl",
+})
+
+_BUILTIN_SPEC = pathspec.PathSpec.from_lines("gitignore", BUILTIN_EXCLUDES)
+
+
+@dataclass
+class ExclusionConfig:
+    """Configuration for file exclusion during walk."""
+
+    global_ragignore_path: Path | None = None
+    group_ragignore_path: Path | None = None
+
+
+def _load_pathspec(path: Path) -> pathspec.PathSpec | None:
+    """Load a pathspec from a file, returning None if the file doesn't exist."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return pathspec.PathSpec.from_lines("gitignore", text.splitlines())
+    except OSError:
+        return None
 
 
 def route_file(path: Path) -> str:
@@ -135,7 +185,9 @@ class WalkResult:
     stats: WalkStats = field(default_factory=WalkStats)
 
 
-def walk(root: Path) -> WalkResult:
+def walk(
+    root: Path, *, exclusion_config: ExclusionConfig | None = None
+) -> WalkResult:
     """Walk a directory tree and produce a routing manifest.
 
     Single depth-first traversal that detects .git and .obsidian markers,
@@ -143,6 +195,7 @@ def walk(root: Path) -> WalkResult:
 
     Args:
         root: Root directory to walk.
+        exclusion_config: Optional exclusion configuration for ragignore files.
 
     Returns:
         WalkResult with routing decisions and statistics.
@@ -151,9 +204,39 @@ def walk(root: Path) -> WalkResult:
     result = WalkResult()
     visited: set[Path] = set()
 
-    _walk_recursive(root, root, None, None, result, visited)
+    # Load user-level pathspec (global or per-group ragignore)
+    user_spec: pathspec.PathSpec | None = None
+    if exclusion_config is not None:
+        # Per-group replaces global
+        if exclusion_config.group_ragignore_path is not None:
+            user_spec = _load_pathspec(exclusion_config.group_ragignore_path)
+        elif exclusion_config.global_ragignore_path is not None:
+            user_spec = _load_pathspec(exclusion_config.global_ragignore_path)
+
+    _walk_recursive(root, root, None, None, result, visited, user_spec, [])
 
     return result
+
+
+def _is_excluded(
+    rel_path: str,
+    builtin_spec: pathspec.PathSpec,
+    user_spec: pathspec.PathSpec | None,
+    dir_specs: list[pathspec.PathSpec],
+) -> bool:
+    """Check if a path is excluded by any exclusion layer.
+
+    Built-in excludes cannot be negated. User and directory specs support
+    negation via gitignore syntax.
+    """
+    if builtin_spec.match_file(rel_path):
+        return True
+    if user_spec is not None and user_spec.match_file(rel_path):
+        return True
+    for spec in dir_specs:
+        if spec.match_file(rel_path):
+            return True
+    return False
 
 
 def _walk_recursive(
@@ -163,6 +246,8 @@ def _walk_recursive(
     vault_root: Path | None,
     result: WalkResult,
     visited: set[Path],
+    user_spec: pathspec.PathSpec | None,
+    dir_specs: list[pathspec.PathSpec],
 ) -> None:
     """Recursively walk a directory, tracking context."""
     try:
@@ -175,6 +260,15 @@ def _walk_recursive(
     visited.add(real_path)
 
     result.stats.directories += 1
+
+    # Load per-directory ignore files; copy dir_specs so siblings don't share
+    local_specs = list(dir_specs)
+    for ignore_name in (".gitignore", ".ragignore"):
+        ignore_file = current / ignore_name
+        if ignore_file.is_file():
+            spec = _load_pathspec(ignore_file)
+            if spec is not None:
+                local_specs.append(spec)
 
     try:
         entries = list(os.scandir(current))
@@ -211,6 +305,13 @@ def _walk_recursive(
         if f.name.startswith("."):
             continue
         file_path = Path(f.path)
+
+        # Check exclusions before routing
+        rel_path = str(file_path.relative_to(root))
+        if _is_excluded(rel_path, _BUILTIN_SPEC, user_spec, local_specs):
+            result.stats.skipped += 1
+            continue
+
         parser = route_file(file_path)
         if parser == "skip":
             result.stats.skipped += 1
@@ -230,6 +331,12 @@ def _walk_recursive(
         if d.name.startswith("."):
             continue
         dir_path = Path(d.path)
+
+        # Check exclusions for directories (append "/" for directory matching)
+        rel_dir = str(dir_path.relative_to(root)) + "/"
+        if _is_excluded(rel_dir, _BUILTIN_SPEC, user_spec, local_specs):
+            continue
+
         # Don't follow symlinks outside the root
         if d.is_symlink():
             try:
@@ -238,4 +345,7 @@ def _walk_recursive(
                 continue
             if not target.is_relative_to(root):
                 continue
-        _walk_recursive(dir_path, root, git_root, vault_root, result, visited)
+        _walk_recursive(
+            dir_path, root, git_root, vault_root, result, visited,
+            user_spec, local_specs,
+        )
