@@ -362,7 +362,12 @@ class TestCalibreIndexerPruning:
         conn.close()
 
 
-class TestProjectIndexerDiscovery:
+class TestProjectIndexerFlatIndexing:
+    """ProjectIndexer now always uses flat indexing (discovery removed).
+
+    Discovery-aware context routing is handled by the unified DFS walker.
+    """
+
     def _setup_db(self, tmp_path: Path) -> tuple:
         from ragling.config import Config
         from ragling.db import get_connection, init_db
@@ -376,136 +381,8 @@ class TestProjectIndexerDiscovery:
         init_db(conn, config)
         return conn, config
 
-    def test_obsidian_vault_delegates_to_obsidian_indexer(self, tmp_path: Path) -> None:
-        """When a vault is discovered, ObsidianIndexer is called for that subdirectory."""
-        conn, config = self._setup_db(tmp_path)
-
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        vault = project_dir / "my-vault"
-        vault.mkdir()
-        (vault / ".obsidian").mkdir()
-        (vault / "note.md").write_text("# Hello")
-
-        from ragling.indexers.base import IndexResult
-        from ragling.indexers.project import ProjectIndexer
-
-        indexer = ProjectIndexer("test-project", [project_dir])
-
-        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
-        with patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian:
-            MockObsidian.return_value.index.return_value = mock_result
-            result = indexer.index(conn, config)
-
-        MockObsidian.assert_called_once()
-        assert result.indexed >= 1
-        conn.close()
-
-    def test_git_repo_delegates_to_git_indexer(self, tmp_path: Path) -> None:
-        """When a git repo is discovered, GitRepoIndexer is called for that subdirectory."""
-        conn, config = self._setup_db(tmp_path)
-
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        repo = project_dir / "my-repo"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-        (repo / "main.py").write_text("print('hello')")
-
-        from ragling.indexers.base import IndexResult
-        from ragling.indexers.project import ProjectIndexer
-
-        indexer = ProjectIndexer("test-project", [project_dir])
-
-        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
-        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
-            MockGit.return_value.index.return_value = mock_result
-            result = indexer.index(conn, config)
-
-        MockGit.assert_called_once()
-        assert result.indexed >= 1
-        conn.close()
-
-    def test_repo_in_code_groups_skipped_by_discovery(
-        self, tmp_path: Path
-    ) -> None:  # Tests Indexers INV-6
-        """Repos already in code_groups should NOT be re-indexed by project discovery.
-
-        When a global_path contains a git repo that is also configured in
-        code_groups, the project indexer should skip it to avoid duplicate
-        indexing.
-        """
-        from ragling.config import Config
-        from ragling.db import get_connection, init_db
-        from ragling.indexers.base import IndexResult
-        from ragling.indexers.project import ProjectIndexer
-
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        repo = project_dir / "my-repo"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-        (repo / "main.py").write_text("print('hello')")
-
-        # Config where the repo is ALSO in code_groups
-        config = Config(
-            db_path=tmp_path / "test.db",
-            embedding_dimensions=4,
-            chunk_size_tokens=256,
-            code_groups={"my-group": [repo]},
-        )
-        conn = get_connection(config)
-        init_db(conn, config)
-
-        indexer = ProjectIndexer("global", [project_dir])
-
-        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
-        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
-            MockGit.return_value.index.return_value = mock_result
-            indexer.index(conn, config)
-
-        # GitRepoIndexer should NOT have been called — repo is in code_groups
-        MockGit.assert_not_called()
-        conn.close()
-
-    def test_repo_not_in_code_groups_still_indexed(
-        self, tmp_path: Path
-    ) -> None:  # Tests Indexers INV-6
-        """Repos NOT in code_groups should still be indexed by project discovery."""
-        from ragling.config import Config
-        from ragling.db import get_connection, init_db
-        from ragling.indexers.base import IndexResult
-        from ragling.indexers.project import ProjectIndexer
-
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        repo = project_dir / "my-repo"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-        (repo / "main.py").write_text("print('hello')")
-
-        # Config with NO code_groups
-        config = Config(
-            db_path=tmp_path / "test.db",
-            embedding_dimensions=4,
-            chunk_size_tokens=256,
-        )
-        conn = get_connection(config)
-        init_db(conn, config)
-
-        indexer = ProjectIndexer("global", [project_dir])
-
-        mock_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
-        with patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit:
-            MockGit.return_value.index.return_value = mock_result
-            indexer.index(conn, config)
-
-        # GitRepoIndexer SHOULD have been called
-        MockGit.assert_called_once()
-        conn.close()
-
-    def test_no_markers_uses_flat_indexing(self, tmp_path: Path) -> None:
-        """When no markers are found, falls back to existing flat behavior."""
+    def test_indexes_files_without_delegation(self, tmp_path: Path) -> None:
+        """ProjectIndexer indexes all files directly, no delegation to specialized indexers."""
         conn, config = self._setup_db(tmp_path)
 
         project_dir = tmp_path / "project"
@@ -516,19 +393,18 @@ class TestProjectIndexerDiscovery:
 
         indexer = ProjectIndexer("test-project", [project_dir])
 
-        with (
-            patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidian,
-            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGit,
-            patch("ragling.indexers.project.parse_and_chunk", return_value=[]),
-        ):
-            indexer.index(conn, config)
+        with patch("ragling.indexers.project.parse_and_chunk", return_value=[]):
+            result = indexer.index(conn, config)
 
-        MockObsidian.assert_not_called()
-        MockGit.assert_not_called()
+        # No errors, file was found
+        assert result.errors == 0
+        assert result.total_found == 1
         conn.close()
 
 
-class TestTwoPassGitIndexing:
+class TestProjectIndexerRepoDocuments:
+    """Tests for _index_repo_documents (still used by indexing queue)."""
+
     def _setup_db(self, tmp_path: Path) -> tuple:
         from ragling.config import Config
         from ragling.db import get_connection, init_db
@@ -542,70 +418,50 @@ class TestTwoPassGitIndexing:
         init_db(conn, config)
         return conn, config
 
-    def test_docx_in_git_repo_gets_indexed(self, tmp_path: Path) -> None:
+    def test_indexes_non_code_files_in_repo(self, tmp_path: Path) -> None:
         """Non-code document files in a git repo are indexed via the document pass."""
         conn, config = self._setup_db(tmp_path)
 
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        repo = project_dir / "my-repo"
+        repo = tmp_path / "my-repo"
         repo.mkdir()
-        (repo / ".git").mkdir()
         (repo / "main.py").write_text("print('hello')")
         (repo / "docs").mkdir()
         (repo / "docs" / "spec.md").write_text("# Specification\n\nDetails here.")
 
-        from ragling.indexers.base import IndexResult
         from ragling.indexers.project import ProjectIndexer
 
-        indexer = ProjectIndexer("test-project", [project_dir])
+        indexer = ProjectIndexer("test-project", [repo])
 
-        git_result = IndexResult(indexed=1)
         with (
-            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitClass,
             patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
             patch("ragling.indexers.project.get_embeddings") as mock_embed,
         ):
-            MockGitClass.return_value.index.return_value = git_result
             mock_parse.return_value = [
                 Chunk(text="Specification details", title="spec.md", chunk_index=0)
             ]
             mock_embed.return_value = [[0.1, 0.2, 0.3, 0.4]]
 
-            result = indexer.index(conn, config)
+            result = indexer._index_repo_documents(conn, config, repo, "test-project", force=False)
 
-        # The document pass should have attempted to index spec.md
         assert mock_parse.called
-        # Should have at least the git result + document result
         assert result.indexed >= 1
         conn.close()
 
-    def test_code_files_not_double_indexed_in_doc_pass(self, tmp_path: Path) -> None:
+    def test_skips_code_files_in_doc_pass(self, tmp_path: Path) -> None:
         """Code files (.py, .js, etc.) are NOT included in the document pass."""
         conn, config = self._setup_db(tmp_path)
 
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        repo = project_dir / "repo"
+        repo = tmp_path / "repo"
         repo.mkdir()
-        (repo / ".git").mkdir()
         (repo / "main.py").write_text("print('hello')")
-        # Only code files, no documents
 
-        from ragling.indexers.base import IndexResult
         from ragling.indexers.project import ProjectIndexer
 
-        indexer = ProjectIndexer("test-project", [project_dir])
+        indexer = ProjectIndexer("test-project", [repo])
 
-        git_result = IndexResult(indexed=1)
-        with (
-            patch("ragling.indexers.git_indexer.GitRepoIndexer") as MockGitClass,
-            patch("ragling.indexers.project.parse_and_chunk") as mock_parse,
-        ):
-            MockGitClass.return_value.index.return_value = git_result
-            indexer.index(conn, config)
+        with patch("ragling.indexers.project.parse_and_chunk") as mock_parse:
+            indexer._index_repo_documents(conn, config, repo, "test-project", force=False)
 
-        # _parse_and_chunk should not be called for .py files (they're code)
         mock_parse.assert_not_called()
         conn.close()
 
@@ -685,105 +541,9 @@ class TestBackwardCompatibility:
         conn.close()
 
 
-# ---------------------------------------------------------------------------
-# P2 #4 (S6.1-2): End-to-end ProjectIndexer two-pass no duplicates
-# ---------------------------------------------------------------------------
 
-
-class TestTwoPassNoDuplicates:
-    """Verify discovery-aware indexing doesn't index any file twice."""
-
-    def _setup_db(self, tmp_path: Path) -> tuple:
-        from ragling.config import Config
-        from ragling.db import get_connection, init_db
-
-        config = Config(
-            db_path=tmp_path / "test.db",
-            embedding_dimensions=4,
-            chunk_size_tokens=256,
-        )
-        conn = get_connection(config)
-        init_db(conn, config)
-        return conn, config
-
-    def test_vault_files_not_duplicated_in_leftovers(self, tmp_path: Path) -> None:
-        """Files inside an Obsidian vault go to ObsidianIndexer only, not leftover indexing.
-
-        Creates a project directory with:
-        - my-vault/ (.obsidian marker, contains note.md)
-        - standalone.pdf (outside the vault)
-
-        Asserts that note.md is handled by ObsidianIndexer and standalone.pdf
-        is handled by leftover indexing, with no file appearing in both paths.
-        """
-        conn, config = self._setup_db(tmp_path)
-
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-
-        # Vault with a markdown file
-        vault = project_dir / "my-vault"
-        vault.mkdir()
-        (vault / ".obsidian").mkdir()
-        vault_note = vault / "note.md"
-        vault_note.write_text("# Vault Note")
-
-        # Standalone file outside vault
-        standalone = project_dir / "standalone.pdf"
-        standalone.write_bytes(b"%PDF-1.4 fake")
-
-        from ragling.indexers.base import IndexResult
-        from ragling.indexers.project import ProjectIndexer
-
-        indexer = ProjectIndexer("test-project", [project_dir])
-
-        # Track which paths ObsidianIndexer receives
-        obsidian_paths_received: list[Path] = []
-
-        mock_obsidian_result = IndexResult(indexed=1, skipped=0, errors=0, total_found=1)
-
-        # Track which files go through leftover _parse_and_chunk
-        leftover_files_parsed: list[Path] = []
-
-        def tracking_parse_and_chunk(path: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
-            leftover_files_parsed.append(path)
-            return [Chunk(text="leftover content", title=path.name, chunk_index=0)]
-
-        with (
-            patch("ragling.indexers.obsidian.ObsidianIndexer") as MockObsidianClass,
-            patch("ragling.indexers.project.parse_and_chunk", side_effect=tracking_parse_and_chunk),
-            patch("ragling.indexers.project.get_embeddings", return_value=[[0.1, 0.2, 0.3, 0.4]]),
-        ):
-            # Capture what ObsidianIndexer is constructed with
-            def capture_obsidian_init(vault_paths, doc_store=None):  # type: ignore[no-untyped-def]
-                for vp in vault_paths:
-                    obsidian_paths_received.append(vp)
-                mock_instance = MockObsidianClass.return_value
-                return mock_instance
-
-            MockObsidianClass.side_effect = capture_obsidian_init
-            MockObsidianClass.return_value.index.return_value = mock_obsidian_result
-
-            indexer.index(conn, config)
-
-        # Vault directory was passed to ObsidianIndexer
-        assert len(obsidian_paths_received) == 1
-        assert obsidian_paths_received[0] == vault
-
-        # Leftover indexing should handle standalone.pdf but NOT vault note
-        leftover_names = {f.name for f in leftover_files_parsed}
-        assert "standalone.pdf" in leftover_names, "standalone.pdf should be indexed as a leftover"
-        assert "note.md" not in leftover_names, (
-            "note.md is inside the vault and must not appear in leftover indexing"
-        )
-
-        # No source_path appears in both paths
-        vault_file_set = {vault_note.resolve()}
-        leftover_file_set = {f.resolve() for f in leftover_files_parsed}
-        overlap = vault_file_set & leftover_file_set
-        assert overlap == set(), f"Files indexed in both vault and leftover passes: {overlap}"
-
-        conn.close()
+# Discovery-aware duplicate prevention tests removed — this is now handled
+# by the unified DFS walker (see tests/test_walker.py integration tests).
 
 
 class TestProjectIndexerStatusReporting:

@@ -95,11 +95,9 @@ def _resolve_indexer_type(collection: str, config: Config, path: Path | None) ->
         return IndexerType.CODE
 
     if collection in config.watch:
-        from ragling.indexers.auto_indexer import detect_directory_type
-
         if path is None:
             raise ValueError(f"Watch collection '{collection}' requires a path")
-        return detect_directory_type(path)
+        return IndexerType.PROJECT
 
     if path is not None:
         return IndexerType.PROJECT

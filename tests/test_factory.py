@@ -80,22 +80,8 @@ class TestCreateIndexer:
         with pytest.raises(ValueError, match="Unknown collection"):
             create_indexer("nonexistent", config)
 
-    def test_watch_code_returns_git_indexer(self, tmp_path: Path) -> None:
-        from types import MappingProxyType
-
-        from ragling.config import Config
-        from ragling.indexers.factory import create_indexer
-        from ragling.indexers.git_indexer import GitRepoIndexer
-
-        config = Config(watch=MappingProxyType({"mywatch": (tmp_path,)}))
-        with patch(
-            "ragling.indexers.auto_indexer.detect_directory_type",
-            return_value=IndexerType.CODE,
-        ):
-            indexer = create_indexer("mywatch", config, path=tmp_path)
-        assert isinstance(indexer, GitRepoIndexer)
-
-    def test_watch_project_returns_project_indexer(self, tmp_path: Path) -> None:
+    def test_watch_returns_project_indexer(self, tmp_path: Path) -> None:
+        """Watch collections always resolve to ProjectIndexer (walker handles routing)."""
         from types import MappingProxyType
 
         from ragling.config import Config
@@ -103,11 +89,7 @@ class TestCreateIndexer:
         from ragling.indexers.project import ProjectIndexer
 
         config = Config(watch=MappingProxyType({"mywatch": (tmp_path,)}))
-        with patch(
-            "ragling.indexers.auto_indexer.detect_directory_type",
-            return_value=IndexerType.PROJECT,
-        ):
-            indexer = create_indexer("mywatch", config, path=tmp_path)
+        indexer = create_indexer("mywatch", config, path=tmp_path)
         assert isinstance(indexer, ProjectIndexer)
 
     def test_watch_without_path_raises(self) -> None:

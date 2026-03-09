@@ -3,36 +3,6 @@
 from pathlib import Path
 
 
-class TestDetectDirectoryType:
-    def test_detects_git_repo(self, tmp_path: Path) -> None:
-        from ragling.indexers.auto_indexer import detect_directory_type
-
-        (tmp_path / ".git").mkdir()
-        (tmp_path / "main.py").write_text("print('hello')")
-        assert detect_directory_type(tmp_path) == "code"
-
-    def test_detects_obsidian_vault(self, tmp_path: Path) -> None:
-        from ragling.indexers.auto_indexer import detect_directory_type
-
-        (tmp_path / ".obsidian").mkdir()
-        (tmp_path / "note.md").write_text("# Note")
-        assert detect_directory_type(tmp_path) == "obsidian"
-
-    def test_defaults_to_project(self, tmp_path: Path) -> None:
-        from ragling.indexers.auto_indexer import detect_directory_type
-
-        (tmp_path / "readme.md").write_text("# Readme")
-        assert detect_directory_type(tmp_path) == "project"
-
-    def test_git_takes_precedence_over_obsidian(self, tmp_path: Path) -> None:
-        """If both .git and .obsidian exist, treat as obsidian (vault with git tracking)."""
-        from ragling.indexers.auto_indexer import detect_directory_type
-
-        (tmp_path / ".git").mkdir()
-        (tmp_path / ".obsidian").mkdir()
-        assert detect_directory_type(tmp_path) == "obsidian"
-
-
 class TestDetectIndexerTypeForFile:
     """Tests for detect_indexer_type_for_file which walks up the tree."""
 

@@ -460,8 +460,7 @@ class TestSubmitFileChange:
         )
         queue = MagicMock()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            submit_file_change(test_file, config, queue)
+        submit_file_change(test_file, config, queue)
 
         queue.submit.assert_called_once()
         job = queue.submit.call_args[0][0]
@@ -527,8 +526,7 @@ class TestSubmitFileChange:
         config = Config(global_paths=(global_dir,))
         queue = MagicMock()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            submit_file_change(test_file, config, queue)
+        submit_file_change(test_file, config, queue)
 
         queue.submit.assert_called_once()
         job = queue.submit.call_args[0][0]
