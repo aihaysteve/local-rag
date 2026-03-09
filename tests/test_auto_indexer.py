@@ -33,36 +33,6 @@ class TestDetectDirectoryType:
         assert detect_directory_type(tmp_path) == "obsidian"
 
 
-class TestCollectDirectoriesToIndex:
-    def test_home_with_subdirs(self, tmp_path: Path) -> None:
-        from ragling.indexers.auto_indexer import collect_indexable_directories
-
-        home = tmp_path / "groups"
-        home.mkdir()
-        (home / "kitchen").mkdir()
-        (home / "garage").mkdir()
-        (home / ".hidden").mkdir()  # should be skipped
-
-        dirs = collect_indexable_directories(home, usernames=["kitchen", "garage"])
-        names = {d.name for d in dirs}
-        assert "kitchen" in names
-        assert "garage" in names
-        assert ".hidden" not in names
-
-    def test_only_returns_dirs_for_configured_users(self, tmp_path: Path) -> None:
-        from ragling.indexers.auto_indexer import collect_indexable_directories
-
-        home = tmp_path / "groups"
-        home.mkdir()
-        (home / "kitchen").mkdir()
-        (home / "unknown").mkdir()
-
-        dirs = collect_indexable_directories(home, usernames=["kitchen"])
-        names = {d.name for d in dirs}
-        assert "kitchen" in names
-        assert "unknown" not in names
-
-
 class TestDetectIndexerTypeForFile:
     """Tests for detect_indexer_type_for_file which walks up the tree."""
 

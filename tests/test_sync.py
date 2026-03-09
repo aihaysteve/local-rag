@@ -429,7 +429,7 @@ class TestRunStartupSync:
         done = threading.Event()
 
         with patch(
-            "ragling.indexers.auto_indexer.collect_indexable_directories",
+            "ragling.sync._sync_directory_source",
             side_effect=RuntimeError("boom"),
         ):
             thread = run_startup_sync(config, queue, done_event=done)
