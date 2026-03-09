@@ -17,6 +17,8 @@ import pathspec
 from ragling.parsers.code import _CODE_EXTENSION_MAP, _CODE_FILENAME_MAP
 from ragling.parsers.spec import is_spec_file
 
+logger = logging.getLogger(__name__)
+
 # --- Extension sets ---
 # Docling-handled formats: rich documents requiring conversion pipeline.
 DOCLING_EXTENSIONS: dict[str, str] = {
@@ -160,9 +162,6 @@ def route_file(path: Path) -> ParserType:
 
     # 6. Skip
     return "skip"
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
