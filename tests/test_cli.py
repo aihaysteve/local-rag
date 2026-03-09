@@ -954,7 +954,7 @@ class TestInitCommand:
         data = json.loads((project_dir / "ragling.json").read_text())
         assert "old-name" in data["watch"]  # unchanged
 
-    @pytest.mark.parametrize("name", ["obsidian", "email", "calibre", "rss", "global"])
+    @pytest.mark.parametrize("name", ["email", "calibre", "rss", "global"])
     def test_init_rejects_reserved_names(
         self, tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch, fake_ragling_dir: Path
     ) -> None:

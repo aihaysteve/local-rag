@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 # System collection name -> (job_type, IndexerType) for _rag_index_via_queue dispatch
 _SYSTEM_COLLECTION_JOBS: dict[str, tuple[str, IndexerType]] = {
-    "obsidian": ("directory", IndexerType.OBSIDIAN),
     "email": ("system_collection", IndexerType.EMAIL),
     "calibre": ("system_collection", IndexerType.CALIBRE),
     "rss": ("system_collection", IndexerType.RSS),

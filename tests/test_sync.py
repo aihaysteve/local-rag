@@ -36,15 +36,15 @@ class TestSyncMapFileToCollection:
         assert name is None
 
 
-class TestMapFileToCollectionObsidianAndCode:
-    """Tests for mapping files in obsidian vaults and code groups."""
+class TestMapFileToCollectionWatchAndCode:
+    """Tests for mapping files in watch entries and code groups."""
 
-    def test_file_in_obsidian_vault_maps_to_obsidian(self, tmp_path: Path) -> None:
+    def test_file_in_watch_entry_maps_to_watch_name(self, tmp_path: Path) -> None:
         from ragling.sync import map_file_to_collection
 
         vault = tmp_path / "vault"
         vault.mkdir()
-        config = Config(obsidian_vaults=(vault,))
+        config = Config(watch=MappingProxyType({"obsidian": (vault,)}))
         name = map_file_to_collection(vault / "notes" / "daily.md", config)
         assert name == "obsidian"
 
@@ -57,12 +57,12 @@ class TestMapFileToCollectionObsidianAndCode:
         name = map_file_to_collection(repo / "src" / "main.py", config)
         assert name == "my-org"
 
-    def test_obsidian_vault_not_matched_for_unrelated_file(self, tmp_path: Path) -> None:
+    def test_watch_entry_not_matched_for_unrelated_file(self, tmp_path: Path) -> None:
         from ragling.sync import map_file_to_collection
 
         vault = tmp_path / "vault"
         vault.mkdir()
-        config = Config(obsidian_vaults=(vault,))
+        config = Config(watch=MappingProxyType({"obsidian": (vault,)}))
         name = map_file_to_collection(tmp_path / "other" / "file.md", config)
         assert name is None
 
@@ -77,8 +77,8 @@ class TestMapFileToCollectionObsidianAndCode:
         name = map_file_to_collection(repo2 / "lib.py", config)
         assert name == "my-org"
 
-    def test_home_dir_takes_precedence_over_obsidian(self, tmp_path: Path) -> None:
-        """If a vault is also inside a user home dir, home mapping wins."""
+    def test_home_dir_takes_precedence_over_watch(self, tmp_path: Path) -> None:
+        """If a watch path is also inside a user home dir, home mapping wins."""
         from ragling.sync import map_file_to_collection
 
         home = tmp_path / "groups"
@@ -87,7 +87,7 @@ class TestMapFileToCollectionObsidianAndCode:
         config = Config(
             home=home,
             users={"kitchen": UserConfig(api_key="k")},
-            obsidian_vaults=(vault,),
+            watch=MappingProxyType({"obsidian": (vault,)}),
         )
         name = map_file_to_collection(vault / "note.md", config)
         assert name == "kitchen"
@@ -285,12 +285,12 @@ class TestRunStartupSync:
         assert args[2] == "global"
         assert args[3] == global_dir
 
-    def test_syncs_obsidian_vaults(self, tmp_path: Path) -> None:
-        """Obsidian vaults are synced via the walker pipeline."""
+    def test_syncs_obsidian_via_watch(self, tmp_path: Path) -> None:
+        """Obsidian vaults configured via watch are synced via the walker pipeline."""
         vault = tmp_path / "vault"
         vault.mkdir()
 
-        config = Config(obsidian_vaults=(vault,))
+        config = Config(watch=MappingProxyType({"obsidian": (vault,)}))
 
         mock_sync = MagicMock(return_value=MagicMock(indexed=5))
         self._run_sync(config, mock_sync)
@@ -724,7 +724,7 @@ class TestSubmitFileChangeDisabledCollection:
         note.write_text("# Note")
 
         config = Config(
-            obsidian_vaults=(vault,),
+            watch=MappingProxyType({"obsidian": (vault,)}),
             disabled_collections=frozenset({"obsidian"}),
         )
         queue = MagicMock()
@@ -744,7 +744,7 @@ class TestSubmitFileChangeDisabledCollection:
         note.write_text("# Note")
 
         config = Config(
-            obsidian_vaults=(vault,),
+            watch=MappingProxyType({"obsidian": (vault,)}),
             disabled_collections=frozenset(),
         )
         queue = MagicMock()

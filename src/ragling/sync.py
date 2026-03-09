@@ -87,12 +87,6 @@ def _resolve_path(file_path: Path, config: Config) -> tuple[str | None, Path | N
         if resolved.is_relative_to(global_resolved):
             return "global", global_resolved
 
-    # Check obsidian vaults
-    for vault in config.obsidian_vaults:
-        vault_resolved = vault.resolve()
-        if resolved.is_relative_to(vault_resolved):
-            return "obsidian", vault_resolved
-
     # Check code groups
     for group_name, repo_paths in config.code_groups.items():
         for repo_path in repo_paths:
@@ -177,18 +171,7 @@ def run_startup_sync(
                         except Exception:
                             logger.exception("Error syncing global path: %s", global_path)
 
-                # --- Obsidian vaults ---
-                if config.is_collection_enabled("obsidian"):
-                    for vault in config.obsidian_vaults:
-                        if not vault.is_dir():
-                            continue
-                        try:
-                            result = sync_directory_source(conn, config, "obsidian", vault)
-                            logger.info("Synced obsidian (%s): %s", vault, result)
-                        except Exception:
-                            logger.exception("Error syncing obsidian vault: %s", vault)
-
-                # --- Code groups ---
+                # --- Code groups (kept for backward compat; migrated configs use watch) ---
                 for group_name, repo_paths in config.code_groups.items():
                     if not config.is_collection_enabled(group_name):
                         continue

@@ -17,7 +17,7 @@ DEFAULT_DB_PATH = DEFAULT_CONFIG_DIR / "rag.db"
 DEFAULT_SHARED_DB_PATH = DEFAULT_CONFIG_DIR / "doc_store.sqlite"
 DEFAULT_GROUP_DB_DIR = DEFAULT_CONFIG_DIR / "groups"
 
-RESERVED_COLLECTION_NAMES = frozenset({"obsidian", "email", "calibre", "rss", "global"})
+RESERVED_COLLECTION_NAMES = frozenset({"email", "calibre", "rss", "global"})
 
 
 @dataclass
@@ -177,9 +177,7 @@ def migrate_config_dict(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]
     Folds code_groups and obsidian_vaults into watch entries.
     Returns the migrated dict and a list of deprecation warnings.
 
-    NOTE: Not yet wired into load_config because sync.py and other code
-    still read config.obsidian_vaults and config.code_groups directly.
-    Wire in after those consumers are migrated to use config.watch.
+    Called automatically by load_config to handle legacy configs.
     """
     warnings: list[str] = []
     result = dict(raw)
@@ -207,7 +205,7 @@ def migrate_config_dict(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]
         )
         del result["code_groups"]
 
-    # Migrate obsidian_vaults
+    # Migrate obsidian_vaults into watch (keep original for URI construction)
     if "obsidian_vaults" in result:
         vault_paths = result["obsidian_vaults"]
         if isinstance(vault_paths, list) and vault_paths:
@@ -222,7 +220,6 @@ def migrate_config_dict(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]
                 "Deprecated: 'obsidian_vaults' has been migrated to 'watch'. "
                 "The walker auto-detects Obsidian vaults. Please update your config."
             )
-        del result["obsidian_vaults"]
 
     if watch:
         result["watch"] = watch
@@ -265,6 +262,19 @@ def load_config(path: Path | None = None) -> Config:
         logger.info("No config file found at %s, using defaults", config_path)
         data = {}
 
+    # system_sources provides an alternative location for source config fields,
+    # with top-level keys taking precedence for backwards compatibility.
+    # Promote to top-level before migration so migrate_config_dict sees them.
+    system_sources = data.get("system_sources", {})
+    for _ss_key in ("obsidian_vaults", "calibre_libraries"):
+        if _ss_key not in data and _ss_key in system_sources:
+            data[_ss_key] = system_sources[_ss_key]
+
+    # Auto-migrate legacy config fields (code_groups, obsidian_vaults -> watch)
+    data, migration_warnings = migrate_config_dict(data)
+    for warning in migration_warnings:
+        logger.warning(warning)
+
     search_data = data.get("search_defaults", {})
     search_defaults = SearchDefaults(
         top_k=search_data.get("top_k", 10),
@@ -273,23 +283,13 @@ def load_config(path: Path | None = None) -> Config:
         fts_weight=search_data.get("fts_weight", 0.3),
     )
 
-    # system_sources provides an alternative location for source config fields,
-    # with top-level keys taking precedence for backwards compatibility.
-    system_sources = data.get("system_sources", {})
-
-    obsidian_vaults_raw = (
-        data["obsidian_vaults"]
-        if "obsidian_vaults" in data
-        else system_sources.get("obsidian_vaults", [])
-    )
+    # obsidian_vaults: still populated for URI construction (obsidian:// links),
+    # but indexing now goes through the watch pipeline.
+    obsidian_vaults_raw = data.get("obsidian_vaults", [])
     obsidian_vaults = tuple(_expand_path(v) for v in obsidian_vaults_raw)
     obsidian_exclude_folders = tuple(data.get("obsidian_exclude_folders", []))
 
-    calibre_raw = (
-        data["calibre_libraries"]
-        if "calibre_libraries" in data
-        else system_sources.get("calibre_libraries", [])
-    )
+    calibre_raw = data.get("calibre_libraries", [])
     calibre_libraries = tuple(_expand_path(v) for v in calibre_raw)
 
     code_groups_raw: dict[str, tuple[Path, ...]] = {}

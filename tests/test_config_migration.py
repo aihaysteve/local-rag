@@ -1,5 +1,7 @@
 """Tests for config migration of code_groups/obsidian_vaults into watch."""
 
+from pathlib import Path
+
 from ragling.config import migrate_config_dict
 
 
@@ -51,3 +53,68 @@ class TestConfigMigration:
         shared_paths = migrated["watch"]["shared"]
         assert "/repo" in shared_paths
         assert "/docs" in shared_paths
+
+    def test_obsidian_vaults_preserved_for_uri_construction(self) -> None:
+        """obsidian_vaults is kept in dict (for URI construction) even after migration."""
+        raw = {
+            "obsidian_vaults": ["/home/user/vault"],
+        }
+        migrated, _ = migrate_config_dict(raw)
+        assert "obsidian_vaults" in migrated
+        assert "/home/user/vault" in migrated["obsidian_vaults"]
+
+    def test_code_groups_removed_after_migration(self) -> None:
+        """code_groups key is deleted after migration to watch."""
+        raw = {
+            "code_groups": {"repo": ["/repo"]},
+        }
+        migrated, _ = migrate_config_dict(raw)
+        assert "code_groups" not in migrated
+
+
+class TestConfigMigrationInLoadConfig:
+    """Integration tests verifying migration is wired into load_config."""
+
+    def test_load_config_migrates_obsidian_vaults_to_watch(self, tmp_path: Path) -> None:
+        import json
+
+        from ragling.config import load_config
+
+        config_file = tmp_path / "config.json"
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        config_file.write_text(
+            json.dumps(
+                {
+                    "obsidian_vaults": [str(vault)],
+                }
+            )
+        )
+        config = load_config(config_file)
+        # Obsidian paths should appear in watch
+        assert "obsidian" in config.watch
+        assert vault in config.watch["obsidian"]
+        # And still be available for URI construction
+        assert vault in config.obsidian_vaults
+
+    def test_load_config_migrates_code_groups_to_watch(self, tmp_path: Path) -> None:
+        import json
+
+        from ragling.config import load_config
+
+        config_file = tmp_path / "config.json"
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        config_file.write_text(
+            json.dumps(
+                {
+                    "code_groups": {"mycode": [str(repo)]},
+                }
+            )
+        )
+        config = load_config(config_file)
+        # Code group paths should appear in watch
+        assert "mycode" in config.watch
+        assert repo in config.watch["mycode"]
+        # code_groups should be empty (deleted from raw dict before parsing)
+        assert len(config.code_groups) == 0
