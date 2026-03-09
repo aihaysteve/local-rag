@@ -746,7 +746,7 @@ class TestRagIndexQueueRouting:
         rag_index_fn = tools["rag_index"].fn
 
         mock_result = MagicMock(indexed=5)
-        with patch("ragling.sync._sync_directory_source", return_value=mock_result) as mock_sync:
+        with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
             with (
                 patch("ragling.db.get_connection", return_value=MagicMock()),
                 patch("ragling.db.init_db"),
@@ -830,7 +830,7 @@ class TestRagIndexWatch:
         rag_index_fn = tools["rag_index"].fn
 
         mock_result = MagicMock(indexed=3)
-        with patch("ragling.sync._sync_directory_source", return_value=mock_result) as mock_sync:
+        with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
             with (
                 patch("ragling.db.get_connection", return_value=MagicMock()),
                 patch("ragling.db.init_db"),

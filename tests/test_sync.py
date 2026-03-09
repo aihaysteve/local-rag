@@ -241,7 +241,7 @@ class TestRunStartupSync:
         done = threading.Event()
 
         with (
-            patch("ragling.sync._sync_directory_source", mock_sync),
+            patch("ragling.sync.sync_directory_source", mock_sync),
             patch("ragling.db.get_connection") as mock_conn,
             patch("ragling.db.init_db"),
         ):
@@ -423,7 +423,7 @@ class TestRunStartupSync:
         done = threading.Event()
 
         with patch(
-            "ragling.sync._sync_directory_source",
+            "ragling.sync.sync_directory_source",
             side_effect=RuntimeError("boom"),
         ):
             thread = run_startup_sync(config, queue, done_event=done)
@@ -792,7 +792,7 @@ class TestRunStartupSyncWatch:
         done = threading.Event()
 
         with (
-            patch("ragling.sync._sync_directory_source", mock_sync),
+            patch("ragling.sync.sync_directory_source", mock_sync),
             patch("ragling.db.get_connection") as mock_conn,
             patch("ragling.db.init_db"),
         ):

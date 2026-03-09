@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 
 class TestSyncDirectorySource:
-    """Tests that _sync_directory_source uses the unified walker."""
+    """Tests that sync_directory_source uses the unified walker."""
 
     @patch("ragling.indexers.walk_processor.process_walk_result")
     @patch("ragling.indexers.walker.walk")
@@ -17,9 +17,9 @@ class TestSyncDirectorySource:
         mock_process: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """_sync_directory_source should call walk() then process_walk_result()."""
+        """sync_directory_source should call walk() then process_walk_result()."""
         from ragling.indexers.base import IndexResult
-        from ragling.sync import _sync_directory_source
+        from ragling.sync import sync_directory_source
 
         mock_walk.return_value = MagicMock()
         mock_process.return_value = IndexResult(indexed=5)
@@ -27,7 +27,7 @@ class TestSyncDirectorySource:
         config = MagicMock()
         conn = MagicMock()
 
-        result = _sync_directory_source(
+        result = sync_directory_source(
             conn=conn,
             config=config,
             watch_name="test",
@@ -48,12 +48,12 @@ class TestSyncDirectorySource:
     ) -> None:
         """Should pass ExclusionConfig with global ragignore path."""
         from ragling.indexers.base import IndexResult
-        from ragling.sync import _sync_directory_source
+        from ragling.sync import sync_directory_source
 
         mock_walk.return_value = MagicMock()
         mock_process.return_value = IndexResult()
 
-        _sync_directory_source(
+        sync_directory_source(
             conn=MagicMock(), config=MagicMock(), watch_name="test", watch_path=tmp_path
         )
 
@@ -71,12 +71,12 @@ class TestSyncDirectorySource:
     ) -> None:
         """Should pass force flag through to process_walk_result."""
         from ragling.indexers.base import IndexResult
-        from ragling.sync import _sync_directory_source
+        from ragling.sync import sync_directory_source
 
         mock_walk.return_value = MagicMock()
         mock_process.return_value = IndexResult()
 
-        _sync_directory_source(
+        sync_directory_source(
             conn=MagicMock(),
             config=MagicMock(),
             watch_name="test",
@@ -98,12 +98,12 @@ class TestSyncDirectorySource:
     ) -> None:
         """Should pass watch_name and watch_root to process_walk_result."""
         from ragling.indexers.base import IndexResult
-        from ragling.sync import _sync_directory_source
+        from ragling.sync import sync_directory_source
 
         mock_walk.return_value = MagicMock()
         mock_process.return_value = IndexResult()
 
-        _sync_directory_source(
+        sync_directory_source(
             conn=MagicMock(),
             config=MagicMock(),
             watch_name="mywatch",

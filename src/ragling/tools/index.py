@@ -144,7 +144,7 @@ def _rag_index_via_queue(
     # Code groups: use unified walker pipeline
     if collection in config.code_groups:
         from ragling.db import get_connection, init_db
-        from ragling.sync import _sync_directory_source
+        from ragling.sync import sync_directory_source
 
         conn = get_connection(config)
         init_db(conn, config)
@@ -153,7 +153,7 @@ def _rag_index_via_queue(
             for repo_path in config.code_groups[collection]:
                 if not repo_path.is_dir():
                     continue
-                result = _sync_directory_source(
+                result = sync_directory_source(
                     conn, config, collection, repo_path, status=indexing_status
                 )
                 total_indexed += result.indexed
@@ -170,7 +170,7 @@ def _rag_index_via_queue(
     # Watch collections: use unified walker pipeline
     if collection in config.watch:
         from ragling.db import get_connection, init_db
-        from ragling.sync import _sync_directory_source
+        from ragling.sync import sync_directory_source
 
         conn = get_connection(config)
         init_db(conn, config)
@@ -179,7 +179,7 @@ def _rag_index_via_queue(
             for watch_path in config.watch[collection]:
                 if not watch_path.is_dir():
                     continue
-                result = _sync_directory_source(
+                result = sync_directory_source(
                     conn, config, collection, watch_path, status=indexing_status
                 )
                 total_indexed += result.indexed

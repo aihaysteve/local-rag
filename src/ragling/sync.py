@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _sync_directory_source(
+def sync_directory_source(
     conn: sqlite3.Connection,
     config: Config,
     watch_name: str,
@@ -161,7 +161,7 @@ def run_startup_sync(
                         if not user_dir.is_dir() or not config.is_collection_enabled(username):
                             continue
                         try:
-                            result = _sync_directory_source(conn, config, username, user_dir)
+                            result = sync_directory_source(conn, config, username, user_dir)
                             logger.info("Synced %s: %s", username, result)
                         except Exception:
                             logger.exception("Error syncing user dir: %s", username)
@@ -172,7 +172,7 @@ def run_startup_sync(
                         if not global_path.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(conn, config, "global", global_path)
+                            result = sync_directory_source(conn, config, "global", global_path)
                             logger.info("Synced global (%s): %s", global_path, result)
                         except Exception:
                             logger.exception("Error syncing global path: %s", global_path)
@@ -183,7 +183,7 @@ def run_startup_sync(
                         if not vault.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(conn, config, "obsidian", vault)
+                            result = sync_directory_source(conn, config, "obsidian", vault)
                             logger.info("Synced obsidian (%s): %s", vault, result)
                         except Exception:
                             logger.exception("Error syncing obsidian vault: %s", vault)
@@ -196,7 +196,7 @@ def run_startup_sync(
                         if not repo_path.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(conn, config, group_name, repo_path)
+                            result = sync_directory_source(conn, config, group_name, repo_path)
                             logger.info(
                                 "Synced code group %s (%s): %s",
                                 group_name,
@@ -218,7 +218,7 @@ def run_startup_sync(
                         if not watch_path.is_dir():
                             continue
                         try:
-                            result = _sync_directory_source(conn, config, watch_name, watch_path)
+                            result = sync_directory_source(conn, config, watch_name, watch_path)
                             logger.info(
                                 "Synced watch %s (%s): %s",
                                 watch_name,
