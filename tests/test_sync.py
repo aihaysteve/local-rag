@@ -231,75 +231,74 @@ class TestSubmitFileChangeWithMarkerDetection:
 
 
 class TestRunStartupSync:
-    """Tests for run_startup_sync submitting IndexJobs to the queue."""
+    """Tests for run_startup_sync using the unified walker pipeline."""
 
-    def test_submits_home_directories(self, tmp_path: Path) -> None:
-        """Home user directories are submitted with correct indexer_type."""
+    def _run_sync(self, config, mock_sync):
+        """Helper: run startup sync with walker mocked out."""
         from ragling.sync import run_startup_sync
 
+        queue = MagicMock()
+        done = threading.Event()
+
+        with (
+            patch("ragling.sync._sync_directory_source", mock_sync),
+            patch("ragling.db.get_connection") as mock_conn,
+            patch("ragling.db.init_db"),
+        ):
+            mock_conn.return_value = MagicMock()
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
+
+        return queue
+
+    def test_syncs_home_directories(self, tmp_path: Path) -> None:
+        """Home user directories are synced via the walker pipeline."""
         home = tmp_path / "groups"
         user_dir = home / "kitchen"
         user_dir.mkdir(parents=True)
-        (user_dir / ".git").mkdir()
 
         config = Config(
             home=home,
             users={"kitchen": UserConfig(api_key="k")},
         )
-        queue = MagicMock()
-        done = threading.Event()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="code"):
-            run_startup_sync(config, queue, done_event=done)
-            done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=3))
+        self._run_sync(config, mock_sync)
 
-        queue.submit.assert_called()
-        job = queue.submit.call_args_list[0][0][0]
-        assert isinstance(job, IndexJob)
-        assert job.collection_name == "kitchen"
-        assert job.indexer_type == "code"
-        assert job.path == user_dir
+        mock_sync.assert_called_once()
+        args = mock_sync.call_args[0]
+        assert args[2] == "kitchen"
+        assert args[3] == user_dir
 
-    def test_submits_global_paths(self, tmp_path: Path) -> None:
-        """Global paths are submitted with auto-detected indexer_type."""
-        from ragling.sync import run_startup_sync
-
+    def test_syncs_global_paths(self, tmp_path: Path) -> None:
+        """Global paths are synced via the walker pipeline."""
         global_dir = tmp_path / "global"
         global_dir.mkdir()
 
         config = Config(global_paths=(global_dir,))
-        queue = MagicMock()
-        done = threading.Event()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            run_startup_sync(config, queue, done_event=done)
-            done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=2))
+        self._run_sync(config, mock_sync)
 
-        queue.submit.assert_called()
-        job = queue.submit.call_args_list[0][0][0]
-        assert job.collection_name == "global"
-        assert job.indexer_type == "project"
-        assert job.path == global_dir
+        mock_sync.assert_called_once()
+        args = mock_sync.call_args[0]
+        assert args[2] == "global"
+        assert args[3] == global_dir
 
-    def test_submits_obsidian_vaults(self, tmp_path: Path) -> None:
-        """Obsidian vaults from config are submitted as obsidian indexer_type."""
-        from ragling.sync import run_startup_sync
-
+    def test_syncs_obsidian_vaults(self, tmp_path: Path) -> None:
+        """Obsidian vaults are synced via the walker pipeline."""
         vault = tmp_path / "vault"
         vault.mkdir()
 
         config = Config(obsidian_vaults=(vault,))
-        queue = MagicMock()
-        done = threading.Event()
 
-        run_startup_sync(config, queue, done_event=done)
-        done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=5))
+        self._run_sync(config, mock_sync)
 
-        queue.submit.assert_called()
-        job = queue.submit.call_args_list[0][0][0]
-        assert job.collection_name == "obsidian"
-        assert job.indexer_type == "obsidian"
-        assert job.path == vault
+        mock_sync.assert_called_once()
+        args = mock_sync.call_args[0]
+        assert args[2] == "obsidian"
+        assert args[3] == vault
 
     def test_submits_system_collections(self, tmp_path: Path) -> None:
         """System collections (email, calibre, rss) are submitted."""
@@ -370,25 +369,20 @@ class TestRunStartupSync:
         assert "calibre" not in submitted_types
         assert "rss" not in submitted_types
 
-    def test_submits_code_groups(self, tmp_path: Path) -> None:
-        """Code groups from config are submitted with code indexer_type."""
-        from ragling.sync import run_startup_sync
-
+    def test_syncs_code_groups(self, tmp_path: Path) -> None:
+        """Code groups are synced via the walker pipeline."""
         repo = tmp_path / "repo"
         repo.mkdir()
 
         config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
-        queue = MagicMock()
-        done = threading.Event()
 
-        run_startup_sync(config, queue, done_event=done)
-        done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=4))
+        self._run_sync(config, mock_sync)
 
-        queue.submit.assert_called()
-        job = queue.submit.call_args_list[0][0][0]
-        assert job.collection_name == "my-org"
-        assert job.indexer_type == "code"
-        assert job.path == repo
+        mock_sync.assert_called_once()
+        args = mock_sync.call_args[0]
+        assert args[2] == "my-org"
+        assert args[3] == repo
 
     def test_no_sources_no_submissions(self) -> None:
         """When everything is disabled, nothing is submitted."""
@@ -790,12 +784,28 @@ class TestSubmitFileChangeDisabledCollection:
 
 
 class TestRunStartupSyncWatch:
-    """Tests for run_startup_sync submitting watch collection jobs."""
+    """Tests for run_startup_sync using the unified walker pipeline for watch dirs."""
 
-    def test_submits_watch_directories(self, tmp_path: Path) -> None:
-        """Watch directories are submitted with auto-detected indexer_type."""
+    def _run_sync(self, config, mock_sync):
+        """Helper: run startup sync with walker mocked out."""
         from ragling.sync import run_startup_sync
 
+        queue = MagicMock()
+        done = threading.Event()
+
+        with (
+            patch("ragling.sync._sync_directory_source", mock_sync),
+            patch("ragling.db.get_connection") as mock_conn,
+            patch("ragling.db.init_db"),
+        ):
+            mock_conn.return_value = MagicMock()
+            run_startup_sync(config, queue, done_event=done)
+            done.wait(timeout=5.0)
+
+        return queue
+
+    def test_syncs_watch_directories(self, tmp_path: Path) -> None:
+        """Watch directories are synced via the walker pipeline."""
         watch_dir = tmp_path / "movie-rec"
         watch_dir.mkdir()
 
@@ -803,24 +813,17 @@ class TestRunStartupSyncWatch:
             watch=MappingProxyType({"movie-rec": (watch_dir,)}),
             disabled_collections=frozenset({"email", "calibre", "rss"}),
         )
-        queue = MagicMock()
-        done = threading.Event()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            run_startup_sync(config, queue, done_event=done)
-            done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=3))
+        self._run_sync(config, mock_sync)
 
-        queue.submit.assert_called()
-        job = queue.submit.call_args_list[0][0][0]
-        assert isinstance(job, IndexJob)
-        assert job.collection_name == "movie-rec"
-        assert job.indexer_type == "project"
-        assert job.path == watch_dir
+        mock_sync.assert_called_once()
+        args = mock_sync.call_args[0]
+        assert args[2] == "movie-rec"
+        assert args[3] == watch_dir
 
-    def test_submits_watch_with_multiple_paths(self, tmp_path: Path) -> None:
-        """Watch entry with multiple paths submits a job for each."""
-        from ragling.sync import run_startup_sync
-
+    def test_syncs_watch_with_multiple_paths(self, tmp_path: Path) -> None:
+        """Watch entry with multiple paths syncs each via walker pipeline."""
         dir1 = tmp_path / "papers"
         dir2 = tmp_path / "refs"
         dir1.mkdir()
@@ -830,17 +833,16 @@ class TestRunStartupSyncWatch:
             watch=MappingProxyType({"research": (dir1, dir2)}),
             disabled_collections=frozenset({"email", "calibre", "rss"}),
         )
-        queue = MagicMock()
-        done = threading.Event()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            run_startup_sync(config, queue, done_event=done)
-            done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=2))
+        self._run_sync(config, mock_sync)
 
-        jobs = [call[0][0] for call in queue.submit.call_args_list]
-        assert len(jobs) == 2
-        assert all(j.collection_name == "research" for j in jobs)
-        assert {j.path for j in jobs} == {dir1, dir2}
+        assert mock_sync.call_count == 2
+        calls = mock_sync.call_args_list
+        names = {c[0][2] for c in calls}
+        paths = {c[0][3] for c in calls}
+        assert names == {"research"}
+        assert paths == {dir1, dir2}
 
     def test_skips_disabled_watch_collection(self, tmp_path: Path) -> None:
         """Disabled watch collections are not submitted."""
@@ -877,10 +879,8 @@ class TestRunStartupSyncWatch:
 
         queue.submit.assert_not_called()
 
-    def test_watch_uses_detect_directory_type(self, tmp_path: Path) -> None:
-        """Watch uses auto-detection, not hardcoded IndexerType."""
-        from ragling.sync import run_startup_sync
-
+    def test_watch_uses_walker_pipeline(self, tmp_path: Path) -> None:
+        """Watch directories use the unified walker, not detect_directory_type."""
         watch_dir = tmp_path / "repo"
         watch_dir.mkdir()
 
@@ -888,15 +888,14 @@ class TestRunStartupSyncWatch:
             watch=MappingProxyType({"repo": (watch_dir,)}),
             disabled_collections=frozenset({"email", "calibre", "rss"}),
         )
-        queue = MagicMock()
-        done = threading.Event()
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="code"):
-            run_startup_sync(config, queue, done_event=done)
-            done.wait(timeout=5.0)
+        mock_sync = MagicMock(return_value=MagicMock(indexed=1))
+        self._run_sync(config, mock_sync)
 
-        job = queue.submit.call_args_list[0][0][0]
-        assert job.indexer_type == "code"
+        mock_sync.assert_called_once()
+        args = mock_sync.call_args[0]
+        assert args[2] == "repo"
+        assert args[3] == watch_dir
 
 
 class TestStartupSyncThreadProperties:

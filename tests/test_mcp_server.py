@@ -713,8 +713,8 @@ class TestRagIndexQueueRouting:
         assert result["collection"] == "obsidian"
         assert "indexing" in result
 
-    def test_rag_index_via_queue_code_group_submits_all_repos(self, tmp_path: Path) -> None:
-        """Code groups submit one job per repo via fire-and-forget."""
+    def test_rag_index_code_group_syncs_all_repos(self, tmp_path: Path) -> None:
+        """Code groups sync each repo via the unified walker pipeline."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -744,11 +744,19 @@ class TestRagIndexQueueRouting:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="mycode")
 
-        assert queue.submit.call_count == 2
-        queue.submit_and_wait.assert_not_called()
-        assert result["status"] == "submitted"
+        mock_result = MagicMock(indexed=5)
+        with patch("ragling.sync._sync_directory_source", return_value=mock_result) as mock_sync:
+            with (
+                patch("ragling.db.get_connection", return_value=MagicMock()),
+                patch("ragling.db.init_db"),
+            ):
+                result: dict[str, Any] = rag_index_fn(collection="mycode")
+
+            assert mock_sync.call_count == 2
+
+        queue.submit.assert_not_called()
+        assert result["status"] == "completed"
         assert result["collection"] == "mycode"
         assert result["repos"] == 2
         assert "indexing" in result
@@ -789,8 +797,8 @@ class TestRagIndexQueueRouting:
 class TestRagIndexWatch:
     """Tests for rag_index routing watch collections."""
 
-    def test_rag_index_via_queue_watch_submits_jobs(self, tmp_path: Path) -> None:
-        """Watch collections submit auto-detected jobs via queue."""
+    def test_rag_index_watch_syncs_all_paths(self, tmp_path: Path) -> None:
+        """Watch collections sync each path via the unified walker pipeline."""
         from ragling.config import Config
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -821,14 +829,18 @@ class TestRagIndexWatch:
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
 
-        with patch("ragling.indexers.auto_indexer.detect_directory_type", return_value="project"):
-            result: dict[str, Any] = rag_index_fn(collection="research")
+        mock_result = MagicMock(indexed=3)
+        with patch("ragling.sync._sync_directory_source", return_value=mock_result) as mock_sync:
+            with (
+                patch("ragling.db.get_connection", return_value=MagicMock()),
+                patch("ragling.db.init_db"),
+            ):
+                result: dict[str, Any] = rag_index_fn(collection="research")
 
-        assert queue.submit.call_count == 2
-        jobs = [call[0][0] for call in queue.submit.call_args_list]
-        assert all(j.collection_name == "research" for j in jobs)
-        assert {j.path for j in jobs} == {dir1, dir2}
-        assert result["status"] == "submitted"
+            assert mock_sync.call_count == 2
+
+        queue.submit.assert_not_called()
+        assert result["status"] == "completed"
         assert result["paths"] == 2
 
     def test_rag_index_no_queue_watch_returns_error(self, tmp_path: Path) -> None:
