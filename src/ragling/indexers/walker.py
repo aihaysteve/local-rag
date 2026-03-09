@@ -10,6 +10,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import pathspec
 
@@ -112,7 +113,10 @@ def _load_pathspec(path: Path) -> pathspec.PathSpec | None:
         return None
 
 
-def route_file(path: Path) -> str:
+ParserType = Literal["spec", "docling", "markdown", "treesitter", "plaintext", "skip"]
+
+
+def route_file(path: Path) -> ParserType:
     """Route a file to exactly one parser based on filename and extension.
 
     Priority order (first match wins):
@@ -164,7 +168,7 @@ class FileRoute:
     """A file with its routing decision and walk context."""
 
     path: Path
-    parser: str  # "spec", "docling", "markdown", "treesitter", "plaintext"
+    parser: Literal["spec", "docling", "markdown", "treesitter", "plaintext"]
     git_root: Path | None
     vault_root: Path | None
 
