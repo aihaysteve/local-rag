@@ -16,7 +16,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
     """Register the rag_index tool."""
 
     @mcp.tool()
-    def rag_index(collection: str, path: str | None = None) -> dict[str, Any]:
+    def rag_index(collection: str, path: str | None = None, plan: bool = False) -> dict[str, Any]:
         """Trigger indexing for a collection.
 
         Submits an indexing job and returns immediately. Use rag_indexing_status
@@ -33,6 +33,8 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                 name, a watch collection name, or a project name).
             path: Path to index (required for project collections, or to add a single repo
                 to a code group).
+            plan: When True, run a dry-run walk and return the formatted manifest
+                without any indexing, parsing, or database writes.
         """
         from ragling.tools.helpers import _get_visible_collections
 
@@ -44,6 +46,9 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
 
         if not config.is_collection_enabled(collection):
             return {"error": f"Collection '{collection}' is disabled in config."}
+
+        if plan:
+            return _rag_index_plan(collection, path, config)
 
         q = ctx.get_queue()
         if q is not None:
@@ -58,6 +63,43 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
 
         # No queue_getter -> no indexing queue available
         return {"error": "No indexing queue available. Use 'ragling serve' to start the server."}
+
+
+def _rag_index_plan(
+    collection: str,
+    path: str | None,
+    config: Config,
+) -> dict[str, Any]:
+    """Run walk-only dry-run and return a formatted manifest."""
+    from pathlib import Path as P
+
+    from ragling.indexers.walker import format_plan, walk
+    from ragling.tools.helpers import _SYSTEM_COLLECTION_JOBS
+
+    if collection in _SYSTEM_COLLECTION_JOBS:
+        return {"error": f"Plan mode is not supported for system collection '{collection}'."}
+
+    # Collect paths to walk
+    paths: list[P] = []
+    if collection in config.code_groups:
+        paths = [p for p in config.code_groups[collection] if p.is_dir()]
+    elif collection in config.watch:
+        paths = [p for p in config.watch[collection] if p.is_dir()]
+    elif path:
+        paths = [P(path)]
+    else:
+        return {"error": f"Unknown collection '{collection}'. Provide a path for plan mode."}
+
+    plan_parts: list[str] = []
+    for walk_path in paths:
+        result = walk(walk_path)
+        plan_parts.append(format_plan(result, watch_name=collection, watch_root=walk_path))
+
+    return {
+        "status": "plan",
+        "collection": collection,
+        "plan": "\n---\n".join(plan_parts),
+    }
 
 
 def _rag_index_via_queue(

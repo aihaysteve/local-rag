@@ -1584,3 +1584,150 @@ class TestRagIndexSystemCollectionDispatch:
         item = q._queue.get_nowait()
         assert item.job_type == expected_job_type
         assert item.indexer_type.value == expected_indexer_type
+
+
+class TestRagIndexPlan:
+    """Tests for rag_index plan (dry-run) mode."""
+
+    def test_plan_code_group_returns_walk_plan(self, tmp_path: Path) -> None:
+        """plan=True for code group runs walk and returns formatted plan."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("print('hello')")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            code_groups={"mycode": [repo]},
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="mycode", plan=True)
+
+        assert result["status"] == "plan"
+        assert "plan" in result
+        assert "Walk complete" in result["plan"]
+        queue.submit.assert_not_called()
+
+    def test_plan_watch_collection_returns_walk_plan(self, tmp_path: Path) -> None:
+        """plan=True for watch collection runs walk and returns formatted plan."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        dir1 = tmp_path / "docs"
+        dir1.mkdir()
+        (dir1 / "readme.md").write_text("# Hello")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"research": (dir1,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="research", plan=True)
+
+        assert result["status"] == "plan"
+        assert "Walk complete" in result["plan"]
+        queue.submit.assert_not_called()
+
+    def test_plan_system_collection_returns_error(self, tmp_path: Path) -> None:
+        """plan=True for system collections returns an error."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            obsidian_vaults=[tmp_path / "vault"],
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="obsidian", plan=True)
+
+        assert "error" in result
+        assert "plan" in result["error"].lower() or "dry-run" in result["error"].lower()
+
+    def test_plan_no_queue_still_works(self, tmp_path: Path) -> None:
+        """plan=True works even without an indexing queue (read-only)."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        dir1 = tmp_path / "docs"
+        dir1.mkdir()
+        (dir1 / "notes.md").write_text("# Notes")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"research": (dir1,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        result: dict[str, Any] = rag_index_fn(collection="research", plan=True)
+
+        assert result["status"] == "plan"
+        assert "Walk complete" in result["plan"]
