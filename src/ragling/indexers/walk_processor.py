@@ -20,7 +20,7 @@ from ragling.indexers.base import (
     prune_stale_sources,
     upsert_source_with_chunks,
 )
-from ragling.indexers.walker import FileRoute, WalkResult, assign_collection
+from ragling.indexers.walker import DOCLING_EXTENSIONS, FileRoute, WalkResult, assign_collection
 
 if TYPE_CHECKING:
     import sqlite3
@@ -45,15 +45,14 @@ def process_walk_result(
 ) -> IndexResult:
     """Process a walk manifest: parse, embed, and persist each file."""
     result = IndexResult(total_found=len(walk_result.routes))
-    total = len(walk_result.routes)
 
     # Cache collection IDs
     collection_ids: dict[str, int] = {}
 
     if status:
-        status.set_file_total(watch_name, total)
+        status.set_file_total(watch_name, len(walk_result.routes))
 
-    for i, route in enumerate(walk_result.routes):
+    for route in walk_result.routes:
         try:
             _process_file(
                 route,
@@ -166,8 +165,6 @@ def _parse_route(
         source_type = "markdown"
     elif route.parser == "docling":
         ext = path.suffix.lower()
-        from ragling.indexers.walker import DOCLING_EXTENSIONS
-
         source_type = DOCLING_EXTENSIONS.get(ext, "pdf")
     elif route.parser == "plaintext":
         source_type = "plaintext"
