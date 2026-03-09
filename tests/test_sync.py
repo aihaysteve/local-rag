@@ -53,9 +53,9 @@ class TestMapFileToCollectionWatchAndCode:
 
         repo = tmp_path / "myrepo"
         repo.mkdir()
-        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
+        config = Config(watch=MappingProxyType({"mycode": (repo,)}))
         name = map_file_to_collection(repo / "src" / "main.py", config)
-        assert name == "my-org"
+        assert name == "mycode"
 
     def test_watch_entry_not_matched_for_unrelated_file(self, tmp_path: Path) -> None:
         from ragling.sync import map_file_to_collection
@@ -73,9 +73,9 @@ class TestMapFileToCollectionWatchAndCode:
         repo2 = tmp_path / "repo2"
         repo1.mkdir()
         repo2.mkdir()
-        config = Config(code_groups=MappingProxyType({"my-org": (repo1, repo2)}))
+        config = Config(watch=MappingProxyType({"mycode": (repo1, repo2)}))
         name = map_file_to_collection(repo2 / "lib.py", config)
-        assert name == "my-org"
+        assert name == "mycode"
 
     def test_home_dir_takes_precedence_over_watch(self, tmp_path: Path) -> None:
         """If a watch path is also inside a user home dir, home mapping wins."""
@@ -124,19 +124,6 @@ class TestMapFileToCollectionWatch:
         config = Config(watch=MappingProxyType({"proj": (watch_dir,)}))
         name = map_file_to_collection(tmp_path / "other" / "file.md", config)
         assert name is None
-
-    def test_code_groups_take_precedence_over_watch(self, tmp_path: Path) -> None:
-        """If a path is in both code_groups and watch, code_groups wins."""
-        from ragling.sync import map_file_to_collection
-
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        config = Config(
-            code_groups=MappingProxyType({"my-org": (repo,)}),
-            watch=MappingProxyType({"also-repo": (repo,)}),
-        )
-        name = map_file_to_collection(repo / "main.py", config)
-        assert name == "my-org"
 
 
 class TestSubmitFileChangeWatch:
@@ -369,21 +356,6 @@ class TestRunStartupSync:
         assert "calibre" not in submitted_types
         assert "rss" not in submitted_types
 
-    def test_syncs_code_groups(self, tmp_path: Path) -> None:
-        """Code groups are synced via the walker pipeline."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-
-        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
-
-        mock_sync = MagicMock(return_value=MagicMock(indexed=4))
-        self._run_sync(config, mock_sync)
-
-        mock_sync.assert_called_once()
-        args = mock_sync.call_args[0]
-        assert args[2] == "my-org"
-        assert args[3] == repo
-
     def test_no_sources_no_submissions(self) -> None:
         """When everything is disabled, nothing is submitted."""
         from ragling.sync import run_startup_sync
@@ -613,7 +585,7 @@ class TestSubmitFileChangeGitStateRouting:
         git_head = repo / ".git" / "HEAD"
         git_head.write_text("ref: refs/heads/main\n")
 
-        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
+        config = Config(watch=MappingProxyType({"mycode": (repo,)}))
         queue = MagicMock()
 
         submit_file_change(git_head, config, queue)
@@ -621,7 +593,7 @@ class TestSubmitFileChangeGitStateRouting:
         queue.submit.assert_called_once()
         job = queue.submit.call_args[0][0]
         assert job.indexer_type == "code"
-        assert job.collection_name == "my-org"
+        assert job.collection_name == "mycode"
         assert job.path == repo
 
     def test_git_refs_change_submits_code_reindex(self, tmp_path: Path) -> None:
@@ -634,7 +606,7 @@ class TestSubmitFileChangeGitStateRouting:
         ref_file = repo / ".git" / "refs" / "heads" / "main"
         ref_file.write_text("abc123\n")
 
-        config = Config(code_groups=MappingProxyType({"my-org": (repo,)}))
+        config = Config(watch=MappingProxyType({"mycode": (repo,)}))
         queue = MagicMock()
 
         submit_file_change(ref_file, config, queue)
@@ -679,8 +651,8 @@ class TestSubmitFileChangeGitStateRouting:
         git_head.write_text("ref: refs/heads/main\n")
 
         config = Config(
-            code_groups=MappingProxyType({"my-org": (repo,)}),
-            disabled_collections=frozenset({"my-org"}),
+            watch=MappingProxyType({"mycode": (repo,)}),
+            disabled_collections=frozenset({"mycode"}),
         )
         queue = MagicMock()
 
@@ -755,8 +727,8 @@ class TestSubmitFileChangeDisabledCollection:
         job = queue.submit.call_args[0][0]
         assert job.collection_name == "obsidian"
 
-    def test_disabled_code_group_does_not_submit(self, tmp_path: Path) -> None:
-        """Files in a disabled code group are silently skipped."""
+    def test_disabled_watch_collection_does_not_submit(self, tmp_path: Path) -> None:
+        """Files in a disabled watch collection are silently skipped."""
         from ragling.sync import submit_file_change
 
         repo = tmp_path / "repo"
@@ -766,8 +738,8 @@ class TestSubmitFileChangeDisabledCollection:
         src_file.write_text("print('hi')")
 
         config = Config(
-            code_groups=MappingProxyType({"my-org": (repo,)}),
-            disabled_collections=frozenset({"my-org"}),
+            watch=MappingProxyType({"mycode": (repo,)}),
+            disabled_collections=frozenset({"mycode"}),
         )
         queue = MagicMock()
 

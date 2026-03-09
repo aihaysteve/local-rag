@@ -24,7 +24,6 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         has queued work.
 
         For system collections ('obsidian', 'email', 'calibre', 'rss'), uses configured paths.
-        For code groups (matching a key in config code_groups), indexes all repos in that group.
         For watch collections (matching a key in config watch), indexes all paths in that entry.
         For project collections, a path argument is required.
 
@@ -79,7 +78,7 @@ def _rag_index_plan(
     if collection in _SYSTEM_COLLECTION_JOBS:
         return {"error": f"Plan mode is not supported for system collection '{collection}'."}
 
-    # Collect paths to walk (code_groups are auto-migrated into watch by load_config)
+    # Collect paths to walk
     paths: list[P] = []
     if collection in config.watch:
         paths = [p for p in config.watch[collection] if p.is_dir()]
@@ -144,7 +143,7 @@ def _rag_index_dispatch(
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
-    # Directory sources (code_groups are auto-migrated into watch by load_config)
+    # Directory sources
     if collection in config.watch:
         from ragling.db import get_connection, init_db
         from ragling.sync import sync_directory_source

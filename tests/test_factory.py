@@ -46,23 +46,6 @@ class TestCreateIndexer:
         indexer = create_indexer("rss", config)
         assert isinstance(indexer, RSSIndexer)
 
-    def test_code_group_returns_git_indexer(self, tmp_path: Path) -> None:
-        from ragling.config import Config
-        from ragling.indexers.factory import create_indexer
-        from ragling.indexers.git_indexer import GitRepoIndexer
-
-        config = Config(code_groups={"mygroup": (tmp_path,)})
-        indexer = create_indexer("mygroup", config, path=tmp_path)
-        assert isinstance(indexer, GitRepoIndexer)
-
-    def test_code_group_without_path_raises(self) -> None:
-        from ragling.config import Config
-        from ragling.indexers.factory import create_indexer
-
-        config = Config(code_groups={"mygroup": (Path("/tmp/repo"),)})
-        with pytest.raises(ValueError, match="requires a path"):
-            create_indexer("mygroup", config)
-
     def test_project_with_path_returns_project_indexer(self, tmp_path: Path) -> None:
         from ragling.config import Config
         from ragling.indexers.factory import create_indexer
@@ -165,13 +148,6 @@ class TestResolveIndexerType:
         assert _resolve_indexer_type("email", config, None) == IndexerType.EMAIL
         assert _resolve_indexer_type("calibre", config, None) == IndexerType.CALIBRE
         assert _resolve_indexer_type("rss", config, None) == IndexerType.RSS
-
-    def test_code_group(self) -> None:
-        from ragling.config import Config
-        from ragling.indexers.factory import _resolve_indexer_type
-
-        config = Config(code_groups={"mygroup": (Path("/tmp/repo"),)})
-        assert _resolve_indexer_type("mygroup", config, None) == IndexerType.CODE
 
     def test_fallback_with_path_returns_project(self, tmp_path: Path) -> None:
         from ragling.config import Config

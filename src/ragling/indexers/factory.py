@@ -91,9 +91,6 @@ def _resolve_indexer_type(collection: str, config: Config, path: Path | None) ->
     if collection == "rss":
         return IndexerType.RSS
 
-    if collection in config.code_groups:
-        return IndexerType.CODE
-
     if collection in config.watch:
         if path is None:
             raise ValueError(f"Watch collection '{collection}' requires a path")
@@ -137,9 +134,5 @@ def create_indexer(
         if indexer_type is not None
         else _resolve_indexer_type(collection, config, path)
     )
-
-    # Code groups require a path for per-repo indexing
-    if resolved_type == IndexerType.CODE and path is None and collection in config.code_groups:
-        raise ValueError(f"Code group '{collection}' requires a path (one repo at a time)")
 
     return _build_indexer(resolved_type, collection, config, path, doc_store)

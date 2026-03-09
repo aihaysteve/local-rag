@@ -30,18 +30,6 @@ class TestGetAllowedPaths:
         allowed = _get_allowed_paths(config)
         assert lib.resolve() in allowed
 
-    def test_includes_code_group_repo_paths(self, tmp_path: Path) -> None:
-        from ragling.tools.helpers import _get_allowed_paths
-
-        repo1 = tmp_path / "repo1"
-        repo2 = tmp_path / "repo2"
-        repo1.mkdir()
-        repo2.mkdir()
-        config = Config(code_groups=MappingProxyType({"mygroup": (repo1, repo2)}))
-        allowed = _get_allowed_paths(config)
-        assert repo1.resolve() in allowed
-        assert repo2.resolve() in allowed
-
     def test_includes_home_when_set(self, tmp_path: Path) -> None:
         from ragling.tools.helpers import _get_allowed_paths
 
@@ -76,26 +64,23 @@ class TestGetAllowedPaths:
 
         vault = tmp_path / "vault"
         lib = tmp_path / "calibre"
-        repo = tmp_path / "repo"
         home = tmp_path / "home"
         gp = tmp_path / "global"
         watch_dir = tmp_path / "watched"
-        for d in (vault, lib, repo, home, gp, watch_dir):
+        for d in (vault, lib, home, gp, watch_dir):
             d.mkdir()
 
         config = Config(
             obsidian_vaults=(vault,),
             calibre_libraries=(lib,),
-            code_groups=MappingProxyType({"grp": (repo,)}),
             home=home,
             global_paths=(gp,),
             watch=MappingProxyType({"proj": (watch_dir,)}),
         )
         allowed = _get_allowed_paths(config)
-        assert len(allowed) == 6
+        assert len(allowed) == 5
         assert vault.resolve() in allowed
         assert lib.resolve() in allowed
-        assert repo.resolve() in allowed
         assert home.resolve() in allowed
         assert gp.resolve() in allowed
         assert watch_dir.resolve() in allowed
@@ -106,28 +91,6 @@ class TestGetAllowedPaths:
         config = Config()
         allowed = _get_allowed_paths(config)
         assert allowed == []
-
-    def test_multiple_code_groups(self, tmp_path: Path) -> None:
-        from ragling.tools.helpers import _get_allowed_paths
-
-        repo_a = tmp_path / "a"
-        repo_b = tmp_path / "b"
-        repo_c = tmp_path / "c"
-        for d in (repo_a, repo_b, repo_c):
-            d.mkdir()
-
-        config = Config(
-            code_groups=MappingProxyType(
-                {
-                    "group1": (repo_a, repo_b),
-                    "group2": (repo_c,),
-                }
-            )
-        )
-        allowed = _get_allowed_paths(config)
-        assert repo_a.resolve() in allowed
-        assert repo_b.resolve() in allowed
-        assert repo_c.resolve() in allowed
 
     def test_includes_watch_paths(self, tmp_path: Path) -> None:
         from ragling.tools.helpers import _get_allowed_paths

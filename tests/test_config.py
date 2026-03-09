@@ -277,14 +277,6 @@ class TestConfigImmutability:
         config = Config(obsidian_exclude_folders=("_Inbox",))
         assert isinstance(config.obsidian_exclude_folders, tuple)
 
-    def test_code_groups_is_mapping_proxy(self) -> None:
-        config = Config(code_groups=MappingProxyType({"org": (Path("/repo"),)}))
-        assert isinstance(config.code_groups, MappingProxyType)
-
-    def test_code_groups_values_are_tuples(self) -> None:
-        config = Config(code_groups=MappingProxyType({"org": (Path("/repo"),)}))
-        assert isinstance(config.code_groups["org"], tuple)
-
     def test_git_commit_subject_blacklist_is_tuple(self) -> None:
         config = Config(git_commit_subject_blacklist=("merge",))
         assert isinstance(config.git_commit_subject_blacklist, tuple)
@@ -295,7 +287,6 @@ class TestConfigImmutability:
         assert isinstance(config.obsidian_vaults, tuple)
         assert isinstance(config.obsidian_exclude_folders, tuple)
         assert isinstance(config.calibre_libraries, tuple)
-        assert isinstance(config.code_groups, MappingProxyType)
         assert isinstance(config.disabled_collections, frozenset)
         assert isinstance(config.git_commit_subject_blacklist, tuple)
         assert isinstance(config.global_paths, tuple)
@@ -318,7 +309,6 @@ class TestConfigImmutability:
         config = load_config(config_file)
         assert isinstance(config.obsidian_vaults, tuple)
         assert isinstance(config.calibre_libraries, tuple)
-        assert isinstance(config.code_groups, MappingProxyType)
         assert isinstance(config.watch, MappingProxyType)
         assert isinstance(config.watch["docs"], tuple)
         # obsidian_vaults auto-migrated to watch["obsidian"]
@@ -326,12 +316,6 @@ class TestConfigImmutability:
         assert isinstance(config.disabled_collections, frozenset)
         assert isinstance(config.git_commit_subject_blacklist, tuple)
         assert isinstance(config.global_paths, tuple)
-
-    def test_with_overrides_converts_code_groups_dict(self) -> None:
-        """with_overrides should accept a plain dict for code_groups and convert it."""
-        config = Config()
-        new_config = config.with_overrides(code_groups={"org": (Path("/repo"),)})
-        assert isinstance(new_config.code_groups, MappingProxyType)
 
 
 class TestOllamaHostConfig:

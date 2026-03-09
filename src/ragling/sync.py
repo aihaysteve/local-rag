@@ -2,7 +2,7 @@
 
 Scans configured directories and system sources at startup, submitting
 IndexJob items to the queue for system collections. Directory-based sources
-(home, global, obsidian, code groups, watch) use the unified walker pipeline.
+(home, global, watch) use the unified walker pipeline.
 """
 
 from __future__ import annotations
@@ -87,13 +87,6 @@ def _resolve_path(file_path: Path, config: Config) -> tuple[str | None, Path | N
         if resolved.is_relative_to(global_resolved):
             return "global", global_resolved
 
-    # Check code groups
-    for group_name, repo_paths in config.code_groups.items():
-        for repo_path in repo_paths:
-            repo_resolved = repo_path.resolve()
-            if resolved.is_relative_to(repo_resolved):
-                return group_name, repo_resolved
-
     # Check watch directories
     for watch_name, watch_paths in config.watch.items():
         for watch_path in watch_paths:
@@ -126,9 +119,8 @@ def run_startup_sync(
 ) -> threading.Thread:
     """Spawn a daemon thread that discovers all sources and submits IndexJobs.
 
-    Enumerates home directories, global paths, obsidian vaults, code groups,
-    watch directories, and system collections, then submits IndexJob items
-    to the queue.
+    Enumerates home directories, global paths, watch directories, and system
+    collections, then submits IndexJob items to the queue.
 
     Args:
         config: Application configuration.
@@ -170,28 +162,6 @@ def run_startup_sync(
                             logger.info("Synced global (%s): %s", global_path, result)
                         except Exception:
                             logger.exception("Error syncing global path: %s", global_path)
-
-                # --- Code groups (kept for backward compat; migrated configs use watch) ---
-                for group_name, repo_paths in config.code_groups.items():
-                    if not config.is_collection_enabled(group_name):
-                        continue
-                    for repo_path in repo_paths:
-                        if not repo_path.is_dir():
-                            continue
-                        try:
-                            result = sync_directory_source(conn, config, group_name, repo_path)
-                            logger.info(
-                                "Synced code group %s (%s): %s",
-                                group_name,
-                                repo_path,
-                                result,
-                            )
-                        except Exception:
-                            logger.exception(
-                                "Error syncing code group: %s/%s",
-                                group_name,
-                                repo_path,
-                            )
 
                 # --- Watch directories ---
                 for watch_name, watch_paths in config.watch.items():

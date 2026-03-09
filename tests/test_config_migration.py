@@ -116,5 +116,3 @@ class TestConfigMigrationInLoadConfig:
         # Code group paths should appear in watch
         assert "mycode" in config.watch
         assert repo in config.watch["mycode"]
-        # code_groups should be empty (deleted from raw dict before parsing)
-        assert len(config.code_groups) == 0
