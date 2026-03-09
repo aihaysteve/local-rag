@@ -63,3 +63,6 @@ MEMORY.md
 
 # Working documents (plans live in PR body, not repo)
 docs/plans/
+
+# Dolt database files (added by bd init)
+.dolt/
