@@ -66,7 +66,7 @@ the kernel for automatic cleanup on process death.
 | INV-1 | Config is a frozen dataclass; mutation raises `FrozenInstanceError` | Shared across threads; mutation would cause race conditions |
 | INV-2 | `load_config()` never raises on malformed input; returns default Config | Server must start even with broken config file |
 | INV-3 | All SQLite databases use WAL journal mode with retry on first access | Multiple MCP instances read concurrently; WAL avoids reader/writer blocking |
-| INV-4 | Only the IndexingQueue worker thread writes to the per-group index database. The MCP `rag_index` tool (in `tools/index.py`) requires a running queue; direct indexing has been removed. | Eliminates write contention; no locking needed in indexers |
+| INV-4 | System collections (email, calibre, RSS) write via the IndexingQueue worker thread. Directory sources (watch collections) use synchronous `sync_directory_source()` from the MCP tool, blocking the caller until complete. | System collections use non-blocking queue; directory sources use blocking walker pipeline for immediate feedback |
 | INV-5 | DocStore keys documents by SHA-256 file hash + config_hash; identical content is never converted twice | Avoids redundant Docling conversions that can take minutes per document |
 | INV-8 | LeaderLock uses `fcntl.flock()`; kernel releases the lock when the process dies | No stale locks, no PID files, no heartbeat mechanism needed |
 | INV-9 | Embedding batch failures fall back to individual embedding with truncation retry | One bad text in a batch must not block the entire batch |
