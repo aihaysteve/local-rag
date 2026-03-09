@@ -1731,3 +1731,49 @@ class TestRagIndexPlan:
 
         assert result["status"] == "plan"
         assert "Walk complete" in result["plan"]
+
+    def test_plan_respects_ragignore_exclusions(self, tmp_path: Path) -> None:
+        """plan=True should apply ragignore exclusions to match real indexing."""
+        from ragling.config import Config
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("print('hello')")
+        (repo / "excluded.draft.md").write_text("# Draft")
+
+        # Create a ragignore at the path the code will look for
+        ragling_dir = tmp_path / ".ragling"
+        ragling_dir.mkdir()
+        (ragling_dir / "ragignore").write_text("*.draft.md\n")
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            code_groups={"mycode": (repo,)},
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        # Patch Path.home() so ragignore is found at tmp_path
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            result: dict[str, Any] = rag_index_fn(collection="mycode", plan=True)
+
+        assert result["status"] == "plan"
+        # The draft file should be excluded, only main.py should be in the plan
+        assert "excluded.draft.md" not in result["plan"]
+        assert "treesitter" in result["plan"]

@@ -73,7 +73,7 @@ def _rag_index_plan(
     """Run walk-only dry-run and return a formatted manifest."""
     from pathlib import Path as P
 
-    from ragling.indexers.walker import format_plan, walk
+    from ragling.indexers.walker import ExclusionConfig, format_plan, walk
     from ragling.tools.helpers import _SYSTEM_COLLECTION_JOBS
 
     if collection in _SYSTEM_COLLECTION_JOBS:
@@ -90,9 +90,13 @@ def _rag_index_plan(
     else:
         return {"error": f"Unknown collection '{collection}'. Provide a path for plan mode."}
 
+    exclusion_config = ExclusionConfig(
+        global_ragignore_path=P.home() / ".ragling" / "ragignore",
+    )
+
     plan_parts: list[str] = []
     for walk_path in paths:
-        result = walk(walk_path)
+        result = walk(walk_path, exclusion_config=exclusion_config)
         plan_parts.append(format_plan(result, watch_name=collection, watch_root=walk_path))
 
     return {
