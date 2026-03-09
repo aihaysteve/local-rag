@@ -9,9 +9,47 @@ from ragling.embeddings import (
     OllamaConnectionError,
     _client,
     _raise_if_connection_error,
+    check_connection,
     get_embedding,
     get_embeddings,
 )
+
+
+class TestCheckConnection:
+    """check_connection() verifies Ollama is reachable."""
+
+    @patch("ragling.embeddings.ollama.Client")
+    def test_succeeds_when_ollama_reachable(self, mock_client_cls: MagicMock) -> None:
+        """No exception when client.list() succeeds."""
+        config = Config()
+        check_connection(config)  # Should not raise
+        mock_client_cls.return_value.list.assert_called_once()
+
+    @patch("ragling.embeddings.ollama.Client")
+    def test_raises_when_ollama_unreachable(  # Tests Core FAIL-1
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        """Raises OllamaConnectionError when client.list() fails with connection error."""
+        mock_client_cls.return_value.list.side_effect = ConnectionError("connection refused")
+        config = Config()
+        with pytest.raises(OllamaConnectionError, match="Cannot connect to Ollama"):
+            check_connection(config)
+
+    @patch("ragling.embeddings.ollama.Client")
+    def test_raises_with_remote_host_in_message(self, mock_client_cls: MagicMock) -> None:
+        """Error message includes the configured remote host."""
+        mock_client_cls.return_value.list.side_effect = ConnectionError("connection refused")
+        config = Config(ollama_host="http://gpu-box:11434")
+        with pytest.raises(OllamaConnectionError, match="gpu-box:11434"):
+            check_connection(config)
+
+    @patch("ragling.embeddings.ollama.Client")
+    def test_non_connection_error_propagates(self, mock_client_cls: MagicMock) -> None:
+        """Non-connection errors (e.g. auth) propagate as-is, not wrapped."""
+        mock_client_cls.return_value.list.side_effect = RuntimeError("auth failed")
+        config = Config()
+        with pytest.raises(RuntimeError, match="auth failed"):
+            check_connection(config)
 
 
 class TestClientHostConfig:

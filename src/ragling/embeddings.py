@@ -47,6 +47,24 @@ def _raise_if_connection_error(e: Exception, *, config: Config) -> None:
         raise OllamaConnectionError(detail) from e
 
 
+def check_connection(config: Config) -> None:
+    """Verify that Ollama is reachable.
+
+    Makes a lightweight ``client.list()`` call (no embedding computation).
+
+    Args:
+        config: Application configuration.
+
+    Raises:
+        OllamaConnectionError: If Ollama is not running or unreachable.
+    """
+    try:
+        _client(config).list()
+    except Exception as e:
+        _raise_if_connection_error(e, config=config)
+        raise
+
+
 def _truncate_to_words(text: str, max_words: int = 256) -> str:
     """Truncate text to the first *max_words* whitespace-delimited words.
 
