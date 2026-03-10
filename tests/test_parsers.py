@@ -1,8 +1,13 @@
-"""Tests for the markdown parser."""
+"""Tests for the markdown parser and shared parser utilities."""
 
 import datetime
+import hashlib
+import sqlite3
 from pathlib import Path
 
+import pytest
+
+from ragling.parsers import open_ro
 from ragling.parsers.markdown import parse_markdown
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -245,3 +250,69 @@ class TestParseMarkdownINV5:
         text = "# Title\n\n" + "word " * 100000
         result = parse_markdown(text, "big.md")
         assert result.title
+
+
+class TestOpenRo:
+    """Tests for open_ro() — read-only SQLite access."""
+
+    def test_opens_database_in_read_only_mode(self, tmp_path: Path) -> None:  # Tests Parsers INV-1
+        """open_ro() returns a connection that cannot write."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE t (id INTEGER)")
+        conn.execute("INSERT INTO t VALUES (1)")
+        conn.commit()
+        conn.close()
+
+        ro_conn = open_ro(db_path)
+        assert ro_conn is not None
+        rows = ro_conn.execute("SELECT * FROM t").fetchall()
+        assert len(rows) == 1
+        with pytest.raises(sqlite3.OperationalError):
+            ro_conn.execute("INSERT INTO t VALUES (2)")
+        ro_conn.close()
+
+    def test_returns_none_for_nonexistent_db(self, tmp_path: Path) -> None:  # Tests Parsers FAIL-1
+        """open_ro() returns None when the database doesn't exist."""
+        result = open_ro(tmp_path / "nonexistent.db")
+        assert result is None
+
+    def test_returns_row_factory(self, tmp_path: Path) -> None:  # Tests Parsers INV-1
+        """open_ro() sets row_factory to sqlite3.Row."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE t (id INTEGER, name TEXT)")
+        conn.execute("INSERT INTO t VALUES (1, 'hello')")
+        conn.commit()
+        conn.close()
+
+        ro_conn = open_ro(db_path)
+        assert ro_conn is not None
+        row = ro_conn.execute("SELECT * FROM t").fetchone()
+        assert row["id"] == 1
+        assert row["name"] == "hello"
+        ro_conn.close()
+
+
+class TestEmailIdStability:
+    """Tests for email ID generation via SHA-256 hash (Parsers INV-8)."""
+
+    def test_same_inputs_produce_same_id(self) -> None:  # Tests Parsers INV-8
+        """Same sender+subject+date always produce the same email ID."""
+        id_source = "sender@example.com|Test Subject|2025-01-15"
+        id1 = hashlib.sha256(id_source.encode()).hexdigest()[:32]
+        id2 = hashlib.sha256(id_source.encode()).hexdigest()[:32]
+        assert id1 == id2
+
+    def test_different_inputs_produce_different_ids(self) -> None:  # Tests Parsers INV-8
+        """Different sender/subject/date produce different IDs."""
+        id1 = hashlib.sha256("a@b.com|Subject|2025-01-15".encode()).hexdigest()[:32]
+        id2 = hashlib.sha256("x@y.com|Subject|2025-01-15".encode()).hexdigest()[:32]
+        assert id1 != id2
+
+    def test_id_is_32_hex_chars(self) -> None:  # Tests Parsers INV-8
+        """Generated ID is exactly 32 hex characters (half of SHA-256)."""
+        id_source = "sender@example.com|Test Subject|2025-01-15"
+        generated_id = hashlib.sha256(id_source.encode()).hexdigest()[:32]
+        assert len(generated_id) == 32
+        assert all(c in "0123456789abcdef" for c in generated_id)

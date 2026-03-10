@@ -580,7 +580,7 @@ class MyClass {
         class_block = blocks[3]
         assert class_block.symbol_type == "class"
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_ps(tmp_path)
         for block in blocks:
@@ -839,7 +839,7 @@ extension type Wrapper(int value) {
         wrapper = [b for b in blocks if b.symbol_name == "Wrapper"][0]
         assert wrapper.symbol_type == "extension_type"
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_dart(tmp_path)
         for block in blocks:
@@ -1003,7 +1003,7 @@ MyClass <- setRefClass("MyClass",
         top_blocks = [b for b in blocks if b.symbol_type == "module_top"]
         assert len(top_blocks) >= 1
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_r(tmp_path)
         for block in blocks:
@@ -1233,7 +1233,7 @@ end
         anon_fn = blocks[5]
         assert anon_fn.symbol_type == "function"
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_lua(tmp_path)
         for block in blocks:
@@ -1388,7 +1388,7 @@ sub _private_method {
         assert "use strict" in use_block.text
         assert "use warnings" in use_block.text
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_perl(tmp_path)
         for block in blocks:
@@ -1566,7 +1566,7 @@ object Singleton {
             "Singleton",
         }
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         blocks = self._parse_kotlin(tmp_path)
         for block in blocks:
             assert block.start_line >= 1
@@ -1798,7 +1798,7 @@ class TestPhpParsing:
         top_text = " ".join(b.text for b in top_blocks)
         assert "namespace" in top_text
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_php(tmp_path)
         for block in blocks:
@@ -2089,7 +2089,7 @@ trait Foo {
         assert blocks[0].symbol_name == "Foo"
         assert "def bar" in blocks[0].text
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_scala(tmp_path)
         for block in blocks:
@@ -2223,7 +2223,7 @@ end
         impl_block = blocks[2]
         assert impl_block.symbol_type == "impl"
 
-    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:
+    def test_start_end_lines_1_based(self, tmp_path: Path) -> None:  # Tests Parsers INV-3
         """start_line and end_line use 1-based line numbers."""
         blocks = self._parse_elixir(tmp_path)
         for block in blocks:
