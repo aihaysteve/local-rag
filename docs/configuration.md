@@ -1,6 +1,6 @@
 # Configuration
 
-ragling works without a config file — pass paths on the command line. Create a config file when you want to set permanent defaults.
+ragling works without a config file — just pass paths on the command line. Create a config file to set permanent defaults.
 
 ## Config File Location
 
@@ -63,7 +63,7 @@ Skip a collection during indexing without deleting its data:
 
 ## Watch Directories
 
-Auto-index directories with content-type detection:
+Auto-index directories, detecting content types automatically:
 
 ```json
 {
@@ -78,6 +78,6 @@ Values can be a single path string or an array of paths. ragling auto-detects gi
 
 ## Per-Project Config
 
-ragling looks for `ragling.json` in the current directory before falling back to `~/.ragling/config.json`. Use `--config` to specify a config file explicitly.
+ragling looks for `ragling.json` in the current directory before falling back to `~/.ragling/config.json`. Use `--config` to specify a different config file.
 
 See [Project Setup](project-setup.md) for setting up ragling in a project directory.
