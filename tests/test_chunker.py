@@ -42,7 +42,7 @@ class TestChunkDataclass:
 class TestSplitIntoWindows:
     """Tests for split_into_windows."""
 
-    def test_short_text_single_window(self) -> None:
+    def test_short_text_single_window(self) -> None:  # Tests Document INV-3
         from ragling.document.chunker import split_into_windows
 
         result = split_into_windows("a b c", 10, 2)
@@ -80,12 +80,12 @@ class TestSplitIntoWindows:
         result = split_into_windows(text, 3, 5)
         assert len(result) >= 1
 
-    def test_single_word(self) -> None:
+    def test_single_word(self) -> None:  # Tests Document INV-3
         from ragling.document.chunker import split_into_windows
 
         assert split_into_windows("hello", 3, 1) == ["hello"]
 
-    def test_exact_chunk_boundary(self) -> None:
+    def test_exact_chunk_boundary(self) -> None:  # Tests Document INV-3
         """Text with exactly chunk_size words produces a single chunk."""
         from ragling.document.chunker import split_into_windows
 

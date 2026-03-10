@@ -38,11 +38,15 @@ class TestExtractAudioMetadata:
         result = extract_audio_metadata(wav_file)
         assert result.get("channels") == 1
 
-    def test_returns_empty_dict_for_nonexistent_file(self, tmp_path: Path) -> None:
+    def test_returns_empty_dict_for_nonexistent_file(
+        self, tmp_path: Path
+    ) -> None:  # Tests Document INV-4
         result = extract_audio_metadata(tmp_path / "nonexistent.mp3")
         assert result == {}
 
-    def test_returns_empty_dict_for_non_audio_file(self, tmp_path: Path) -> None:
+    def test_returns_empty_dict_for_non_audio_file(
+        self, tmp_path: Path
+    ) -> None:  # Tests Document INV-4
         text_file = tmp_path / "readme.txt"
         text_file.write_text("not audio")
         result = extract_audio_metadata(text_file)

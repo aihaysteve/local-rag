@@ -43,7 +43,7 @@ through the same chunking pipeline.
 | ID | Invariant | Why It Matters |
 |---|---|---|
 | INV-1 | Docling `DocumentConverter` is a process-wide singleton via `lru_cache` on `get_converter()` | Creating multiple converters wastes memory and initialization time; singleton ensures consistent pipeline settings |
-| INV-2 | `convert_and_chunk()` requires a `DocStore` for Docling-handled formats | Content-addressed caching prevents redundant conversions; callers must provide a DocStore or get an error log and empty result |
+| INV-2 | `convert_and_chunk()` requires a `DocStore` (mandatory positional parameter) | Content-addressed caching prevents redundant conversions; callers must always provide a DocStore |
 | INV-3 | `split_into_windows()` returns non-empty output for non-empty input | Downstream code assumes at least one chunk per non-empty text; empty output would produce sources with zero documents |
 | INV-4 | Audio metadata extraction is best-effort — failures return empty dict, never raise | One corrupt audio file must not abort an indexing batch |
 
