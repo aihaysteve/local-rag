@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through installing ragling, indexing your first source, searching, and connecting to Claude.
+Install ragling, index your first source, search it, and connect to Claude.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ brew install ollama uv
 ollama pull bge-m3
 ```
 
-Ollama runs as a background service after installation. Verify with `curl http://localhost:11434`.
+Ollama runs as a background service after installation. Verify with: `curl http://localhost:11434`.
 
 ## Install ragling
 
@@ -21,7 +21,7 @@ git clone git@github.com:aihaysteve/local-rag.git ~/ragling
 cd ~/ragling
 ```
 
-No further setup needed. `uv run` creates the virtual environment and installs dependencies on first use (takes a minute or two).
+No further setup needed. On first use, `uv run` creates the virtual environment and installs dependencies (takes a minute or two).
 
 ## Index Your First Source
 
@@ -57,11 +57,11 @@ uv run ragling search "invoice" --collection email
 uv run ragling search "machine learning" --author "Bishop"
 ```
 
-ragling runs both semantic search (understands meaning) and keyword search (finds exact terms), then merges the results. See [How Search Works](hybrid-search-and-rrf.md) for details.
+ragling combines semantic search (meaning) with keyword search (exact terms) and merges the results. See [How Search Works](hybrid-search-and-rrf.md) for details.
 
 ## Connect to Claude
 
-The primary use case: give Claude access to your indexed knowledge via MCP (Model Context Protocol).
+Give Claude access to your indexed knowledge via MCP (Model Context Protocol).
 
 **Claude Code** — add to your project's `.mcp.json`:
 
@@ -89,7 +89,7 @@ The primary use case: give Claude access to your indexed knowledge via MCP (Mode
 }
 ```
 
-Once connected, Claude searches your indexed knowledge using the `rag_search` tool.
+Once connected, Claude can search your indexed knowledge with the `rag_search` tool.
 
 **Claude Code tip:** Copy the ragling skill into your project for better search patterns:
 
@@ -99,7 +99,7 @@ cp -r /path/to/ragling/.claude/skills/ragling your-project/.claude/skills/
 
 ## Add Ragling to a Project
 
-To add ragling search to an existing project:
+Add ragling search to an existing project:
 
 ```bash
 cd your-project
