@@ -42,7 +42,7 @@ class TestDocStoreInit:
         assert "sources" in tables
         assert "converted_documents" in tables
 
-    def test_enables_wal_mode(self, store: DocStore) -> None:
+    def test_enables_wal_mode(self, store: DocStore) -> None:  # Tests Core INV-3
         conn = sqlite3.connect(str(store._db_path))
         row = conn.execute("PRAGMA journal_mode").fetchone()
         conn.close()
