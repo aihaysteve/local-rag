@@ -4,7 +4,7 @@ ragling supports SSE transport so multiple users or AI agents can share a single
 
 ## Starting the SSE Server
 
-SSE uses HTTPS with auto-generated self-signed certificates (stored in `~/.ragling/tls/`). TLS is mandatory because Bearer tokens must not travel in plaintext.
+SSE uses HTTPS with auto-generated self-signed certificates (stored in `~/.ragling/tls/`). TLS is mandatory; Bearer tokens must not travel in plaintext.
 
 ```bash
 ragling serve --sse --no-stdio --port 10001
@@ -57,4 +57,4 @@ Queries against inaccessible collections return zero results.
 
 Path mappings rewrite `source_path` and `source_uri` in search results so file paths make sense to the client. Keys are server-side prefixes (`~/` expanded); values are client-side replacements.
 
-Essential when the MCP server and client see different filesystem paths (e.g., Docker containers, remote agents).
+Essential when server and client see different filesystem paths (e.g., Docker containers, remote agents).

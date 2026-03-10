@@ -1,6 +1,6 @@
 # eM Client Database Schema
 
-Findings from exploring the eM Client SQLite databases on macOS. This documents the data structures local-rag uses to index emails.
+Documents the eM Client SQLite database structures that local-rag uses to index emails, based on exploration on macOS.
 
 ## Directory Structure
 
@@ -103,7 +103,7 @@ local-rag uses type 1 (From) for the sender and types 4+5 (To + CC) for recipien
 
 ### mail_fti.dat
 
-eM Client's own full-text index. Contains pre-extracted plain text from email bodies — much easier to use than parsing raw MIME from `mail_data.dat`.
+eM Client's full-text index. Contains pre-extracted plain text from email bodies — far easier than parsing raw MIME from `mail_data.dat`.
 
 #### LocalMailsIndex3
 
@@ -115,7 +115,7 @@ eM Client's own full-text index. Contains pre-extracted plain text from email bo
 
 Each email may have multiple rows (one per MIME part). local-rag prefers `partName='1'` (plain text extraction) and falls back to `partName='2'` (text extracted from HTML).
 
-Not every email has an entry here. Of 7,752 emails in the test account, 6,341 had FTI content. For the remaining ~18%, local-rag falls back to the `preview` field from MailItems.
+Not every email has an entry here. Of 7,752 emails in the test account, 6,341 had FTI content. For the remaining ~18%, local-rag falls back to the MailItems `preview` field.
 
 The table also has FTS support tables (`_content`, `_segments`, `_segdir`, `_docsize`, `_stat`) which are internal to SQLite FTS and not read directly.
 
@@ -158,7 +158,7 @@ Key-value metadata per folder (not used by local-rag).
 
 ### mail_data.dat (not used directly)
 
-Contains raw MIME parts. local-rag does not read this file because `mail_index.dat` + `mail_fti.dat` provide all needed data in a cleaner format.
+Contains raw MIME parts. local-rag skips this file because `mail_index.dat` + `mail_fti.dat` provide all needed data in a cleaner format.
 
 #### LocalMailContents
 
@@ -174,7 +174,7 @@ Contains raw MIME parts. local-rag does not read this file because `mail_index.d
 | contentLength           | INTEGER | Declared content length                                                                          |
 | contentTransferEncoding | INTEGER | Encoding type                                                                                    |
 
-The `partName='TEXT'` row holds the complete RFC 2822 email headers in `partHeader` (From, To, Subject, Date, all transport headers). The body data is unreliable — most `text/plain` parts have empty `partBody` (only 2 out of 6,185 had data in the test account). HTML parts (`partName='2'`) more reliably contain body data.
+The `partName='TEXT'` row holds the complete RFC 2822 email headers in `partHeader` (From, To, Subject, Date, all transport headers). Body data is unreliable — most `text/plain` parts have empty `partBody` (only 2 of 6,185 had data in the test account). HTML parts (`partName='2'`) contain body data more reliably.
 
 ## Date Format
 

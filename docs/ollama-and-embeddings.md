@@ -1,12 +1,12 @@
 # Ollama Setup and Embedding Model
 
-This document explains what Ollama is, how local-rag uses it to generate embeddings, what the bge-m3 model does, and how to set everything up.
+How local-rag uses Ollama to generate embeddings, what the bge-m3 model does, and how to set everything up.
 
 ## What Is Ollama?
 
-Ollama is a tool that runs machine learning models locally on your Mac. Think of it as a local server that accepts text and returns results — similar to calling an API like OpenAI, except nothing leaves your machine.
+Ollama runs machine learning models locally on your Mac. It works like a local API server — accepts text over HTTP, returns results. Nothing leaves your machine.
 
-Ollama runs as a background process listening on `http://localhost:11434`. local-rag sends text to it over HTTP and gets back numerical representations (embeddings) of that text.
+It listens on `http://localhost:11434`. local-rag sends text to it and gets back numerical representations (embeddings).
 
 ### Installation
 
@@ -29,7 +29,7 @@ ollama serve
 
 ## What Are Embeddings?
 
-An embedding is a list of numbers (a vector) that represents the meaning of a piece of text. Two texts with similar meaning produce vectors that are close together in this number space; unrelated texts produce vectors that are far apart.
+An embedding is a list of numbers (a vector) representing the meaning of a piece of text. Similar texts produce vectors close together; unrelated texts produce vectors far apart.
 
 For example, the bge-m3 model converts text into a vector of 1024 floating-point numbers:
 
@@ -39,15 +39,15 @@ For example, the bge-m3 model converts text into a vector of 1024 floating-point
 "chocolate cake recipe"  → [-0.412, 0.733, -0.024, ..., 0.518]  (1024 numbers, very different)
 ```
 
-These vectors enable semantic search. Instead of matching exact words, we compare how close two vectors are. This is why a search for "kubernetes deployment" can find a document titled "k8s rollout strategy" even though the words are different.
+These vectors enable semantic search: instead of matching exact words, we compare vector proximity. A search for "kubernetes deployment" finds a document titled "k8s rollout strategy" even though the words differ.
 
 ### How Vectors Are Compared
 
-local-rag uses cosine distance to measure similarity between vectors. Cosine distance measures the angle between two vectors — identical vectors have a distance of 0, completely unrelated vectors have a distance close to 2. The sqlite-vec extension handles this comparison efficiently across thousands of stored vectors.
+local-rag uses cosine distance to measure vector similarity. Cosine distance measures the angle between two vectors: identical vectors have distance 0, unrelated vectors approach 2. The sqlite-vec extension performs this comparison efficiently across thousands of stored vectors.
 
 ## The bge-m3 Model
 
-local-rag uses **bge-m3** as its default embedding model. Here's what you need to know:
+local-rag uses **bge-m3** as its default embedding model:
 
 | Property            | Value                                                                     |
 |---------------------|---------------------------------------------------------------------------|
@@ -60,10 +60,10 @@ local-rag uses **bge-m3** as its default embedding model. Here's what you need t
 
 ### Why bge-m3?
 
-- **Quality**: Ranks among the top open-source embedding models on standard retrieval benchmarks (MTEB). It produces high-quality vectors that capture meaning well.
-- **Multilingual**: If your notes or emails mix languages, bge-m3 handles that natively. A German document about "Kubernetes-Bereitstellung" will match an English query about "kubernetes deployment".
+- **Quality**: Ranks among the top open-source embedding models on retrieval benchmarks (MTEB).
+- **Multilingual**: Handles mixed-language notes and emails natively. A German document about "Kubernetes-Bereitstellung" matches an English query about "kubernetes deployment".
 - **Runs locally**: Fits comfortably in memory on any modern Mac.
-- **1024 dimensions**: A good balance between quality and storage size. Each document chunk requires 4 KB of vector storage (1024 floats x 4 bytes each).
+- **1024 dimensions**: Balances quality and storage. Each document chunk requires 4 KB of vector storage (1024 floats x 4 bytes).
 
 ### Pulling the Model
 
@@ -73,7 +73,7 @@ Before first use, download the model:
 ollama pull bge-m3
 ```
 
-This downloads ~1.2 GB. The model is cached locally and only needs to be downloaded once.
+This downloads ~1.2 GB. The model is cached locally and downloaded only once.
 
 Verify it's available:
 
@@ -84,7 +84,7 @@ ollama list
 
 ### First Request Latency
 
-The first time local-rag sends text to Ollama after a restart, Ollama loads the model into memory. This can take 10-30 seconds depending on your hardware. Subsequent requests are fast (milliseconds per text). local-rag uses a 5-minute timeout per request to account for this cold start.
+After a restart, Ollama loads the model into memory on the first request. This takes 10-30 seconds depending on hardware. Subsequent requests complete in milliseconds. local-rag uses a 5-minute timeout per request to account for this cold start.
 
 ## How local-rag Uses Ollama
 
@@ -98,7 +98,7 @@ When you index documents, local-rag:
 4. Gets back a 1024-dimensional vector for each chunk
 5. Stores the vectors in SQLite via the sqlite-vec extension
 
-The batch size of 32 balances throughput and memory usage. For a vault of 1,000 notes producing 5,000 chunks, indexing sends ~156 batches to Ollama.
+The batch size of 32 balances throughput and memory. A vault of 1,000 notes producing 5,000 chunks sends ~156 batches to Ollama.
 
 ### During Search
 
@@ -108,11 +108,11 @@ When you run a search query, local-rag:
 2. Uses sqlite-vec to find the stored vectors closest to your query vector
 3. Combines these results with keyword search results using RRF (see [hybrid-search-and-rrf.md](hybrid-search-and-rrf.md))
 
-This means every search requires one Ollama call to embed the query.
+Every search requires one Ollama call to embed the query.
 
 ### Vector Storage Format
 
-Embeddings are stored in SQLite as packed binary blobs — each float is serialized as 4 bytes in IEEE 754 format using Python's `struct.pack`. The sqlite-vec extension reads this binary format directly for fast comparison.
+Embeddings are stored in SQLite as packed binary blobs — each float serialized as 4 bytes in IEEE 754 format via Python's `struct.pack`. The sqlite-vec extension reads this format directly for fast comparison.
 
 ```shell
 1024 floats × 4 bytes = 4,096 bytes per document chunk
@@ -122,7 +122,7 @@ For 10,000 indexed chunks, the vector data alone takes ~40 MB of database space.
 
 ## Using a Remote Ollama Server
 
-If you have a machine with a better GPU (e.g., a desktop with an RTX card), you can run Ollama there and point ragling at it from your laptop.
+If you have a machine with a better GPU (e.g., a desktop with an RTX card), run Ollama there and point ragling at it from your laptop.
 
 ### Setup
 
@@ -151,17 +151,17 @@ In `~/.ragling/config.json` on the machine running ragling:
 }
 ```
 
-When `ollama_host` is set, ragling connects to that URL for all embedding operations. When omitted (or `null`), ragling falls back to the `OLLAMA_HOST` environment variable, then `http://127.0.0.1:11434`.
+When set, ragling connects to that URL for all embedding operations. When omitted (or `null`), ragling falls back to the `OLLAMA_HOST` environment variable, then `http://127.0.0.1:11434`.
 
 ### Network considerations
 
-Embedding requests are batched (32 texts per request). On a local network this adds negligible latency. Over higher-latency connections, indexing will be slower but search (a single embedding call per query) is barely affected.
+Embedding requests are batched (32 texts per request). On a local network this adds negligible latency. Over higher-latency connections, indexing slows but search (one embedding call per query) is barely affected.
 
 Make sure the embedding model name and dimensions in your config match what's available on the remote Ollama instance.
 
 ## Using a Different Model
 
-The embedding model is configurable in `~/.local-rag/config.json`:
+Configure the embedding model in `~/.local-rag/config.json`:
 
 ```json
 {
@@ -194,19 +194,19 @@ uv run local-rag index repo --force
 # Repeat for any project collections as well
 ```
 
-Re-indexing is required because each model encodes meaning differently. A vector from bge-m3 and a vector from nomic-embed-text can't be compared — they live in different mathematical spaces.
+Re-indexing is required because each model encodes meaning differently. Vectors from bge-m3 and nomic-embed-text can't be compared — they occupy different mathematical spaces.
 
 ## Troubleshooting
 
 ### "Cannot connect to Ollama. Is it running?"
 
-Ollama isn't running. Start it:
+Start Ollama:
 
 ```bash
 ollama serve
 ```
 
-Or check if the service is running:
+Or check the service status:
 
 ```bash
 brew services list | grep ollama

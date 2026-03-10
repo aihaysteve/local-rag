@@ -48,7 +48,7 @@ This creates two files:
 }
 ```
 
-The command also checks whether Ollama is running and `bge-m3` is available.
+The command also checks that Ollama is running and `bge-m3` is available.
 
 Both files contain machine-specific absolute paths, so add them to `.gitignore`:
 
@@ -129,4 +129,4 @@ uv run --directory ~/ragling ragling search "authentication flow"
 uv run --directory ~/ragling ragling collections list
 ```
 
-ragling auto-discovers `ragling.json` in the current directory, so no `--config` flag is needed for CLI commands.
+ragling auto-discovers `ragling.json` in the current directory, so CLI commands need no `--config` flag.
