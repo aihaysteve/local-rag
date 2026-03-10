@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ragling.embeddings import OllamaConnectionError, check_connection
-
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
@@ -148,6 +146,7 @@ def _rag_index_dispatch(
     # Directory sources
     if collection in config.watch:
         from ragling.db import get_connection, init_db
+        from ragling.embeddings import OllamaConnectionError, check_connection
         from ragling.sync import sync_directory_source
 
         # Upfront connectivity check — fail fast if Ollama is unreachable

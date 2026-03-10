@@ -738,7 +738,7 @@ class TestRagIndexQueueRouting:
         mock_result = MagicMock(
             indexed=5, skipped=0, skipped_empty=0, errors=0, pruned=0, error_messages=[]
         )
-        with patch("ragling.tools.index.check_connection"):
+        with patch("ragling.embeddings.check_connection"):
             with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
                 with (
                     patch("ragling.db.get_connection", return_value=MagicMock()),
@@ -825,7 +825,7 @@ class TestRagIndexWatch:
         mock_result = MagicMock(
             indexed=3, skipped=0, skipped_empty=0, errors=0, pruned=0, error_messages=[]
         )
-        with patch("ragling.tools.index.check_connection"):
+        with patch("ragling.embeddings.check_connection"):
             with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
                 with (
                     patch("ragling.db.get_connection", return_value=MagicMock()),
@@ -920,7 +920,7 @@ class TestRagIndexErrorSurfacing:
         rag_index_fn = tools["rag_index"].fn
 
         with patch(
-            "ragling.tools.index.check_connection",
+            "ragling.embeddings.check_connection",
             side_effect=OllamaConnectionError("Cannot connect to Ollama"),
         ):
             result: dict[str, Any] = rag_index_fn(collection="mycode")
@@ -967,7 +967,7 @@ class TestRagIndexErrorSurfacing:
             error_messages=["/tmp/bad1.py", "/tmp/bad2.py"],
         )
         with (
-            patch("ragling.tools.index.check_connection"),
+            patch("ragling.embeddings.check_connection"),
             patch("ragling.sync.sync_directory_source", return_value=mock_result),
             patch("ragling.db.get_connection", return_value=MagicMock()),
             patch("ragling.db.init_db"),
@@ -1014,7 +1014,7 @@ class TestRagIndexErrorSurfacing:
 
         mock_result = IndexResult(indexed=10, skipped=5, skipped_empty=2, pruned=1)
         with (
-            patch("ragling.tools.index.check_connection"),
+            patch("ragling.embeddings.check_connection"),
             patch("ragling.sync.sync_directory_source", return_value=mock_result),
             patch("ragling.db.get_connection", return_value=MagicMock()),
             patch("ragling.db.init_db"),
@@ -1067,7 +1067,7 @@ class TestRagIndexErrorSurfacing:
             IndexResult(indexed=3, skipped=1, errors=0),
         ]
         with (
-            patch("ragling.tools.index.check_connection"),
+            patch("ragling.embeddings.check_connection"),
             patch("ragling.sync.sync_directory_source", side_effect=results),
             patch("ragling.db.get_connection", return_value=MagicMock()),
             patch("ragling.db.init_db"),
