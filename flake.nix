@@ -22,6 +22,8 @@
               mutagen
 	      python313
 	      uv
+	      beads
+	      dolt
             ];
             shellHook = ''
               true
