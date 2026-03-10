@@ -19,6 +19,12 @@ frontmatter. The `name` field maps to `/skill-name` invocation, and the
 `description` field drives automatic keyword-based triggering. Skills are
 self-contained directories with all support files co-located.
 
+Some skills invoke other skills as sub-steps. The `documentation-standards`
+skill is invoked by `brainstorming` (draft mode, after design approval) and
+`finishing-a-development-branch` (validate mode, as a hard gate before PR
+creation). Cross-skill invocations are documented in each skill's Integration
+section.
+
 **Key files:**
 - `UPSTREAM-superpowers.md` — Tracks provenance and sync status for skills
   originating from [obra/superpowers](https://github.com/obra/superpowers)
@@ -43,6 +49,7 @@ self-contained directories with all support files co-located.
 | INV-4 | Skills originating from upstream have an entry in `UPSTREAM-superpowers.md` with correct sync status | Agents modifying upstream-derived skills must know divergence status to avoid clobbering upstream changes |
 | INV-5 | Skills that reference other skills use the skill name (not file path) in their Integration section | Skill directories may move; names are the stable identifier |
 | INV-6 | Support files (prompts, templates, examples) live inside the skill's own directory | Skills must be self-contained — an agent loads one directory |
+| INV-7 | Skills that invoke other skills document the invocation in their Integration section, including the mode and trigger condition | Agents must understand the full skill chain to avoid skipping required steps or invoking skills out of order |
 
 ## Failure Modes
 
