@@ -8,9 +8,11 @@ Claude Code loads automatically based on keyword matching in the `description`
 field. Skills encode proven techniques, processes, and domain expertise that
 agents apply during specific task types (brainstorming, planning, testing, etc.).
 
-The key design decision: skills are documentation-as-code, version-controlled
-alongside the project, and tested via the same TDD methodology they prescribe
-(see `writing-skills/SKILL.md`).
+Skills come from two sources: **project-local skills** in `.claude/skills/`
+(project-specific tools like `ragling`, `nanoclaw`) and **plugin skills** from
+installed Claude Code plugins (workflow skills like `brainstorming`,
+`writing-plans`, `documentation-standards` from `dev-workflow-toolkit`). Both
+are discovered and loaded identically by Claude Code.
 
 ## Core Mechanism
 
@@ -20,15 +22,12 @@ frontmatter. The `name` field maps to `/skill-name` invocation, and the
 self-contained directories with all support files co-located.
 
 Some skills invoke other skills as sub-steps. For example, the
-`documentation-standards` skill (provided by the `dev-workflow-toolkit` plugin,
-not tracked locally) is invoked by `brainstorming` (draft mode, after design
-approval) and `finishing-a-development-branch` (validate mode, as a hard gate
-before PR creation). Cross-skill invocations are documented in each skill's
-Integration section.
+`documentation-standards` skill is invoked by `brainstorming` (draft mode,
+after design approval) and `finishing-a-development-branch` (validate mode,
+as a hard gate before PR creation). Cross-skill invocations are documented
+in each skill's Integration section.
 
 **Key files:**
-- `UPSTREAM-superpowers.md` — Tracks provenance and sync status for skills
-  originating from [obra/superpowers](https://github.com/obra/superpowers)
 - `*/SKILL.md` — Entry point for each skill (YAML frontmatter + Markdown body)
 
 ## Public Interface
@@ -47,10 +46,9 @@ Integration section.
 | INV-1 | Every skill directory contains exactly one `SKILL.md` with valid YAML frontmatter (`name` + `description`) | Claude Code cannot discover or load skills without frontmatter |
 | INV-2 | Skill names are unique across all `SKILL.md` files | Duplicate names cause routing ambiguity |
 | INV-3 | Every tracked skill directory has a negated gitignore entry (`!.claude/skills/<name>/`) | Without the negation, git ignores the skill due to the `.claude/skills/*` blanket rule |
-| INV-4 | Skills originating from upstream have an entry in `UPSTREAM-superpowers.md` with correct sync status | Agents modifying upstream-derived skills must know divergence status to avoid clobbering upstream changes |
-| INV-5 | Skills that reference other skills use the skill name (not file path) in their Integration section | Skill directories may move; names are the stable identifier |
-| INV-6 | Support files (prompts, templates, examples) live inside the skill's own directory | Skills must be self-contained — an agent loads one directory |
-| INV-7 | Skills that invoke other skills document the invocation in their Integration section, including the mode and trigger condition | Agents must understand the full skill chain to avoid skipping required steps or invoking skills out of order |
+| INV-4 | Skills that reference other skills use the skill name (not file path) in their Integration section | Skill directories may move; names are the stable identifier |
+| INV-5 | Support files (prompts, templates, examples) live inside the skill's own directory | Skills must be self-contained — an agent loads one directory |
+| INV-6 | Skills that invoke other skills document the invocation in their Integration section, including the mode and trigger condition | Agents must understand the full skill chain to avoid skipping required steps or invoking skills out of order |
 
 ## Failure Modes
 
@@ -59,13 +57,12 @@ Integration section.
 | FAIL-1 | Skill not discovered by Claude Code | Missing or malformed YAML frontmatter in SKILL.md | Add `---` fenced frontmatter with `name` and `description` fields |
 | FAIL-2 | Wrong skill triggered for a task | Overly broad keywords in `description` field | Narrow the description; use specific trigger phrases |
 | FAIL-3 | Skill changes lost after git operations | Missing negated gitignore entry for new skill directory | Add `!.claude/skills/<name>/` to `.gitignore` |
-| FAIL-4 | Upstream sync clobbers local customizations | Skill marked "identical" in UPSTREAM-superpowers.md but has local changes | Update status to "diverged" with notes on what differs |
-| FAIL-5 | Skill references broken after rename | Cross-references use file paths instead of skill names | Update references to use `/skill-name` form |
+| FAIL-4 | Skill references broken after rename | Cross-references use file paths instead of skill names | Update references to use `/skill-name` form |
 
 ## Dependencies
 
 | Dependency | Type | SPEC.md Path |
 |---|---|---|
 | Claude Code skill router | external | N/A — built into Claude Code runtime |
-| obra/superpowers | external | N/A — upstream repo, tracked in UPSTREAM-superpowers.md |
+| dev-workflow-toolkit plugin | external | N/A — provides workflow skills (brainstorming, writing-plans, etc.) |
 | docs/spec-template.md | internal | N/A — template reference, not a subsystem |

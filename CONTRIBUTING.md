@@ -1,13 +1,13 @@
 # Contributing
 
-This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills to maintain contribution quality. Contributors are expected to use Claude Code with the project's bundled skills.
+This project uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills to maintain contribution quality. Contributors are expected to use Claude Code with the `dev-workflow-toolkit` plugin installed.
 
 ## Quick Start
 
 1. Fork and clone the repo
 2. Install dependencies: `uv sync`
 3. Run the quality gate to verify setup: `uv run pytest && uv run mypy src/ && uv run ruff check . && uv run ruff format --check .`
-4. The contributing workflow skills ship with the repo in `.claude/skills/`
+4. Install the `dev-workflow-toolkit` plugin (provides workflow skills)
 
 ## Workflow
 
@@ -72,7 +72,7 @@ If the test is wrong (bad assertion, flawed assumption), fix the test — don't 
 
 ## Skill Reference
 
-These skills ship with the repo in `.claude/skills/`. They are loaded automatically by Claude Code.
+Workflow skills are provided by the `dev-workflow-toolkit` plugin. Project-specific skills (`ragling`, `nanoclaw`, `nanoclaw-agents`) ship in `.claude/skills/`.
 
 ### Auto-triggered (no explicit invocation needed)
 
@@ -120,13 +120,9 @@ All PRs should target `aihaysteve/local-rag`. Use `-R aihaysteve/local-rag` with
 
 ## Attribution
 
-Several skills are derived from upstream open-source projects:
+Workflow skills are provided by the [`dev-workflow-toolkit`](https://github.com/stvhay/my-claude-plugins) plugin, which incorporates skills from [obra/superpowers](https://github.com/obra/superpowers) (MIT License, see [LICENSE.superpowers](LICENSE.superpowers)).
 
-- **obra/superpowers** — The following skills originate from [obra/superpowers](https://github.com/obra/superpowers). MIT License. See [LICENSE.superpowers](LICENSE.superpowers). Sync status tracked in `.claude/skills/UPSTREAM-superpowers.md`.
-  - `brainstorming`, `dispatching-parallel-agents`, `executing-plans`, `finishing-a-development-branch`, `receiving-code-review`, `requesting-code-review`, `subagent-driven-development`, `systematic-debugging`, `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `writing-plans`, `writing-skills`
-- **writing-clearly-and-concisely** — Based on William Strunk Jr.'s *The Elements of Style* (1918, public domain).
-
-If you contribute a skill derived from another source, add appropriate attribution and a license file.
+If you contribute a project-local skill derived from another source, add appropriate attribution and a license file.
 
 ## Code of Conduct
 
