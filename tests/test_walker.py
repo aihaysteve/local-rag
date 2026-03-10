@@ -16,7 +16,7 @@ from ragling.indexers.walker import (
 
 
 class TestRouteFile:
-    """Tests for file routing logic.  # Tests INV-6"""
+    """Tests for file routing logic.  # Tests Indexers INV-6"""
 
     def test_spec_md_routes_to_spec(self) -> None:
         assert route_file(Path("SPEC.md")) == "spec"
@@ -457,7 +457,7 @@ class TestGlobalRagignore:
 
 
 class TestAssignCollection:
-    """Tests for collection assignment.  # Tests INV-6"""
+    """Tests for collection assignment.  # Tests Indexers INV-6"""
 
     def test_vault_file_gets_vault_collection(self, tmp_path: Path) -> None:
         vault = tmp_path / "notes"
