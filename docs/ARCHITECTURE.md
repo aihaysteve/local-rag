@@ -4,12 +4,12 @@ Ragling is a Docling-powered local RAG (Retrieval Augmented Generation) system w
 
 ## Design Principles
 
-- **Everything runs locally.** No cloud APIs, no API keys, no data leaves the machine. Embeddings via Ollama, document conversion via Docling, search via SQLite.
 - **Incremental indexing.** Only new or changed files are re-embedded, using SHA-256 hash comparison. Use `--force` to re-index everything.
 - **Hybrid search.** Every query runs both semantic (vector) and keyword (full-text) search, merged with Reciprocal Rank Fusion for best results.
 - **Collection-based organization.** Sources are grouped into collections (system collections like "obsidian" and "email", code groups, or user-created project collections).
-- **Content-addressed document cache.** Docling conversions are cached in a shared SQLite store keyed by SHA-256 file hash + converter config hash. Multiple MCP instances share this cache, so a document is never converted twice.
 - **Per-group isolation.** Each MCP instance gets its own embedding index (`groups/{name}/index.db`). Groups share the document cache but not vectors. Deleting a group removes only its embeddings.
+
+See [Design Philosophy](DESIGN.md#design-philosophy) for the principles behind these decisions.
 
 ## System Architecture
 
@@ -212,14 +212,9 @@ CREATE TABLE meta (
 
 Relationships: `collections` 1:N `sources` 1:N `documents`. CASCADE deletes ensure clean removal.
 
-## Chunking: HybridChunker
+## Chunking
 
-All formats are chunked through docling-core's `HybridChunker`, providing a unified chunking strategy across every source type.
-
-- **Token-aware splitting.** Chunks are sized by token count (default 256 tokens), aligned to the embedding model's tokenizer (`BAAI/bge-m3`) for optimal embedding quality.
-- **Structure-preserving.** The chunker respects document structure: headings, paragraphs, tables, and code blocks are kept intact where possible rather than split mid-element.
-- **Heading path as context prefix.** `HybridChunker.contextualize()` prepends the heading hierarchy to each chunk, so a chunk under "Chapter 3 > Installation > Prerequisites" includes that path as context for the embedding.
-- **Enrichment metadata carried through.** Picture descriptions, table captions, and code language from Docling enrichments are extracted from chunk `doc_items` and stored in chunk metadata for filtering and display.
+All formats are chunked through docling-core's `HybridChunker` with token-aware, structure-preserving splitting. Default chunk size is 256 tokens aligned to the embedding model's tokenizer (`BAAI/bge-m3`). See [Chunking Strategy](DESIGN.md#chunking-strategy) for rationale and details.
 
 ## Supported Sources
 
@@ -286,23 +281,7 @@ Each user is defined in the config with:
 - **`system_collections`**: List of system collections (e.g., `["obsidian", "email"]`) the user can search.
 - **`path_mappings`**: Host-to-container prefix replacement for environments where the MCP server and client see different filesystem paths.
 
-### Visibility
-
-When authenticated via SSE, a user sees:
-
-- Their own collection (named after their username)
-- The `global` collection (if `global_paths` are configured)
-- Any system collections listed in their `system_collections` config
-
-Unauthenticated stdio access sees all collections.
-
-### Authentication flow
-
-1. Client sends `Authorization: Bearer <api_key>` header.
-2. `RaglingTokenVerifier.verify_token()` resolves the API key against configured users via `resolve_api_key()`.
-3. On success, returns an `AccessToken` with `client_id` set to the username.
-4. Tool functions call `_get_user_context()` to derive a `UserContext` from the current request's access token.
-5. Search results are filtered to `visible_collections` and paths are mapped through the user's `path_mappings`.
+See [Authentication & Visibility](DESIGN.md#authentication--visibility) for the authentication flow and visibility rules.
 
 ## Auto-Detection and Indexing
 
@@ -314,8 +293,6 @@ When indexing a directory (during startup sync or via the watcher), ragling dete
 2. `.git/` directory present --> Git repository indexer (tree-sitter code + commit history)
 3. Neither --> Project document indexer (routes files by extension)
 
-Obsidian takes precedence over git (a vault with version control is primarily notes, not code).
-
 ### Startup sync
 
 When the MCP server starts:
@@ -325,14 +302,7 @@ When the MCP server starts:
 3. The MCP server is available immediately -- it does not wait for sync to complete.
 4. An `IndexingStatus` tracker reports progress in search responses so clients know indexing is ongoing.
 
-### File watcher
-
-After startup sync completes:
-
-1. Watchdog monitors all configured directories (home + global paths) for file creation and modification events.
-2. Events are filtered by supported file extension.
-3. A `DebouncedIndexQueue` batches rapid changes (2-second debounce window) to avoid redundant re-indexing.
-4. Batched changes are re-indexed using the project indexer.
+See [Auto-Detection Conventions](DESIGN.md#auto-detection-conventions) for precedence rules and file watcher details.
 
 ## Data Flow: Indexing
 
