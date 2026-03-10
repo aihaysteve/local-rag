@@ -8,10 +8,10 @@ Forked from [sebastianhutter/local-rag](https://github.com/sebastianhutter/local
 
 - **11 document formats** — PDF, DOCX, PPTX, XLSX, HTML, LaTeX, CSV, AsciiDoc, EPUB, images, plaintext
 - **Audio transcription** — MP3, M4A, WAV, OGG, OPUS, and more via Whisper (local, optional)
-- **PDF intelligence** — ML-powered table extraction, image descriptions (SmolVLM), code block and formula recognition
+- **PDF intelligence** — ML-powered table extraction, image description (SmolVLM), code block and formula recognition
 - **17 programming languages** — tree-sitter structural parsing extracts functions, classes, and symbols
 - **Git commit history** — indexes commit messages and per-file diffs for code archaeology
-- **Image descriptions** — standalone images described by a local vision model (PNG, JPG, TIFF, BMP, WebP)
+- **Image descriptions** — a local vision model describes standalone images (PNG, JPG, TIFF, BMP, WebP)
 
 ## Supported Sources
 
@@ -22,7 +22,7 @@ Forked from [sebastianhutter/local-rag](https://github.com/sebastianhutter/local
 | **Calibre** | Ebook content and metadata (EPUB, PDF) |
 | **NetNewsWire** | RSS/Atom articles |
 | **Code groups** | Git repos grouped by org/topic — tree-sitter structural parsing (17 languages) + commit history |
-| **Project folders** | Any folder of documents, dispatched to the right parser by file type |
+| **Project folders** | Any document folder, dispatched to the right parser by file type |
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ uv run ragling index obsidian --vault ~/Documents/MyVault
 uv run ragling search "kubernetes deployment strategy"
 ```
 
-The first run takes a minute or two while `uv` installs dependencies. No configuration file needed — pass paths on the command line.
+The first run takes a minute or two while `uv` installs dependencies. No configuration file needed — pass paths directly on the command line.
 
 ## Connect to Claude
 
