@@ -142,6 +142,34 @@ class TestWatchPathsIncludesObsidianAndCode:
         paths = get_watch_paths(config)
         assert paths.count(shared_dir) == 1
 
+    def test_includes_watch_with_multiple_paths(self, tmp_path: Path) -> None:
+        from ragling.watchers.watcher import get_watch_paths
+
+        dir1 = tmp_path / "papers"
+        dir2 = tmp_path / "refs"
+        dir1.mkdir()
+        dir2.mkdir()
+        config = Config(watch=MappingProxyType({"research": (dir1, dir2)}))
+        paths = get_watch_paths(config)
+        assert dir1 in paths
+        assert dir2 in paths
+
+    def test_deduplicates_watch_with_obsidian(
+        self, tmp_path: Path
+    ) -> None:  # Tests Watchers INV-11
+        """Same path in watch and obsidian_vaults appears only once."""
+        from ragling.watchers.watcher import get_watch_paths
+
+        shared = tmp_path / "repo"
+        shared.mkdir()
+        config = Config(
+            obsidian_vaults=(shared,),
+            watch=MappingProxyType({"also-repo": (shared,)}),
+        )
+        paths = get_watch_paths(config)
+        resolved_paths = [p.resolve() for p in paths]
+        assert resolved_paths.count(shared.resolve()) == 1
+
     def test_combines_all_path_types(self, tmp_path: Path) -> None:
         from ragling.watchers.watcher import get_watch_paths
 
@@ -165,52 +193,6 @@ class TestWatchPathsIncludesObsidianAndCode:
         assert watch_dir in paths
 
 
-class TestWatchPathsIncludesWatch:
-    """Tests that get_watch_paths includes watch directories."""
-
-    def test_includes_watch_directories(self, tmp_path: Path) -> None:
-        from ragling.watchers.watcher import get_watch_paths
-
-        watch_dir = tmp_path / "proj"
-        watch_dir.mkdir()
-        config = Config(watch=MappingProxyType({"proj": (watch_dir,)}))
-        paths = get_watch_paths(config)
-        assert watch_dir in paths
-
-    def test_includes_watch_with_multiple_paths(self, tmp_path: Path) -> None:
-        from ragling.watchers.watcher import get_watch_paths
-
-        dir1 = tmp_path / "papers"
-        dir2 = tmp_path / "refs"
-        dir1.mkdir()
-        dir2.mkdir()
-        config = Config(watch=MappingProxyType({"research": (dir1, dir2)}))
-        paths = get_watch_paths(config)
-        assert dir1 in paths
-        assert dir2 in paths
-
-    def test_skips_nonexistent_watch_directories(self, tmp_path: Path) -> None:
-        from ragling.watchers.watcher import get_watch_paths
-
-        config = Config(watch=MappingProxyType({"proj": (tmp_path / "nonexistent",)}))
-        paths = get_watch_paths(config)
-        assert len(paths) == 0
-
-    def test_deduplicates_watch_with_obsidian(self, tmp_path: Path) -> None:
-        """Same path in watch and obsidian_vaults appears only once."""
-        from ragling.watchers.watcher import get_watch_paths
-
-        shared = tmp_path / "repo"
-        shared.mkdir()
-        config = Config(
-            obsidian_vaults=(shared,),
-            watch=MappingProxyType({"also-repo": (shared,)}),
-        )
-        paths = get_watch_paths(config)
-        resolved_paths = [p.resolve() for p in paths]
-        assert resolved_paths.count(shared.resolve()) == 1
-
-
 class TestHandlerOnDeleted:
     def test_deleted_file_is_enqueued(self) -> None:
         queue = MagicMock(spec=DebouncedIndexQueue)
@@ -221,7 +203,7 @@ class TestHandlerOnDeleted:
 
         queue.enqueue.assert_called_once_with(Path("/tmp/notes.md"))
 
-    def test_deleted_unsupported_extension_ignored(self) -> None:
+    def test_deleted_unsupported_extension_ignored(self) -> None:  # Tests Watchers INV-10
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".txt"})
 
@@ -274,7 +256,7 @@ class TestHandlerExtensionFiltering:
 
         queue.enqueue.assert_not_called()
 
-    def test_unsupported_extension_ignored_on_created(self) -> None:
+    def test_unsupported_extension_ignored_on_created(self) -> None:  # Tests Watchers INV-10
         """File with unsupported extension does not enqueue on creation."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -305,7 +287,7 @@ class TestHandlerExtensionFiltering:
 
         queue.enqueue.assert_called_once_with(Path("/tmp/script.Py"))
 
-    def test_directory_events_always_ignored(self) -> None:
+    def test_directory_events_always_ignored(self) -> None:  # Tests Watchers INV-10
         """Directory events are ignored regardless of name matching an extension."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -316,7 +298,7 @@ class TestHandlerExtensionFiltering:
 
         queue.enqueue.assert_not_called()
 
-    def test_no_extension_not_enqueued(self) -> None:
+    def test_no_extension_not_enqueued(self) -> None:  # Tests Watchers INV-10
         """File with no extension is not enqueued."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -386,7 +368,7 @@ class TestHandlerGitStateFiles:
 
         queue.enqueue.assert_called_once_with(Path("/repo/.git/refs/heads/main"))
 
-    def test_git_refs_remotes_change_is_enqueued(self) -> None:
+    def test_git_refs_remotes_change_is_enqueued(self) -> None:  # Tests Watchers INV-10
         """Changes to .git/refs/remotes/ should be enqueued (e.g. git fetch)."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -406,7 +388,7 @@ class TestHandlerGitStateFiles:
 
         queue.enqueue.assert_not_called()
 
-    def test_git_index_change_is_not_enqueued(self) -> None:
+    def test_git_index_change_is_not_enqueued(self) -> None:  # Tests Watchers INV-10
         """Changes to .git/index should NOT be enqueued."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -416,7 +398,7 @@ class TestHandlerGitStateFiles:
 
         queue.enqueue.assert_not_called()
 
-    def test_git_logs_change_is_not_enqueued(self) -> None:
+    def test_git_logs_change_is_not_enqueued(self) -> None:  # Tests Watchers INV-10
         """Changes to .git/logs/ should NOT be enqueued."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})
@@ -426,7 +408,7 @@ class TestHandlerGitStateFiles:
 
         queue.enqueue.assert_not_called()
 
-    def test_git_head_created_is_enqueued(self) -> None:
+    def test_git_head_created_is_enqueued(self) -> None:  # Tests Watchers INV-10
         """Created events on .git/refs/ should also be enqueued."""
         queue = MagicMock(spec=DebouncedIndexQueue)
         handler = _Handler(queue, {".md", ".pdf", ".py"})

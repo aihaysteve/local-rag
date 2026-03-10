@@ -111,7 +111,9 @@ class TestConfigWatcher:
         assert isinstance(new_config, Config)
         assert new_config.embedding_model == "new-model"
 
-    def test_reload_preserves_old_config_on_parse_error(self, tmp_path: Path) -> None:
+    def test_reload_preserves_old_config_on_parse_error(
+        self, tmp_path: Path
+    ) -> None:  # Tests Watchers FAIL-6
         """If new config is invalid JSON, old config is preserved."""
         from ragling.watchers.config_watcher import ConfigWatcher
 
