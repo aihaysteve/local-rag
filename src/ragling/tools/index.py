@@ -132,6 +132,16 @@ def _rag_index_dispatch(
             "indexing": indexing_status.to_dict(),
         }
 
+    # Upfront connectivity check — fail fast if Ollama is unreachable.
+    # Both system collections (queued) and directory sources (synchronous)
+    # need embeddings, so check before doing any work.
+    from ragling.embeddings import OllamaConnectionError, check_connection
+
+    try:
+        check_connection(config)
+    except OllamaConnectionError as e:
+        return {"error": str(e)}
+
     # System collections: single job with fixed (job_type, indexer_type)
     if collection in _SYSTEM_COLLECTION_JOBS:
         job_type, indexer_type = _SYSTEM_COLLECTION_JOBS[collection]
@@ -152,6 +162,11 @@ def _rag_index_dispatch(
         init_db(conn, config)
         try:
             total_indexed = 0
+            total_skipped = 0
+            total_skipped_empty = 0
+            total_errors = 0
+            total_pruned = 0
+            all_error_messages: list[str] = []
             for watch_path in config.watch[collection]:
                 if not watch_path.is_dir():
                     continue
@@ -159,13 +174,25 @@ def _rag_index_dispatch(
                     conn, config, collection, watch_path, status=indexing_status
                 )
                 total_indexed += result.indexed
+                total_skipped += result.skipped
+                total_skipped_empty += result.skipped_empty
+                total_errors += result.errors
+                total_pruned += result.pruned
+                all_error_messages.extend(result.error_messages)
         finally:
             conn.close()
+
+        status_str = "completed_with_errors" if total_errors > 0 else "completed"
         return {
-            "status": "completed",
+            "status": status_str,
             "collection": collection,
             "paths": len(config.watch[collection]),
             "indexed": total_indexed,
+            "skipped": total_skipped,
+            "skipped_empty": total_skipped_empty,
+            "errors": total_errors,
+            "pruned": total_pruned,
+            "error_messages": all_error_messages,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
