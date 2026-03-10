@@ -37,6 +37,21 @@ class TestResolveApiKey:
         config = Config()
         assert resolve_api_key("rag_anything", config) is None
 
+    def test_uses_timing_safe_comparison(self) -> None:  # Tests Auth INV-7
+        """resolve_api_key uses hmac.compare_digest for key comparison."""
+        from unittest.mock import patch
+
+        from ragling.auth.auth import resolve_api_key
+
+        config = Config(
+            home=None,
+            users={"kitchen": UserConfig(api_key="rag_test123")},
+        )
+        with patch("ragling.auth.auth.hmac.compare_digest", return_value=True) as mock_cmp:
+            result = resolve_api_key("rag_test123", config)
+            mock_cmp.assert_called()
+            assert result is not None
+
 
 class TestUserContextVisibleCollections:
     """Tests for computing visible collections from user config."""
