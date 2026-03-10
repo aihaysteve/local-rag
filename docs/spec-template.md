@@ -50,5 +50,11 @@ every theoretical possibility.
 
 ---
 
+**SPEC.md tree walk:** Not every directory needs its own SPEC.md. A subsystem
+is covered by walking up the directory tree to the nearest SPEC.md. For example,
+`src/ragling/tools/` is documented in its parent `src/ragling/SPEC.md` under
+"Key files." A directory only needs its own SPEC.md when it has independent
+invariants and failure modes that warrant separate tracking.
+
 After creating a new SPEC.md, register it in [`docs/specs/MANIFEST.md`](specs/MANIFEST.md)
 and add any cross-cutting concerns to the table there.

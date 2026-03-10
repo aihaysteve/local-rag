@@ -26,7 +26,7 @@ to chunk boundaries.
 - `epub.py` -- EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
 - `email.py` -- eM Client SQLite database parsing (.NET ticks, address types, FTI)
 - `calibre.py` -- Calibre library metadata loading from metadata.db
-- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages). Symbol name extraction and symbol type classification use registry-based dispatch for extensibility. The code parser covers 36 programming languages via tree-sitter grammars from the `tree-sitter-language-pack`. Symbol extraction uses registry-based dispatch -- each language registers its own query patterns for identifying functions, classes, methods, and other structural units. Symbol type classification normalizes language-specific constructs (e.g., Go's `func` and Python's `def` both classify as "function").
+- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages via `tree-sitter-language-pack`). Symbol extraction uses registry-based dispatch — each language registers its own query patterns for identifying functions, classes, methods, and other structural units. Symbol type classification normalizes language-specific constructs (e.g., Go's `func` and Python's `def` both classify as "function").
 - `rss.py` -- NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
 - `spec.py` -- SPEC.md section-level chunking into typed Chunk objects
 

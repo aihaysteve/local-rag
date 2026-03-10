@@ -19,11 +19,12 @@ frontmatter. The `name` field maps to `/skill-name` invocation, and the
 `description` field drives automatic keyword-based triggering. Skills are
 self-contained directories with all support files co-located.
 
-Some skills invoke other skills as sub-steps. The `documentation-standards`
-skill is invoked by `brainstorming` (draft mode, after design approval) and
-`finishing-a-development-branch` (validate mode, as a hard gate before PR
-creation). Cross-skill invocations are documented in each skill's Integration
-section.
+Some skills invoke other skills as sub-steps. For example, the
+`documentation-standards` skill (provided by the `dev-workflow-toolkit` plugin,
+not tracked locally) is invoked by `brainstorming` (draft mode, after design
+approval) and `finishing-a-development-branch` (validate mode, as a hard gate
+before PR creation). Cross-skill invocations are documented in each skill's
+Integration section.
 
 **Key files:**
 - `UPSTREAM-superpowers.md` — Tracks provenance and sync status for skills

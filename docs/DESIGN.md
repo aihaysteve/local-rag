@@ -1,7 +1,7 @@
 # Ragling Design
 
 Design patterns, conventions, and rationale for the ragling codebase.
-For system structure, schemas, and data flow, see [Architecture](architecture.md).
+For system structure, schemas, and data flow, see [Architecture](ARCHITECTURE.md).
 
 ---
 
@@ -500,3 +500,74 @@ minimal.
 
 Key files: `src/ragling/doc_store.py`,
 `src/ragling/document/docling_convert.py`.
+
+---
+
+## MCP Tool Registration
+
+MCP tools use explicit dependency injection through the `ToolContext` dataclass
+in `src/ragling/tools/context.py`, replacing the closure capture pattern
+previously used in `create_server()`. Each tool module follows an identical
+structure: a `register(mcp: FastMCP, ctx: ToolContext)` function that defines
+the tool implementation inside itself using `@mcp.tool()`.
+
+The `ToolContext` stores callable getters for values that change at runtime
+(`config_getter`, `queue_getter`, `role_getter`) and static fields for values
+that don't (`group_name`, `server_config`, `indexing_status`). Tool functions
+call `ctx.get_config()` to get the latest config with the group name applied,
+and `ctx.get_queue()` to get the current indexing queue (may be `None` for
+followers).
+
+`register_all_tools()` in `src/ragling/tools/__init__.py` orchestrates
+registration: it imports all tool modules and calls `register(mcp, ctx)` on
+each. All tools share the same `ToolContext` instance.
+
+Key patterns within tool modules:
+
+- **Lazy imports.** Dependencies are imported inside the tool function body, not
+  at module level. This avoids circular imports and reduces startup time.
+- **TYPE_CHECKING blocks.** `FastMCP` and `ToolContext` are imported under
+  `TYPE_CHECKING` so type hints work without runtime import cost.
+- **Error dict returns.** Tools return `{"error": "message"}` dicts for
+  failures rather than raising exceptions, keeping MCP responses well-formed.
+- **Status inclusion.** Tools append `indexing_status.to_dict()` to responses
+  when indexing is active, giving clients progress visibility.
+
+Key files: `src/ragling/tools/context.py`, `src/ragling/tools/__init__.py`,
+`src/ragling/mcp_server.py`.
+
+---
+
+## Testing Strategy
+
+Tests live in `tests/` with one test file per major module. The project uses
+strict TDD (red-green-refactor) — no implementation code without a failing test
+driving it (see `CONTRIBUTING.md`).
+
+Shared test helpers in `tests/helpers.py` (extracted in PR #58) provide three
+factory functions that standardize test setup:
+
+- `make_test_conn(tmp_path)` — creates an initialized SQLite database with
+  small embedding dimensions (`EMBED_DIM=4`) for fast tests.
+- `make_test_config(tmp_path, **overrides)` — creates a `Config` with test
+  defaults, accepting keyword overrides for any field.
+- `fake_embeddings(texts, config)` — returns fixed-dimension fake embedding
+  vectors, avoiding Ollama dependency in tests.
+
+Database tests use real SQLite with 4-dimensional vectors instead of full
+1024-dimensional embeddings. This keeps tests fast while exercising the actual
+SQL schema and sqlite-vec operations. Extension loading tests are gated behind
+a `requires_sqlite_extensions` marker for environments where
+`enable_load_extension()` is unavailable.
+
+Mocking follows a consistent pattern: external dependencies (Ollama, Docling)
+are patched via `unittest.mock.patch`, while internal SQLite operations use
+real databases via `tmp_path` fixtures. This catches integration issues that
+pure mocking would miss.
+
+`@pytest.mark.parametrize` is used for combinatorial testing of config
+variants, CLI arguments, and format dispatch. Autouse fixtures (e.g.,
+`_clear_caches` in `test_docling_convert.py`) ensure `@lru_cache` singletons
+are reset between tests.
+
+Key files: `tests/helpers.py`, `tests/conftest.py`.

@@ -281,7 +281,7 @@ Each user is defined in the config with:
 - **`system_collections`**: List of system collections (e.g., `["obsidian", "email"]`) the user can search.
 - **`path_mappings`**: Host-to-container prefix replacement for environments where the MCP server and client see different filesystem paths.
 
-See [Authentication & Visibility](DESIGN.md#authentication--visibility) for the authentication flow and visibility rules.
+See [Authentication and Visibility](DESIGN.md#authentication-and-visibility) for the authentication flow and visibility rules.
 
 ## Auto-Detection and Indexing
 

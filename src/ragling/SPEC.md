@@ -68,10 +68,10 @@ the kernel for automatic cleanup on process death.
 | INV-3 | All SQLite databases use WAL journal mode with retry on first access | Multiple MCP instances read concurrently; WAL avoids reader/writer blocking |
 | INV-4 | System collections (email, calibre, RSS) write via the IndexingQueue worker thread. Directory sources (watch collections) use synchronous `sync_directory_source()` from the MCP tool, blocking the caller until complete. | System collections use non-blocking queue; directory sources use blocking walker pipeline for immediate feedback |
 | INV-5 | DocStore keys documents by SHA-256 file hash + config_hash; identical content is never converted twice | Avoids redundant Docling conversions that can take minutes per document |
-| INV-8 | LeaderLock uses `fcntl.flock()`; kernel releases the lock when the process dies | No stale locks, no PID files, no heartbeat mechanism needed |
-| INV-9 | Embedding batch failures fall back to individual embedding with truncation retry | One bad text in a batch must not block the entire batch |
-| INV-6 | `load_config()` validates reserved collection names — watch names cannot use names in `RESERVED_COLLECTION_NAMES` (`email`, `calibre`, `rss`, `global`); raises `ValueError` on conflict | Reserved names route to system indexers; user collections with these names would cause routing ambiguity |
-| INV-7 | All config paths expanded at load time via `_expand_path()` / `Path.expanduser()` — config object contains only absolute paths | Prevents `~` resolution surprises at use time; all code can assume paths are absolute |
+| INV-6 | LeaderLock uses `fcntl.flock()`; kernel releases the lock when the process dies | No stale locks, no PID files, no heartbeat mechanism needed |
+| INV-7 | Embedding batch failures fall back to individual embedding with truncation retry | One bad text in a batch must not block the entire batch |
+| INV-8 | `load_config()` validates reserved collection names — watch names cannot use names in `RESERVED_COLLECTION_NAMES` (`email`, `calibre`, `rss`, `global`); raises `ValueError` on conflict | Reserved names route to system indexers; user collections with these names would cause routing ambiguity |
+| INV-9 | All config paths expanded at load time via `_expand_path()` / `Path.expanduser()` — config object contains only absolute paths | Prevents `~` resolution surprises at use time; all code can assume paths are absolute |
 
 ## Failure Modes
 
@@ -79,9 +79,9 @@ the kernel for automatic cleanup on process death.
 |---|---|---|---|
 | FAIL-1 | `OllamaConnectionError` on search or index | Ollama not running or unreachable at configured host | Start Ollama with `ollama serve`; verify `ollama_host` config if using remote |
 | FAIL-2 | `OperationalError: database is locked` during WAL setup | Concurrent first-time access to a new database file | Automatic retry with exponential backoff (5 attempts); increase delay if persistent |
-| FAIL-4 | IndexingQueue silently drops errors | Indexer raises during `_process()` | Exception logged; status counter decremented; job marked failed in IndexingStatus |
-| FAIL-5 | Follower never promoted to leader | Previous leader process died but OS did not release flock | Restart the follower; kernel should release on process death -- if not, check for zombie processes |
-| FAIL-3 | Deprecation warnings logged during config loading | Legacy `code_groups` or top-level `obsidian_vaults` keys present in config file | Automatic migration via `migrate_config_dict()`; old keys silently converted to unified model |
+| FAIL-3 | IndexingQueue silently drops errors | Indexer raises during `_process()` | Exception logged; status counter decremented; job marked failed in IndexingStatus |
+| FAIL-4 | Follower never promoted to leader | Previous leader process died but OS did not release flock | Restart the follower; kernel should release on process death -- if not, check for zombie processes |
+| FAIL-5 | Deprecation warnings logged during config loading | Legacy `code_groups` or top-level `obsidian_vaults` keys present in config file | Automatic migration via `migrate_config_dict()`; update config to remove legacy keys to silence warnings |
 
 ## Dependencies
 

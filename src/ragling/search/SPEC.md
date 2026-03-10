@@ -40,18 +40,18 @@ to ensure sufficient candidates survive filtering.
 
 | ID | Invariant | Why It Matters |
 |---|---|---|
-| INV-6 | `rrf_merge()` produces scores that decrease monotonically when iterated in order | Callers rely on results being sorted by relevance |
-| INV-7 | `perform_search()` and `perform_batch_search()` validate embedding dimensions match config before searching | Mismatched dimensions corrupt the sqlite-vec index or produce meaningless similarity scores |
-| INV-8 | Filtered queries use 50x oversampling; unfiltered use 3x | Ensures sufficient candidates survive in-memory filtering without over-fetching for simple queries |
-| INV-9 | Metadata cache is shared between vector and FTS search paths within a single `search()` call | Avoids duplicate database lookups for documents appearing in both result sets |
+| INV-1 | `rrf_merge()` produces scores that decrease monotonically when iterated in order | Callers rely on results being sorted by relevance |
+| INV-2 | `perform_search()` and `perform_batch_search()` validate embedding dimensions match config before searching | Mismatched dimensions corrupt the sqlite-vec index or produce meaningless similarity scores |
+| INV-3 | Filtered queries use 50x oversampling; unfiltered use 3x | Ensures sufficient candidates survive in-memory filtering without over-fetching for simple queries |
+| INV-4 | Metadata cache is shared between vector and FTS search paths within a single `search()` call | Avoids duplicate database lookups for documents appearing in both result sets |
 
 ## Failure Modes
 
 | ID | Symptom | Cause | Fix |
 |---|---|---|---|
-| FAIL-3 | Search returns stale results marked `stale=True` | Source file modified or deleted after indexing | Re-index the affected collection; stale marking is informational |
-| FAIL-4 | FTS query returns empty results despite matching content existing | Malformed FTS5 query syntax (special characters) | `_fts_search()` catches `sqlite3.OperationalError`, logs warning, returns empty list; search continues with vector results only |
-| FAIL-5 | `ValueError` raised before search executes | Query embedding dimensions don't match `config.embedding_dimensions` | Ensure the embedding model matches config; re-embed if model was changed |
+| FAIL-1 | Search returns stale results marked `stale=True` | Source file modified or deleted after indexing | Re-index the affected collection; stale marking is informational |
+| FAIL-2 | FTS query returns empty results despite matching content existing | Malformed FTS5 query syntax (special characters) | `_fts_search()` catches `sqlite3.OperationalError`, logs warning, returns empty list; search continues with vector results only |
+| FAIL-3 | `ValueError` raised before search executes | Query embedding dimensions don't match `config.embedding_dimensions` | Ensure the embedding model matches config; re-embed if model was changed |
 
 ## Dependencies
 
