@@ -1,6 +1,6 @@
 # Ragling Architecture Overview
 
-Ragling is a Docling-powered local RAG (Retrieval Augmented Generation) system with a shared document cache and per-group vector indexes. It indexes personal knowledge from multiple sources, converts documents through a unified Docling pipeline, and exposes hybrid vector + full-text search via CLI and MCP server. Everything runs locally -- no cloud APIs, no API keys, no data leaves the machine.
+Ragling is a Docling-powered local RAG (Retrieval Augmented Generation) system with a shared document cache and per-group vector indexes. It indexes personal knowledge from multiple sources, converts documents through a unified Docling pipeline, and exposes hybrid vector + full-text search via CLI and MCP server. Everything runs locally -- no cloud APIs, no data leaves the machine.
 
 ## Design Principles
 
@@ -61,7 +61,7 @@ flowchart LR
 
 ## Document Conversion: Docling
 
-[Docling](https://github.com/DS4SD/docling) is an IBM open-source universal document converter that produces structured `DoclingDocument` objects from a wide range of input formats.
+[Docling](https://github.com/DS4SD/docling) is an IBM open-source document converter that produces structured `DoclingDocument` objects from many input formats.
 
 ### Formats handled directly by Docling
 
@@ -79,7 +79,7 @@ Docling's `DocumentConverter` handles these formats natively:
 
 ### Bridge functions
 
-Formats not handled by Docling's converter are transformed into `DoclingDocument` objects via bridge functions in `docling_bridge.py`:
+Bridge functions in `docling_bridge.py` convert formats that Docling does not handle natively into `DoclingDocument` objects:
 
 | Bridge Function | Input | How it works |
 |----------------|-------|--------------|
@@ -93,7 +93,7 @@ All bridge functions produce `DoclingDocument` objects, so every format flows th
 
 ### PDF enrichments
 
-The PDF pipeline is configured with five enrichments (see `docling_convert.py`):
+The PDF pipeline uses five enrichments (see `docling_convert.py`):
 
 | Enrichment | Model/Mode | What it does |
 |-----------|-----------|-------------|
@@ -103,20 +103,20 @@ The PDF pipeline is configured with five enrichments (see `docling_convert.py`):
 | Accurate tables | `TableFormerMode.ACCURATE` | High-quality table structure extraction with cell matching |
 | Caption preservation | Built-in | Preserves figure and table captions in metadata |
 
-Enrichment metadata (picture descriptions, captions, code language) is extracted from `DoclingDocument` items and carried through to chunk metadata for search filtering.
+Enrichment metadata (picture descriptions, captions, code language) flows from `DoclingDocument` items through to chunk metadata for search filtering.
 
 ### Config hash in cache key
 
-The converter pipeline configuration (which enrichments are enabled, table mode) is hashed and included in the doc_store cache key. Changing enrichment settings automatically invalidates cached conversions, triggering re-conversion on the next index.
+The converter pipeline configuration (enabled enrichments, table mode) is hashed into the doc_store cache key. Changing enrichment settings invalidates cached conversions, triggering re-conversion on the next index.
 
 ## Shared Document Cache (doc_store)
 
-The document cache (`doc_store.sqlite`) is a content-addressed store that avoids duplicate Docling conversions across groups and MCP instances.
+The document cache (`doc_store.sqlite`) is a content-addressed store that eliminates duplicate Docling conversions across groups and MCP instances.
 
 - **Content-addressed by SHA-256 file hash + converter config hash.** The same file with the same pipeline settings always produces a cache hit.
-- **Stores full `DoclingDocument` as JSON.** The complete structured document is serialized, not just extracted text, so downstream chunking can use headings, tables, and enrichment metadata.
-- **Shared across all groups.** Multiple MCP instances (each with their own per-group vector index) share a single doc_store. If one group has already converted a PDF, another group reuses the cached conversion.
-- **WAL mode for concurrent access.** SQLite Write-Ahead Logging enables multiple simultaneous readers across MCP instances.
+- **Stores full `DoclingDocument` as JSON.** Serializes the complete structured document, not just extracted text, so downstream chunking can use headings, tables, and enrichment metadata.
+- **Shared across all groups.** Multiple MCP instances (each with its own per-group vector index) share a single doc_store. If one group has already converted a PDF, other groups reuse the cached conversion.
+- **WAL mode for concurrent access.** SQLite Write-Ahead Logging allows multiple simultaneous readers across MCP instances.
 - **Default location:** `~/.ragling/doc_store.sqlite`
 
 ### Schema
@@ -151,7 +151,7 @@ CREATE TABLE converted_documents (
 Each group gets its own SQLite database at `groups/{name}/index.db` containing embeddings, FTS indexes, and collection metadata.
 
 - **SQLite + sqlite-vec + FTS5.** Each per-group database has the same schema: `collections`, `sources`, `documents`, `vec_documents`, `documents_fts`, and `meta`.
-- **Groups share the doc_store but not embeddings.** Two groups indexing the same PDF reuse the cached Docling conversion but generate and store their own embedding vectors independently.
+- **Groups share the doc_store but not embeddings.** Two groups indexing the same PDF reuse the cached Docling conversion but generate and store separate embedding vectors.
 - **Deleting a group removes only its vectors.** The shared doc_store retains the cached conversion for other groups to use.
 - **WAL mode** for concurrent read access during search while indexing is in progress.
 
@@ -214,7 +214,7 @@ Relationships: `collections` 1:N `sources` 1:N `documents`. CASCADE deletes ensu
 
 ## Chunking
 
-All formats are chunked through docling-core's `HybridChunker` with token-aware, structure-preserving splitting. Default chunk size is 256 tokens aligned to the embedding model's tokenizer (`BAAI/bge-m3`). See [Chunking Strategy](DESIGN.md#chunking-strategy) for rationale and details.
+All formats pass through docling-core's `HybridChunker` for token-aware, structure-preserving splitting. Default chunk size is 256 tokens, aligned to the embedding model's tokenizer (`BAAI/bge-m3`). See [Chunking Strategy](DESIGN.md#chunking-strategy) for rationale and details.
 
 ## Supported Sources
 
@@ -251,12 +251,12 @@ All formats are chunked through docling-core's `HybridChunker` with token-aware,
 
 ## Hybrid Search with RRF
 
-Every search query runs two parallel searches:
+Every query runs two parallel searches:
 
-1. **Vector search** -- the query is embedded via Ollama and compared against stored embeddings by cosine distance via sqlite-vec.
-2. **Full-text search** -- the query is tokenized and matched against the FTS5 index for keyword matches.
+1. **Vector search** -- Ollama embeds the query and sqlite-vec compares it against stored embeddings by cosine distance.
+2. **Full-text search** -- FTS5 tokenizes the query and matches it against the keyword index.
 
-Results are merged using Reciprocal Rank Fusion:
+Reciprocal Rank Fusion merges the results:
 
 ```
 score(doc) = vector_weight / (k + vec_rank) + fts_weight / (k + fts_rank)
@@ -268,14 +268,14 @@ For a detailed explanation of the algorithm with worked examples, see [Hybrid Se
 
 ## SSE Transport and Authentication
 
-Ragling supports dual transport for its MCP server:
+The MCP server supports two transports:
 
 - **stdio** (default): No authentication. Full access to all collections. Used by Claude Desktop and Claude Code when configured directly.
 - **SSE**: Bearer token authentication with per-user scoping. Started with `ragling serve --sse --port 10001`.
 
 ### User model
 
-Each user is defined in the config with:
+Each user's config entry specifies:
 
 - **`api_key`**: Bearer token for SSE authentication.
 - **`system_collections`**: List of system collections (e.g., `["obsidian", "email"]`) the user can search.
@@ -287,7 +287,7 @@ See [Authentication and Visibility](DESIGN.md#authentication-and-visibility) for
 
 ### Auto-detection
 
-When indexing a directory (during startup sync or via the watcher), ragling detects the content type by marker files:
+When indexing a directory (during startup sync or via the watcher), ragling detects content type by marker files:
 
 1. `.obsidian/` directory present --> Obsidian vault indexer (frontmatter, wikilinks, tags)
 2. `.git/` directory present --> Git repository indexer (tree-sitter code + commit history)
@@ -298,9 +298,9 @@ When indexing a directory (during startup sync or via the watcher), ragling dete
 When the MCP server starts:
 
 1. A background daemon thread scans configured directories (`home/{username}/` dirs and `global_paths`).
-2. Each directory is routed through auto-detection and indexed with the appropriate indexer.
-3. The MCP server is available immediately -- it does not wait for sync to complete.
-4. An `IndexingStatus` tracker reports progress in search responses so clients know indexing is ongoing.
+2. Auto-detection routes each directory to the appropriate indexer.
+3. The MCP server responds immediately -- it does not wait for sync to complete.
+4. `IndexingStatus` reports progress in search responses so clients know indexing is ongoing.
 
 See [Auto-Detection Conventions](DESIGN.md#auto-detection-conventions) for precedence rules and file watcher details.
 
