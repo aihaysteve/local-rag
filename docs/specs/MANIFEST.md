@@ -33,7 +33,7 @@ Index of all SPEC.md files in the ragling codebase.
 ## Invariant Referencing Convention
 
 Invariant and failure mode IDs are **locally unique** within each SPEC.md file
-(numbered sequentially starting from 1). When referencing an invariant from
-outside its SPEC.md, use the path-qualified form: `src/ragling/auth/INV-1`
-rather than just `INV-1`. This avoids ambiguity since multiple subsystems may
-have `INV-1`.
+(numbered sequentially from 1). When referencing an invariant from another
+SPEC.md, use the path-qualified form: `src/ragling/auth/INV-1` rather than
+bare `INV-1`. This avoids ambiguity since multiple subsystems share the same
+numbering.
