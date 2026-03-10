@@ -132,6 +132,17 @@ class TestConvertAndChunk:
 class TestGetConverter:
     """Tests for the enriched converter configuration."""
 
+    def test_get_converter_returns_singleton(self) -> None:  # Tests Document INV-1
+        """get_converter() returns the same instance on repeated calls."""
+        from ragling.document.docling_convert import get_converter
+
+        with patch("ragling.document.docling_convert.DocumentConverter") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            c1 = get_converter()
+            c2 = get_converter()
+        assert c1 is c2
+        assert mock_cls.call_count == 1
+
     def test_get_converter_returns_document_converter(self) -> None:
         from ragling.document.docling_convert import get_converter
 
