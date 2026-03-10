@@ -132,6 +132,16 @@ def _rag_index_dispatch(
             "indexing": indexing_status.to_dict(),
         }
 
+    # Upfront connectivity check — fail fast if Ollama is unreachable.
+    # Both system collections (queued) and directory sources (synchronous)
+    # need embeddings, so check before doing any work.
+    from ragling.embeddings import OllamaConnectionError, check_connection
+
+    try:
+        check_connection(config)
+    except OllamaConnectionError as e:
+        return {"error": str(e)}
+
     # System collections: single job with fixed (job_type, indexer_type)
     if collection in _SYSTEM_COLLECTION_JOBS:
         job_type, indexer_type = _SYSTEM_COLLECTION_JOBS[collection]
@@ -146,14 +156,7 @@ def _rag_index_dispatch(
     # Directory sources
     if collection in config.watch:
         from ragling.db import get_connection, init_db
-        from ragling.embeddings import OllamaConnectionError, check_connection
         from ragling.sync import sync_directory_source
-
-        # Upfront connectivity check — fail fast if Ollama is unreachable
-        try:
-            check_connection(config)
-        except OllamaConnectionError as e:
-            return {"error": str(e)}
 
         conn = get_connection(config)
         init_db(conn, config)

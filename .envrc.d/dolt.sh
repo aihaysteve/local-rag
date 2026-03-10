@@ -19,7 +19,7 @@ _dolt_os() {
 
 _dolt_latest_version() {
   curl -fsSL https://api.github.com/repos/dolthub/dolt/releases/latest 2>/dev/null \
-    | grep -oP '"tag_name":\s*"v?\K[^"]+' | head -1
+    | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1
 }
 
 _dolt_install() {
@@ -51,7 +51,7 @@ _dolt_ensure() {
     [[ -n "$latest" ]] && _dolt_install "$latest"
   elif [[ ! -f "$stamp" ]] || [[ -n $(find "$stamp" -mtime +1 2>/dev/null) ]]; then
     local current
-    current=$("$bin" version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
+    current=$("$bin" version 2>/dev/null | sed -n 's/.*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
     local latest=$(_dolt_latest_version)
     if [[ -n "$latest" && "$current" != "$latest" ]]; then
       echo "dolt: $current -> $latest"

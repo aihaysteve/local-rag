@@ -659,7 +659,8 @@ class TestRagIndexQueueRouting:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="email")
+        with patch("ragling.embeddings.check_connection"):
+            result: dict[str, Any] = rag_index_fn(collection="email")
 
         # Should use submit (fire-and-forget), NOT submit_and_wait
         queue.submit.assert_called_once()
@@ -888,10 +889,9 @@ class TestRagIndexWatch:
 class TestRagIndexErrorSurfacing:
     """rag_index surfaces errors from IndexResult and checks Ollama connectivity."""
 
-    def test_returns_error_when_ollama_unreachable(self, tmp_path: Path) -> None:
-        """Upfront Ollama check returns error dict before any indexing."""
-        from ragling.config import Config
-        from ragling.embeddings import OllamaConnectionError
+    @pytest.fixture()
+    def watch_server(self, tmp_path: Path) -> tuple[Any, MagicMock]:
+        """Create a server with a single watch collection and return (rag_index_fn, queue)."""
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
         from ragling.mcp_server import create_server
@@ -906,18 +906,23 @@ class TestRagIndexErrorSurfacing:
             watch=MappingProxyType({"mycode": (repo,)}),
         )
 
-        status = IndexingStatus()
         queue = MagicMock(spec=IndexingQueue)
-
         server = create_server(
             group_name="default",
             config=config,
-            indexing_status=status,
+            indexing_status=IndexingStatus(),
             indexing_queue=queue,
         )
+        rag_index_fn = server._tool_manager._tools["rag_index"].fn
+        return rag_index_fn, queue
 
-        tools = server._tool_manager._tools
-        rag_index_fn = tools["rag_index"].fn
+    def test_returns_error_when_ollama_unreachable(
+        self, watch_server: tuple[Any, MagicMock]
+    ) -> None:
+        """Upfront Ollama check returns error dict before any indexing."""
+        from ragling.embeddings import OllamaConnectionError
+
+        rag_index_fn, _queue = watch_server
 
         with patch(
             "ragling.embeddings.check_connection",
@@ -928,37 +933,11 @@ class TestRagIndexErrorSurfacing:
         assert "error" in result
         assert "Ollama" in result["error"]
 
-    def test_completed_with_errors_status(self, tmp_path: Path) -> None:
+    def test_completed_with_errors_status(self, watch_server: tuple[Any, MagicMock]) -> None:
         """Response uses completed_with_errors when IndexResult has errors."""
-        from ragling.config import Config
-        import ragling.document.chunker  # noqa: F401 — break circular import
         from ragling.indexers.base import IndexResult
-        from ragling.indexing_queue import IndexingQueue
-        from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import create_server
 
-        repo = tmp_path / "repo"
-        repo.mkdir()
-
-        config = Config(
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
-            watch=MappingProxyType({"mycode": (repo,)}),
-        )
-
-        status = IndexingStatus()
-        queue = MagicMock(spec=IndexingQueue)
-
-        server = create_server(
-            group_name="default",
-            config=config,
-            indexing_status=status,
-            indexing_queue=queue,
-        )
-
-        tools = server._tool_manager._tools
-        rag_index_fn = tools["rag_index"].fn
+        rag_index_fn, _queue = watch_server
 
         mock_result = IndexResult(
             indexed=3,
@@ -980,37 +959,11 @@ class TestRagIndexErrorSurfacing:
         assert result["error_messages"] == ["/tmp/bad1.py", "/tmp/bad2.py"]
         assert result["skipped"] == 1
 
-    def test_completed_status_when_no_errors(self, tmp_path: Path) -> None:
+    def test_completed_status_when_no_errors(self, watch_server: tuple[Any, MagicMock]) -> None:
         """Response uses completed when IndexResult has no errors."""
-        from ragling.config import Config
-        import ragling.document.chunker  # noqa: F401 — break circular import
         from ragling.indexers.base import IndexResult
-        from ragling.indexing_queue import IndexingQueue
-        from ragling.indexing_status import IndexingStatus
-        from ragling.mcp_server import create_server
 
-        repo = tmp_path / "repo"
-        repo.mkdir()
-
-        config = Config(
-            db_path=tmp_path / "test.db",
-            shared_db_path=tmp_path / "doc_store.sqlite",
-            embedding_dimensions=4,
-            watch=MappingProxyType({"mycode": (repo,)}),
-        )
-
-        status = IndexingStatus()
-        queue = MagicMock(spec=IndexingQueue)
-
-        server = create_server(
-            group_name="default",
-            config=config,
-            indexing_status=status,
-            indexing_queue=queue,
-        )
-
-        tools = server._tool_manager._tools
-        rag_index_fn = tools["rag_index"].fn
+        rag_index_fn, _queue = watch_server
 
         mock_result = IndexResult(indexed=10, skipped=5, skipped_empty=2, pruned=1)
         with (
@@ -1030,8 +983,6 @@ class TestRagIndexErrorSurfacing:
 
     def test_aggregates_results_across_multiple_paths(self, tmp_path: Path) -> None:
         """Multiple watch paths have their IndexResults summed."""
-        from ragling.config import Config
-        import ragling.document.chunker  # noqa: F401 — break circular import
         from ragling.indexers.base import IndexResult
         from ragling.indexing_queue import IndexingQueue
         from ragling.indexing_status import IndexingStatus
@@ -1049,18 +1000,14 @@ class TestRagIndexErrorSurfacing:
             watch=MappingProxyType({"mycode": (repo1, repo2)}),
         )
 
-        status = IndexingStatus()
         queue = MagicMock(spec=IndexingQueue)
-
         server = create_server(
             group_name="default",
             config=config,
-            indexing_status=status,
+            indexing_status=IndexingStatus(),
             indexing_queue=queue,
         )
-
-        tools = server._tool_manager._tools
-        rag_index_fn = tools["rag_index"].fn
+        rag_index_fn = server._tool_manager._tools["rag_index"].fn
 
         results = [
             IndexResult(indexed=5, skipped=2, errors=1, error_messages=["/tmp/bad.py"]),
@@ -1150,7 +1097,8 @@ class TestRagIndexFollowerMode:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="email")
+        with patch("ragling.embeddings.check_connection"):
+            result: dict[str, Any] = rag_index_fn(collection="email")
 
         # dynamic_queue should be used, not static_queue
         dynamic_queue.submit.assert_called_once()
@@ -1193,7 +1141,8 @@ class TestRagIndexFollowerMode:
         current_queue = promoted_queue
 
         # Now should route through the queue
-        result2: dict[str, Any] = rag_index_fn(collection="email")
+        with patch("ragling.embeddings.check_connection"):
+            result2: dict[str, Any] = rag_index_fn(collection="email")
         assert "error" not in result2
         assert result2["status"] == "submitted"
         promoted_queue.submit.assert_called_once()
@@ -1219,7 +1168,8 @@ class TestRagIndexFollowerMode:
 
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
-        result: dict[str, Any] = rag_index_fn(collection="email")
+        with patch("ragling.embeddings.check_connection"):
+            result: dict[str, Any] = rag_index_fn(collection="email")
 
         queue.submit.assert_called_once()
         assert result["status"] == "submitted"
@@ -1427,7 +1377,10 @@ class TestVisibilityFiltering:
 
         mock_token = MagicMock()
         mock_token.client_id = "kitchen"
-        with patch("ragling.tools.helpers.get_access_token", return_value=mock_token):
+        with (
+            patch("ragling.tools.helpers.get_access_token", return_value=mock_token),
+            patch("ragling.embeddings.check_connection"),
+        ):
             result = fn(collection="email")
 
         assert "error" not in result
@@ -1454,7 +1407,10 @@ class TestVisibilityFiltering:
         tools = server._tool_manager._tools
         fn = tools["rag_index"].fn
 
-        with patch("ragling.tools.helpers.get_access_token", return_value=None):
+        with (
+            patch("ragling.tools.helpers.get_access_token", return_value=None),
+            patch("ragling.embeddings.check_connection"),
+        ):
             result = fn(collection="email")
 
         assert "error" not in result
@@ -1756,7 +1712,8 @@ class TestRagIndexSystemCollectionDispatch:
         tools = server._tool_manager._tools
         fn = tools["rag_index"].fn
 
-        result = fn(collection=collection, path=None)
+        with patch("ragling.embeddings.check_connection"):
+            result = fn(collection=collection, path=None)
         assert result["status"] == "submitted"
         assert result["collection"] == collection
 
