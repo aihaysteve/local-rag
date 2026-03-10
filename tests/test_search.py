@@ -855,7 +855,7 @@ class TestMarkStaleResults:
         _mark_stale_results(results, {"https://example.com/article": None})
         assert results[0].stale is False
 
-    def test_deleted_file_marked_stale(self) -> None:
+    def test_deleted_file_marked_stale(self) -> None:  # Tests Search FAIL-3
         from ragling.search.search import _mark_stale_results
 
         results = [
