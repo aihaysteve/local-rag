@@ -250,7 +250,7 @@ def load_config(path: Path | None = None) -> Config:
         try:
             with open(config_path) as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
             logger.error("Failed to load config from %s: %s — using defaults", config_path, e)
             data = {}
     else:

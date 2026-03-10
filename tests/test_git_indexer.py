@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.helpers import fake_embeddings, make_test_config, make_test_conn
 from ragling.config import Config
-from ragling.db import get_connection, init_db
 from ragling.indexers.base import IndexResult
 from ragling.indexers.git_commands import git_ls_files
 from ragling.indexers.git_indexer import (
@@ -49,29 +49,17 @@ def _run_git(repo: Path, *args: str) -> None:
 
 def _make_conn(tmp_path: Path) -> sqlite3.Connection:
     """Create an initialized test DB with small embedding dimensions."""
-    config = Config(
-        db_path=tmp_path / "test.db",
-        embedding_dimensions=EMBED_DIM,
-    )
-    conn = get_connection(config)
-    init_db(conn, config)
-    return conn
+    return make_test_conn(tmp_path)
 
 
 def _make_config(tmp_path: Path) -> Config:
     """Create a Config suitable for testing (small embeddings, small chunks)."""
-    return Config(
-        db_path=tmp_path / "test.db",
-        embedding_dimensions=EMBED_DIM,
+    return make_test_config(
+        tmp_path,
         chunk_size_tokens=256,
         chunk_overlap_tokens=50,
         git_history_in_months=12,
     )
-
-
-def _fake_embeddings(texts: list[str], config: Config) -> list[list[float]]:
-    """Return fixed-dimension fake embeddings for each text."""
-    return [[0.1, 0.2, 0.3, 0.4]] * len(texts)
 
 
 @pytest.fixture
@@ -249,7 +237,7 @@ class TestWatermarks:
 
 
 class TestCodeFileIndexing:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_indexes_python_files(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -263,7 +251,7 @@ class TestCodeFileIndexing:
         assert result.indexed >= 1
         assert result.errors == 0
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_creates_documents_in_db(  # Tests Indexers INV-2
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -276,7 +264,7 @@ class TestCodeFileIndexing:
         doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         assert doc_count > 0
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_creates_vector_embeddings(  # Tests Indexers INV-2
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -289,7 +277,7 @@ class TestCodeFileIndexing:
         vec_count = conn.execute("SELECT COUNT(*) FROM vec_documents").fetchone()[0]
         assert vec_count > 0
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_source_type_is_code(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -302,7 +290,7 @@ class TestCodeFileIndexing:
         row = conn.execute("SELECT source_type FROM sources LIMIT 1").fetchone()
         assert row["source_type"] == "code"
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_only_indexes_code_files(
         self, mock_embed: object, multi_file_repo: Path, tmp_path: Path
     ) -> None:
@@ -322,7 +310,7 @@ class TestCodeFileIndexing:
         assert not any("README.md" in p for p in source_paths)
         assert not any("data.txt" in p for p in source_paths)
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_document_content_contains_code(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -337,7 +325,7 @@ class TestCodeFileIndexing:
         # The content should contain the Python code from hello.py
         assert "hello" in content
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_collection_type_is_code(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -359,7 +347,7 @@ class TestCodeFileIndexing:
 
 
 class TestWatermarkPersistence:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_stores_watermark_after_indexing(  # Tests Indexers INV-4
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -378,7 +366,7 @@ class TestWatermarkPersistence:
         # The watermark should be a 40-char hex SHA
         assert len(watermarks[repo_key]) == 40
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_watermark_matches_head(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -411,7 +399,7 @@ class TestWatermarkPersistence:
 
 
 class TestIncrementalIndexing:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_second_run_no_changes_skips(  # Tests Indexers INV-3
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -427,7 +415,7 @@ class TestIncrementalIndexing:
         assert result2.indexed == 0
         assert result2.total_found == 0
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_new_commit_indexes_changed_files(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -447,7 +435,7 @@ class TestIncrementalIndexing:
         result2 = indexer.index(conn, config)
         assert result2.indexed >= 1
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_new_file_added_gets_indexed(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -471,7 +459,7 @@ class TestIncrementalIndexing:
         assert any("new_module.py" in p for p in source_paths)
         assert any("hello.py" in p for p in source_paths)
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_force_reindexes_all(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -492,7 +480,7 @@ class TestIncrementalIndexing:
 
 
 class TestPruneBehavior:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_deleted_file_is_pruned(
         self, mock_embed: object, multi_file_repo: Path, tmp_path: Path
     ) -> None:
@@ -528,7 +516,7 @@ class TestPruneBehavior:
 
 
 class TestCommitHistoryIndexing:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_index_history_produces_commit_sources(
         self, mock_embed: object, multi_commit_repo: Path, tmp_path: Path
     ) -> None:
@@ -547,7 +535,7 @@ class TestCommitHistoryIndexing:
         ).fetchall()
         assert len(commit_sources) > 0
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_commit_source_paths_have_git_uri_format(
         self, mock_embed: object, multi_commit_repo: Path, tmp_path: Path
     ) -> None:
@@ -564,7 +552,7 @@ class TestCommitHistoryIndexing:
             assert row["source_path"].startswith("git://")
             assert "#" in row["source_path"]
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_commit_documents_contain_diff(
         self, mock_embed: object, multi_commit_repo: Path, tmp_path: Path
     ) -> None:
@@ -589,7 +577,7 @@ class TestCommitHistoryIndexing:
         # Commit chunks contain the commit message at minimum
         assert "commit" in all_content.lower() or "def" in all_content.lower()
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_history_watermark_stored(
         self, mock_embed: object, multi_commit_repo: Path, tmp_path: Path
     ) -> None:
@@ -607,7 +595,7 @@ class TestCommitHistoryIndexing:
         history_key = f"{repo_key}:history"
         assert history_key in watermarks
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_incremental_history_skips_already_indexed(
         self, mock_embed: object, multi_commit_repo: Path, tmp_path: Path
     ) -> None:
@@ -633,7 +621,7 @@ class TestCommitHistoryIndexing:
 
 
 class TestSubjectBlacklist:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_blacklisted_commits_excluded(self, mock_embed: object, tmp_path: Path) -> None:
         """Commits whose subject starts with a blacklisted prefix are excluded."""
         repo = tmp_path / "repo"
@@ -710,7 +698,7 @@ class TestNotAGitRepo:
 
 
 class TestMultiRepoWatermarks:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_two_repos_in_same_collection(
         self, mock_embed: object, tmp_path: Path
     ) -> None:  # Tests Indexers INV-4
@@ -750,7 +738,7 @@ class TestMultiRepoWatermarks:
         assert str(repo1.resolve()) in watermarks
         assert str(repo2.resolve()) in watermarks
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_second_repo_does_not_clobber_first_watermark(
         self, mock_embed: object, tmp_path: Path
     ) -> None:
@@ -804,7 +792,7 @@ class TestMultiRepoWatermarks:
 
 
 class TestDocumentMetadata:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_code_document_has_language_metadata(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -819,7 +807,7 @@ class TestDocumentMetadata:
         assert "language" in metadata
         assert metadata["language"] == "python"
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_code_document_has_symbol_metadata(
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -835,7 +823,7 @@ class TestDocumentMetadata:
         assert any("symbol_name" in m for m in all_metadata)
         assert any("symbol_type" in m for m in all_metadata)
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_commit_document_has_commit_metadata(
         self, mock_embed: object, multi_commit_repo: Path, tmp_path: Path
     ) -> None:
@@ -869,7 +857,7 @@ class TestDocumentMetadata:
 
 
 class TestFileHashChangeDetection:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_unchanged_file_hash_causes_skip(  # Tests Indexers INV-3
         self, mock_embed: object, simple_repo: Path, tmp_path: Path
     ) -> None:
@@ -905,7 +893,7 @@ class TestFileHashChangeDetection:
 
 
 class TestEdgeCases:
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_empty_repo_no_files(self, mock_embed: object, tmp_path: Path) -> None:
         """A repo with no code files should return without error."""
         repo = tmp_path / "empty-repo"
@@ -925,7 +913,7 @@ class TestEdgeCases:
         assert result.errors == 0
         assert result.indexed == 0
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_excluded_files_not_indexed(self, mock_embed: object, tmp_path: Path) -> None:
         """Files matching exclude patterns should not be indexed."""
         repo = tmp_path / "repo"
@@ -1119,7 +1107,7 @@ class TestSpecMdIndexing:
         _run_git(repo, "commit", "-m", "initial with spec")
         return repo
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_code_file_has_spec_path_in_metadata(
         self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
     ) -> None:
@@ -1139,7 +1127,7 @@ class TestSpecMdIndexing:
             meta = json.loads(row["metadata"])
             assert meta.get("spec_path") == "features/auth/SPEC.md"
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_spec_md_indexed_as_spec_source_type(  # Tests Indexers INV-10
         self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
     ) -> None:
@@ -1155,7 +1143,7 @@ class TestSpecMdIndexing:
         assert len(rows) == 1
         assert "SPEC.md" in rows[0]["source_path"]
 
-    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=_fake_embeddings)
+    @patch("ragling.indexers.git_indexer.get_embeddings", side_effect=fake_embeddings)
     def test_spec_chunks_have_section_metadata(
         self, mock_embed: object, repo_with_spec: Path, tmp_path: Path
     ) -> None:

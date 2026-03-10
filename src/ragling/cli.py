@@ -889,7 +889,7 @@ def init(name: str | None, ragling_dir: Path | None) -> None:
     if mcp_path.exists():
         try:
             mcp_data = json.loads(mcp_path.read_text())
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             mcp_data = {}
     else:
         mcp_data = {}

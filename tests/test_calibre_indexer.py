@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from tests.helpers import make_test_config, make_test_conn
 from ragling.document.chunker import Chunk
 from ragling.config import Config
-from ragling.db import get_connection, get_or_create_collection, init_db
+from ragling.db import get_or_create_collection
 from ragling.indexers.base import upsert_source_with_chunks
 from ragling.parsers.calibre import CalibreBook, get_book_file_path
 
@@ -34,22 +35,12 @@ _UNSET: Any = object()
 
 def _make_conn(tmp_path: Path) -> sqlite3.Connection:
     """Create an initialized test DB with small embedding dimensions."""
-    config = Config(
-        db_path=tmp_path / "test.db",
-        embedding_dimensions=4,
-    )
-    conn = get_connection(config)
-    init_db(conn, config)
-    return conn
+    return make_test_conn(tmp_path)
 
 
 def _make_config(tmp_path: Path) -> Config:
     """Create a Config suitable for testing."""
-    return Config(
-        db_path=tmp_path / "test.db",
-        embedding_dimensions=4,
-        chunk_size_tokens=256,
-    )
+    return make_test_config(tmp_path, chunk_size_tokens=256)
 
 
 def _make_book(
