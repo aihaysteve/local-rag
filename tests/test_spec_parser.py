@@ -21,22 +21,22 @@ class TestNormalizeSectionType:
     def test_core_mechanism(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Core Mechanism") == "core_mechanism"
 
-    def test_public_interface(self) -> None:
+    def test_public_interface(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Public Interface") == "public_interface"
 
-    def test_invariants(self) -> None:
+    def test_invariants(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Invariants") == "invariants"
 
-    def test_failure_modes(self) -> None:
+    def test_failure_modes(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Failure Modes") == "failure_modes"
 
-    def test_testing(self) -> None:
+    def test_testing(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Testing") == "testing"
 
-    def test_dependencies(self) -> None:
+    def test_dependencies(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Dependencies") == "dependencies"
 
-    def test_decision_framework(self) -> None:
+    def test_decision_framework(self) -> None:  # Tests Parsers INV-4
         assert normalize_section_type("Decision Framework") == "decision_framework"
 
     def test_unknown_heading(self) -> None:  # Tests Parsers FAIL-4
