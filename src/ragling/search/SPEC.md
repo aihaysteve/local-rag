@@ -13,6 +13,12 @@ then merges via Reciprocal Rank Fusion with configurable weights (default:
 vector 0.7, FTS 0.3, k=60). Stale results are detected by comparing file
 mtime to indexed timestamp.
 
+Search supports 8 filter types applied in-memory after retrieval: collection
+(by name or type, with hierarchical prefix matching using `/` delimiter),
+source_type, visible_collection_ids, sender, author, subsystem, section_type,
+and date range. Filtered queries use 50x oversampling (vs 3x for unfiltered)
+to ensure sufficient candidates survive filtering.
+
 **Key files:**
 - `search.py` -- hybrid vector + FTS search with RRF
 - `search_utils.py` -- FTS query escaping
@@ -34,13 +40,18 @@ mtime to indexed timestamp.
 
 | ID | Invariant | Why It Matters |
 |---|---|---|
-| INV-6 | `rrf_merge()` produces scores that decrease monotonically when iterated in order | Callers rely on results being sorted by relevance |
+| INV-1 | `rrf_merge()` produces scores that decrease monotonically when iterated in order | Callers rely on results being sorted by relevance |
+| INV-2 | `perform_search()` and `perform_batch_search()` validate embedding dimensions match config before searching | Mismatched dimensions corrupt the sqlite-vec index or produce meaningless similarity scores |
+| INV-3 | Filtered queries use 50x oversampling; unfiltered use 3x | Ensures sufficient candidates survive in-memory filtering without over-fetching for simple queries |
+| INV-4 | Metadata cache is shared between vector and FTS search paths within a single `search()` call | Avoids duplicate database lookups for documents appearing in both result sets |
 
 ## Failure Modes
 
 | ID | Symptom | Cause | Fix |
 |---|---|---|---|
-| FAIL-3 | Search returns stale results marked `stale=True` | Source file modified or deleted after indexing | Re-index the affected collection; stale marking is informational |
+| FAIL-1 | Search returns stale results marked `stale=True` | Source file modified or deleted after indexing | Re-index the affected collection; stale marking is informational |
+| FAIL-2 | FTS query returns empty results despite matching content existing | Malformed FTS5 query syntax (special characters) | `_fts_search()` catches `sqlite3.OperationalError`, logs warning, returns empty list; search continues with vector results only |
+| FAIL-3 | `ValueError` raised before search executes | Query embedding dimensions don't match `config.embedding_dimensions` | Ensure the embedding model matches config; re-embed if model was changed |
 
 ## Dependencies
 

@@ -20,6 +20,12 @@ through the same chunking pipeline.
 - `docling_bridge.py` -- legacy parser output to DoclingDocument bridge
 - `audio_metadata.py` -- audio/video container metadata extraction via mutagen
 
+Image files that produce no chunks after Docling conversion trigger a VLM
+fallback via `describe_image()`, which generates a text description using the
+configured vision model. Audio format support is extended beyond Docling's
+defaults via `ensure_audio_formats_registered()`, which adds opus, mkv, and mka
+to the converter's format registry.
+
 ## Public Interface
 
 | Export | Used By | Contract |
@@ -46,6 +52,7 @@ through the same chunking pipeline.
 | INV-2 | `convert_and_chunk()` requires a `DocStore` (mandatory positional parameter) | Content-addressed caching prevents redundant conversions; callers must always provide a DocStore |
 | INV-3 | `split_into_windows()` returns non-empty output for non-empty input | Downstream code assumes at least one chunk per non-empty text; empty output would produce sources with zero documents |
 | INV-4 | Audio metadata extraction is best-effort — failures return empty dict, never raise | One corrupt audio file must not abort an indexing batch |
+| INV-5 | Audio metadata extraction returns a well-defined set of fields: `duration_seconds`, `sample_rate`, `channels`, `bitrate`, `title`, `artist`, `album`, `genre`, `date`, `track_number`, `chapters` | Downstream code and search filters rely on consistent metadata field names across all audio sources |
 
 ## Failure Modes
 
@@ -54,6 +61,7 @@ through the same chunking pipeline.
 | FAIL-1 | `convert_and_chunk()` returns chunks from pypdfium2 text instead of Docling | Primary Docling conversion failed (corrupted PDF, missing fonts) | Automatic fallback; quality may be reduced — re-index if the source file is fixed |
 | FAIL-2 | `ValueError` raised from `convert_and_chunk()` | Unsupported `source_type` passed (not in `DOCLING_FORMATS`) | Programming error in caller — check `DOCLING_FORMATS` before calling |
 | FAIL-3 | `extract_audio_metadata()` returns empty dict | Corrupt or unsupported audio container | File is logged and skipped; metadata fields will be empty in search results |
+| FAIL-4 | Image file produces no chunks after Docling conversion | Image contains no extractable text (photo, diagram without OCR text) | Automatic VLM fallback via `describe_image()` generates a text description; quality depends on vision model capability |
 
 ## Dependencies
 
