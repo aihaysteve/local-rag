@@ -102,7 +102,7 @@ These skills ship with the repo in `.claude/skills/`. They are loaded automatica
 ## Project-Specific Guidelines
 
 - **Dependencies.** If you add a dependency, update `pyproject.toml` and run `uv lock`.
-- **Documentation.** If your change affects usage, output, or setup, update `README.md` and relevant docs to match.
+- **Documentation.** If your change affects architecture, update `docs/ARCHITECTURE.md`. If it introduces or changes design patterns, update `docs/DESIGN.md`. If it modifies subsystem contracts, update the relevant `SPEC.md`. If it affects usage, output, or setup, update `README.md` and relevant user docs.
 - **Coding standards.** Type hints on all function signatures. Dataclasses for structured data. Docstrings on public functions. No global state. Use `logging`, not print. Tests for all new functionality.
 - **Key constraints.** Everything runs locally (no cloud APIs). Read-only access to external databases. Incremental indexing by default. Content-addressed doc store. Per-group isolation. WAL mode for all SQLite databases.
 

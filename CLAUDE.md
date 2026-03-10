@@ -22,7 +22,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, quality gates, and
 
 ## Reference
 
-- [docs/architecture.md](docs/architecture.md) — system design, schema, and data flow
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, schema, and data flow
+- [docs/DESIGN.md](docs/DESIGN.md) — patterns, conventions, and rationale
 - [docs/hybrid-search-and-rrf.md](docs/hybrid-search-and-rrf.md) — search algorithm details
 - [docs/ollama-and-embeddings.md](docs/ollama-and-embeddings.md) — Ollama setup and embedding models
 - [docs/project-setup.md](docs/project-setup.md) — add ragling to a project (init command, config, .mcp.json)

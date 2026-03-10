@@ -78,7 +78,8 @@ The first run takes a minute or two while `uv` installs dependencies. No configu
 - **[CLI Reference](docs/cli.md)** — all commands at a glance
 - **[Automatic Indexing](docs/automatic-indexing.md)** — keep your index current with launchd
 - **[Multi-Agent Setup](docs/multi-agent.md)** — SSE transport for multiple AI agents
-- **[Architecture](docs/architecture.md)** — system design, schema, data flow
+- **[Architecture](docs/ARCHITECTURE.md)** — system design, schema, data flow
+- **[Design](docs/DESIGN.md)** — patterns, conventions, and rationale
 - **[How Search Works](docs/hybrid-search-and-rrf.md)** — hybrid vector + keyword search with RRF
 - **[Ollama & Embeddings](docs/ollama-and-embeddings.md)** — embedding model setup
 
