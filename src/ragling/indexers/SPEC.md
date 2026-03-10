@@ -45,6 +45,25 @@ parse/embed/persist pipeline for walker results.
 - `project.py` -- `ProjectIndexer` with auto-discovery and delegation;
   re-exports `_EXTENSION_MAP`, `_SUPPORTED_EXTENSIONS` for backward compat
 
+Format routing is centralized in `format_routing.py`, which defines the
+canonical `EXTENSION_MAP` (mapping file extensions to source types),
+`SUPPORTED_EXTENSIONS` (frozenset of all indexable extensions), and
+`parse_and_chunk()` (dispatch to the correct parser/chunker pipeline).
+The `project.py` module re-exports `_SUPPORTED_EXTENSIONS` and
+`is_supported_extension()` for backward compatibility, but the canonical
+definitions live in `format_routing.py`.
+
+Watermark formats vary by source type: Git repos store a JSON dict
+(`{"repo_path": "sha", "repo_path:history": "sha"}`) in
+`collections.description`; a legacy format (`"git:{repo_path}:{commit_sha}"`)
+is still parsed for backward compatibility. Email and RSS indexers compute
+watermarks from `MAX(json_extract(d.metadata, '$.date'))` in the documents
+table and update `collections.description` with a human-readable tracking
+string as a side effect.
+
+The walker is a significant sub-component; if it develops independent
+invariants, consider splitting into `src/ragling/indexers/walker/SPEC.md`.
+
 ## Public Interface
 
 | Export | Used By | Contract |

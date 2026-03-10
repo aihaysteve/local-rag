@@ -26,9 +26,12 @@ to chunk boundaries.
 - `epub.py` -- EPUB chapter extraction via ZIP archive, OPF manifest, and spine order
 - `email.py` -- eM Client SQLite database parsing (.NET ticks, address types, FTI)
 - `calibre.py` -- Calibre library metadata loading from metadata.db
-- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages). Symbol name extraction and symbol type classification use registry-based dispatch for extensibility.
+- `code.py` -- Tree-sitter structural code parsing (48 extensions + 2 filename patterns, 36 languages). Symbol name extraction and symbol type classification use registry-based dispatch for extensibility. The code parser covers 36 programming languages via tree-sitter grammars from the `tree-sitter-language-pack`. Symbol extraction uses registry-based dispatch -- each language registers its own query patterns for identifying functions, classes, methods, and other structural units. Symbol type classification normalizes language-specific constructs (e.g., Go's `func` and Python's `def` both classify as "function").
 - `rss.py` -- NetNewsWire RSS article parsing from DB.sqlite3 and FeedMetadata.plist
 - `spec.py` -- SPEC.md section-level chunking into typed Chunk objects
+
+Code parsing is a significant sub-component; if it develops independent
+invariants beyond INV-3, consider splitting into `src/ragling/parsers/code/SPEC.md`.
 
 **Parser output types:**
 - `markdown.py` returns `MarkdownDocument` (title, body_text, frontmatter, tags, links)
@@ -66,8 +69,8 @@ to chunk boundaries.
 | INV-4 | SPEC.md H2 headings must match `_SECTION_MAP` keys for correct section_type | Unknown headings get section_type "other" instead of a known classification |
 | INV-5 | Parsers never raise exceptions to callers — errors logged, empty/None returned | Indexers can process large batches without one bad file aborting the run |
 | INV-6 | Markdown tags are deduplicated; heading lines are never treated as tags | Prevents duplicate tag entries and false positives from `#` in headings |
-| INV-7 | EPUB chapters ordered by OPF spine (canonical reading order) | Chunks appear in the author's intended sequence, not filesystem order |
-| INV-8 | Email IDs generated via SHA-256 hash of sender, subject, date if missing | Ensures stable deduplication even when eM Client omits the messageId field |
+| INV-7 | EPUB chapters ordered by OPF spine (canonical reading order) | Chunks appear in the author's intended sequence, not filesystem order. Specifically, the parser reads the OPF manifest file and follows the `<spine>` element order, not filesystem listing of the ZIP archive. |
+| INV-8 | Email IDs generated via SHA-256 hash of sender, subject, date if missing | Ensures stable deduplication even when eM Client omits the messageId field. The stable hash is computed as `SHA-256(sender + "|" + subject + "|" + date)`. |
 
 ## Failure Modes
 
@@ -78,6 +81,7 @@ to chunk boundaries.
 | FAIL-3 | `parse_epub()` returns empty list | EPUB is DRM-protected or not a valid ZIP archive | Book excluded from index; log message indicates possible DRM |
 | FAIL-4 | Chunk has section_type "other" | Unknown H2 heading in SPEC.md not in `_SECTION_MAP` | Add heading to `_SECTION_MAP` or use a standard heading |
 | FAIL-5 | `parse_markdown()` returns empty frontmatter | Invalid YAML in frontmatter block | Logged as warning; title falls back to filename stem |
+| FAIL-6 | Email/RSS parsing logs first 10 errors then suppresses further per-row error messages | Many rows with parse errors (e.g., encoding issues in bulk email import) | Error suppression prevents log flooding; total error count still tracked in IndexResult |
 
 ## Dependencies
 
