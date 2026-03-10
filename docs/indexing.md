@@ -1,6 +1,6 @@
 # Indexing Sources
 
-ragling indexes personal knowledge from six source types. All index commands detect changes automatically and skip unchanged files. Use `--force` to re-index everything.
+ragling indexes personal knowledge from six source types. All index commands detect changes and skip unchanged files. Use `--force` to re-index everything.
 
 ## Obsidian
 
@@ -38,7 +38,7 @@ uv run ragling index rss
 
 ## Code Groups
 
-Indexes git repositories grouped by org or topic. Uses tree-sitter for structural parsing of 17 languages. Optionally includes commit history.
+Indexes git repositories grouped by org or topic. Uses tree-sitter to parse 17 languages structurally. Optionally includes commit history.
 
 ```bash
 uv run ragling index group my-org              # one group
@@ -59,7 +59,7 @@ Define code groups in your [config file](configuration.md):
 
 ## Project Folders
 
-Indexes any folder of documents into a named collection. Files are routed to the right parser by extension.
+Indexes any folder of documents into a named collection. Each file routes to the right parser by extension.
 
 ```bash
 uv run ragling index project "Client X" ~/Documents/client-x-docs/
