@@ -37,15 +37,13 @@ def find_nearest_spec(file_path: Path, repo_root: Path) -> str | None:
     Mirrors .gitignore resolution — the nearest SPEC.md wins.
 
     Args:
-        file_path: Path to the file being indexed.
-        repo_root: Root of the repository (stop boundary).
+        file_path: Path to the file being indexed. Must be resolved (no symlinks).
+        repo_root: Root of the repository (stop boundary). Must be resolved.
 
     Returns:
         Relative path to the SPEC.md from repo_root, or None if not found.
     """
     current = file_path.parent if file_path.is_file() or not file_path.exists() else file_path
-    repo_root = repo_root.resolve()
-    current = current.resolve()
 
     while True:
         spec_candidate = current / "SPEC.md"
