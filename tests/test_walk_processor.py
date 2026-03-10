@@ -8,15 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.helpers import fake_embeddings, make_test_config
 from ragling.config import Config
 from ragling.document.chunker import Chunk
 from ragling.indexers.walk_processor import process_walk_result
 from ragling.indexers.walker import FileRoute, WalkResult, WalkStats
-
-
-def _fake_embeddings(texts: list[str], config: Config) -> list[list[float]]:
-    """Return fixed-dimension fake embeddings for each text."""
-    return [[0.1, 0.2, 0.3, 0.4]] * len(texts)
 
 
 def _fake_parse_route(
@@ -34,10 +30,10 @@ def _fake_parse_route(
 
 
 def _make_config(tmp_path: Path) -> Config:
-    return Config(
+    return make_test_config(
+        tmp_path,
         group_name="test",
         group_db_dir=tmp_path / "groups",
-        embedding_dimensions=4,
     )
 
 
@@ -95,7 +91,7 @@ def _setup_db(tmp_path: Path) -> sqlite3.Connection:
 # upsert_source_with_chunks (avoids needing sqlite-vec).
 _COMMON_PATCHES = [
     patch("ragling.indexers.walk_processor._parse_route", side_effect=_fake_parse_route),
-    patch("ragling.indexers.walk_processor.get_embeddings", side_effect=_fake_embeddings),
+    patch("ragling.indexers.walk_processor.get_embeddings", side_effect=fake_embeddings),
     patch("ragling.indexers.walk_processor.upsert_source_with_chunks", return_value=1),
     patch("ragling.indexers.walk_processor.prune_stale_sources", return_value=0),
 ]

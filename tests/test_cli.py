@@ -873,6 +873,20 @@ class TestInitCommand:
         assert "other-server" in data["mcpServers"]
         assert "ragling" in data["mcpServers"]
 
+    def test_init_binary_mcp_json_is_replaced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_ragling_dir: Path
+    ) -> None:
+        """init replaces a binary .mcp.json instead of crashing with UnicodeDecodeError."""
+        runner = CliRunner()
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        (project_dir / ".mcp.json").write_bytes(b"\x80\x81\x82\xff\xfe")
+        monkeypatch.chdir(project_dir)
+        result = runner.invoke(main, ["init", "--ragling-dir", str(fake_ragling_dir)])
+        assert result.exit_code == 0
+        data = json.loads((project_dir / ".mcp.json").read_text())
+        assert "ragling" in data["mcpServers"]
+
     def test_init_skips_existing_ragling_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_ragling_dir: Path
     ) -> None:

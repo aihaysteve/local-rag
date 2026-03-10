@@ -426,6 +426,13 @@ class TestLoadConfigResilience:
         config = load_config(config_file)
         assert isinstance(config, Config)
 
+    def test_binary_config_returns_defaults(self, tmp_path: Path) -> None:  # Tests Core INV-2
+        """Config file with invalid UTF-8 bytes returns default Config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_bytes(b"\x80\x81\x82\xff\xfe")
+        config = load_config(config_file)
+        assert isinstance(config, Config)
+
 
 class TestMalformedConfigFallback:
     """load_config should fall back to defaults on malformed or unreadable config."""

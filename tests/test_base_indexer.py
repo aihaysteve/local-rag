@@ -3,25 +3,13 @@
 import sqlite3
 from pathlib import Path
 
-from ragling.config import Config
-from ragling.db import get_connection, init_db
+from tests.helpers import make_test_conn
 from ragling.indexers.base import (
     IndexResult,
     delete_source,
     prune_stale_sources,
     upsert_source_with_chunks,
 )
-
-
-def _make_conn(tmp_path: Path) -> sqlite3.Connection:
-    """Create an initialized in-memory-like test DB."""
-    config = Config(
-        db_path=tmp_path / "test.db",
-        embedding_dimensions=4,
-    )
-    conn = get_connection(config)
-    init_db(conn, config)
-    return conn
 
 
 def _insert_source(conn: sqlite3.Connection, collection_id: int, source_path: str) -> int:
@@ -41,7 +29,7 @@ def _insert_source(conn: sqlite3.Connection, collection_id: int, source_path: st
 
 class TestDeleteSource:
     def test_deletes_source_and_documents(self, tmp_path: Path) -> None:  # Tests Indexers INV-1
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -59,7 +47,7 @@ class TestDeleteSource:
         assert conn.execute("SELECT COUNT(*) FROM vec_documents").fetchone()[0] == 0
 
     def test_noop_when_source_does_not_exist(self, tmp_path: Path) -> None:
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -69,7 +57,7 @@ class TestDeleteSource:
         assert result is False
 
     def test_only_deletes_matching_source(self, tmp_path: Path) -> None:
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -87,7 +75,7 @@ class TestPruneStaleSources:
     def test_prunes_source_whose_file_is_gone(
         self, tmp_path: Path
     ) -> None:  # Tests Indexers FAIL-2
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -104,7 +92,7 @@ class TestPruneStaleSources:
         assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
 
     def test_keeps_source_whose_file_exists(self, tmp_path: Path) -> None:
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -120,7 +108,7 @@ class TestPruneStaleSources:
 
     def test_skips_sources_without_file_hash(self, tmp_path: Path) -> None:  # Tests Indexers INV-5
         """Sources like email/RSS have no file_hash and should not be pruned."""
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -140,7 +128,7 @@ class TestPruneStaleSources:
 
     def test_skips_sources_with_virtual_uri(self, tmp_path: Path) -> None:  # Tests Indexers INV-5
         """Sources like calibre descriptions use virtual URIs and should not be pruned."""
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -161,7 +149,7 @@ class TestPruneStaleSources:
     def test_mixed_sources_only_prunes_missing_files(
         self, tmp_path: Path
     ) -> None:  # Tests Indexers INV-5
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "test-coll", "project")
@@ -211,7 +199,7 @@ class TestPruneEndToEnd:
     """End-to-end: index files, delete some, prune, verify search wouldn't find them."""
 
     def test_full_lifecycle(self, tmp_path: Path) -> None:  # Tests Indexers INV-1
-        conn = _make_conn(tmp_path)
+        conn = make_test_conn(tmp_path)
         from ragling.db import get_or_create_collection
 
         cid = get_or_create_collection(conn, "e2e", "project")
