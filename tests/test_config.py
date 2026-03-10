@@ -394,6 +394,39 @@ class TestEnrichmentConfig:
             ec.image_description = False  # type: ignore[misc]
 
 
+class TestLoadConfigResilience:
+    """Tests for load_config() resilience on malformed input."""
+
+    def test_truncated_json_returns_defaults(self, tmp_path: Path) -> None:  # Tests Core INV-2
+        """Truncated JSON file does not crash; returns default Config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"embedding_model": "bge-')
+        config = load_config(config_file)
+        assert isinstance(config, Config)
+        assert config.group_name == "default"
+
+    def test_invalid_json_returns_defaults(self, tmp_path: Path) -> None:  # Tests Core INV-2
+        """Completely invalid JSON returns default Config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text("not json at all {{{")
+        config = load_config(config_file)
+        assert isinstance(config, Config)
+
+    def test_empty_file_returns_defaults(self, tmp_path: Path) -> None:  # Tests Core INV-2
+        """Empty config file returns default Config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text("")
+        config = load_config(config_file)
+        assert isinstance(config, Config)
+
+    def test_null_bytes_returns_defaults(self, tmp_path: Path) -> None:  # Tests Core INV-2
+        """Config file containing null bytes (valid UTF-8) returns default Config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_bytes(b"\x00\x00\x00\x00")
+        config = load_config(config_file)
+        assert isinstance(config, Config)
+
+
 class TestMalformedConfigFallback:
     """load_config should fall back to defaults on malformed or unreadable config."""
 
