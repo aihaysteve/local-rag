@@ -1,26 +1,26 @@
 # Hybrid Search and Reciprocal Rank Fusion (RRF)
 
-This document explains how local-rag finds relevant documents when you run a search query. It covers the two search strategies, why we use both, and how results are combined into a single ranked list.
+local-rag finds relevant documents using two search strategies and combines them into a single ranked list.
 
 ## The Problem with a Single Search Strategy
 
-There are two fundamentally different ways to search text:
+Text search has two fundamentally different approaches:
 
-**Keyword search** finds documents that contain the exact words you typed. If you search for "kubernetes deployment", it returns documents containing those words. It's fast and precise, but misses synonyms and rephrased content. A document about "k8s rollout strategy" won't match even though it's clearly relevant.
+**Keyword search** finds documents containing the exact words you typed. Searching for "kubernetes deployment" returns documents with those words. It's fast and precise but misses synonyms and rephrasings. A document about "k8s rollout strategy" won't match, even though it's clearly relevant.
 
-**Semantic search** converts your query and all stored documents into numerical vectors (lists of numbers) that represent their meaning. It then finds documents whose vectors are closest to your query's vector. This catches synonyms and rephrasings, but can miss documents that contain the exact phrase you need — and sometimes returns results that are thematically related but not actually useful.
+**Semantic search** converts your query and all stored documents into numerical vectors that represent their meaning, then finds documents whose vectors are closest to your query's vector. This catches synonyms and rephrasings but can miss documents containing the exact phrase you need — and sometimes returns thematically related but unhelpful results.
 
-Neither approach alone gives reliably good results. Hybrid search runs both and combines them.
+Neither approach alone gives reliably good results. Hybrid search runs both and merges them.
 
 ## How local-rag Runs a Search
 
-When you search for "kubernetes deployment strategy", two things happen in parallel:
+When you search for "kubernetes deployment strategy", two searches run in parallel:
 
 ### 1. Vector Search (Semantic)
 
-Your query text is sent to Ollama, which runs the bge-m3 model locally to produce a 1024-dimensional vector — a list of 1024 floating-point numbers that encode the meaning of your query.
+Ollama runs the bge-m3 model locally to convert your query into a 1024-dimensional vector — 1024 floating-point numbers encoding the query's meaning.
 
-This vector is then compared against all stored document vectors using sqlite-vec, a SQLite extension for nearest-neighbor search. sqlite-vec returns the closest documents ranked by cosine distance (lower distance = more similar meaning).
+sqlite-vec, a SQLite extension for nearest-neighbor search, compares this vector against all stored document vectors and returns the closest matches ranked by cosine distance (lower = more similar).
 
 The result is a ranked list like:
 
@@ -32,7 +32,7 @@ The result is a ranked list like:
 
 ### 2. Full-Text Search (Keyword)
 
-The same query text is tokenized and matched against an FTS5 index (SQLite's built-in full-text search engine). FTS5 finds documents containing the literal words "kubernetes", "deployment", and "strategy", ranked by how well they match (BM25 scoring internally).
+The same query is tokenized and matched against an FTS5 index (SQLite's built-in full-text search). FTS5 finds documents containing the literal words "kubernetes", "deployment", and "strategy", ranked by BM25 scoring.
 
 The result is a different ranked list:
 
@@ -46,11 +46,11 @@ Notice the two lists overlap but aren't identical. Each catches things the other
 
 ## Combining Results with Reciprocal Rank Fusion
 
-Now we have two ranked lists. The question is: how do we merge them into one?
+Now we have two ranked lists. How do we merge them?
 
-Simple approaches like averaging raw scores don't work well because vector distances and FTS5 rank scores are on completely different scales and have different distributions. A vector distance of 0.3 and an FTS rank of -12.5 aren't meaningfully comparable.
+Averaging raw scores fails because vector distances and FTS5 rank scores use different scales and distributions. A vector distance of 0.3 and an FTS rank of -12.5 aren't comparable.
 
-**Reciprocal Rank Fusion (RRF)** solves this by ignoring the raw scores entirely and using only the rank positions. The intuition: if a document ranks highly in both lists, it should rank highly in the merged list. If it ranks highly in only one list, it should still appear but lower.
+**Reciprocal Rank Fusion (RRF)** solves this by ignoring raw scores and using only rank positions. If a document ranks highly in both lists, it ranks highly in the merged list. If it ranks highly in only one, it still appears but lower.
 
 ### The Formula
 
@@ -102,13 +102,13 @@ Doc C wins because it appeared in both lists — a strong signal that it's relev
 
 ### Why k = 60?
 
-The `k` parameter controls how much the ranking position matters. With a higher `k`, the difference between rank 1 and rank 5 shrinks — the formula becomes more forgiving of lower-ranked results. With a lower `k`, top-ranked documents get disproportionately more weight.
+The `k` parameter controls how much rank position matters. A higher `k` shrinks the gap between rank 1 and rank 5, making the formula more forgiving of lower-ranked results. A lower `k` gives top-ranked documents disproportionately more weight.
 
 `k=60` is the standard value from the original RRF paper (Cormack et al., 2009). It works well across a wide range of datasets and rarely needs tuning.
 
 ### Why 0.7 / 0.3 Weights?
 
-The default weights favor semantic search (0.7) over keyword search (0.3). This reflects the typical use case: most queries are natural language questions where meaning matters more than exact words. If you primarily search for exact phrases or identifiers, you could increase `fts_weight` in the config.
+The default weights favor semantic search (0.7) over keyword search (0.3) because most queries are natural language questions where meaning matters more than exact words. If you primarily search for exact phrases or identifiers, increase `fts_weight` in the config.
 
 These values are configurable in `~/.local-rag/config.json`:
 
@@ -132,4 +132,4 @@ The search pipeline lives in `src/local_rag/search.py`:
 - `rrf_merge()` — combines both ranked lists using the formula above
 - `search()` — orchestrates the full pipeline: run both searches, merge, apply filters, fetch full document data
 
-All filtering (by collection, source type, date range, sender) happens after the initial search but before the final ranking, so filters don't interfere with the ranking logic itself.
+All filtering (by collection, source type, date range, sender) happens after the initial search but before final ranking, so filters don't affect the ranking logic.
