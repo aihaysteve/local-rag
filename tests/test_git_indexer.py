@@ -190,11 +190,11 @@ class TestShouldExclude:
 
 
 class TestWatermarks:
-    def test_parse_empty_returns_empty(self) -> None:
+    def test_parse_empty_returns_empty(self) -> None:  # Tests Indexers INV-4
         assert _parse_watermarks(None) == {}
         assert _parse_watermarks("") == {}
 
-    def test_parse_json_format(self) -> None:
+    def test_parse_json_format(self) -> None:  # Tests Indexers INV-4
         data = {"/path/to/repo": "abc123", "/other/repo": "def456"}
         desc = json.dumps(data)
         result = _parse_watermarks(desc)
@@ -222,11 +222,25 @@ class TestWatermarks:
         parsed = _parse_watermarks(serialized)
         assert parsed == original
 
-    def test_parse_invalid_json_returns_empty(self) -> None:  # Tests Indexers FAIL-5
+    def test_parse_invalid_json_returns_empty(
+        self,
+    ) -> None:  # Tests Indexers INV-4, Indexers FAIL-5
         assert _parse_watermarks("{invalid json") == {}
 
     def test_parse_unrecognized_string_returns_empty(self) -> None:  # Tests Indexers FAIL-5
         assert _parse_watermarks("random string") == {}
+
+    def test_json_non_dict_returns_empty(self) -> None:  # Tests Indexers INV-4
+        """JSON that's not a dict (e.g. list) returns empty dict."""
+        result = _parse_watermarks('["not", "a", "dict"]')
+        assert result == {}
+
+    def test_corrupted_json_with_nested_braces(
+        self,
+    ) -> None:  # Tests Indexers INV-4, Indexers FAIL-5
+        """Severely corrupted JSON falls back to empty dict (triggers full re-index)."""
+        result = _parse_watermarks("{corrupt json{{{")
+        assert result == {}
 
 
 # ---------------------------------------------------------------------------
