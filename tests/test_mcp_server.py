@@ -735,15 +735,18 @@ class TestRagIndexQueueRouting:
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
 
-        mock_result = MagicMock(indexed=5)
-        with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
-            with (
-                patch("ragling.db.get_connection", return_value=MagicMock()),
-                patch("ragling.db.init_db"),
-            ):
-                result: dict[str, Any] = rag_index_fn(collection="mycode")
+        mock_result = MagicMock(
+            indexed=5, skipped=0, skipped_empty=0, errors=0, pruned=0, error_messages=[]
+        )
+        with patch("ragling.tools.index.check_connection"):
+            with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
+                with (
+                    patch("ragling.db.get_connection", return_value=MagicMock()),
+                    patch("ragling.db.init_db"),
+                ):
+                    result: dict[str, Any] = rag_index_fn(collection="mycode")
 
-            assert mock_sync.call_count == 2
+                assert mock_sync.call_count == 2
 
         queue.submit.assert_not_called()
         assert result["status"] == "completed"
@@ -819,15 +822,18 @@ class TestRagIndexWatch:
         tools = server._tool_manager._tools
         rag_index_fn = tools["rag_index"].fn
 
-        mock_result = MagicMock(indexed=3)
-        with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
-            with (
-                patch("ragling.db.get_connection", return_value=MagicMock()),
-                patch("ragling.db.init_db"),
-            ):
-                result: dict[str, Any] = rag_index_fn(collection="research")
+        mock_result = MagicMock(
+            indexed=3, skipped=0, skipped_empty=0, errors=0, pruned=0, error_messages=[]
+        )
+        with patch("ragling.tools.index.check_connection"):
+            with patch("ragling.sync.sync_directory_source", return_value=mock_result) as mock_sync:
+                with (
+                    patch("ragling.db.get_connection", return_value=MagicMock()),
+                    patch("ragling.db.init_db"),
+                ):
+                    result: dict[str, Any] = rag_index_fn(collection="research")
 
-            assert mock_sync.call_count == 2
+                assert mock_sync.call_count == 2
 
         queue.submit.assert_not_called()
         assert result["status"] == "completed"
@@ -877,6 +883,202 @@ class TestRagIndexWatch:
 
         assert "error" in result
         assert "No indexing queue available" in result["error"]
+
+
+class TestRagIndexErrorSurfacing:
+    """rag_index surfaces errors from IndexResult and checks Ollama connectivity."""
+
+    def test_returns_error_when_ollama_unreachable(self, tmp_path: Path) -> None:
+        """Upfront Ollama check returns error dict before any indexing."""
+        from ragling.config import Config
+        from ragling.embeddings import OllamaConnectionError
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"mycode": (repo,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        with patch(
+            "ragling.tools.index.check_connection",
+            side_effect=OllamaConnectionError("Cannot connect to Ollama"),
+        ):
+            result: dict[str, Any] = rag_index_fn(collection="mycode")
+
+        assert "error" in result
+        assert "Ollama" in result["error"]
+
+    def test_completed_with_errors_status(self, tmp_path: Path) -> None:
+        """Response uses completed_with_errors when IndexResult has errors."""
+        from ragling.config import Config
+        import ragling.document.chunker  # noqa: F401 — break circular import
+        from ragling.indexers.base import IndexResult
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"mycode": (repo,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        mock_result = IndexResult(
+            indexed=3,
+            skipped=1,
+            errors=2,
+            error_messages=["/tmp/bad1.py", "/tmp/bad2.py"],
+        )
+        with (
+            patch("ragling.tools.index.check_connection"),
+            patch("ragling.sync.sync_directory_source", return_value=mock_result),
+            patch("ragling.db.get_connection", return_value=MagicMock()),
+            patch("ragling.db.init_db"),
+        ):
+            result: dict[str, Any] = rag_index_fn(collection="mycode")
+
+        assert result["status"] == "completed_with_errors"
+        assert result["indexed"] == 3
+        assert result["errors"] == 2
+        assert result["error_messages"] == ["/tmp/bad1.py", "/tmp/bad2.py"]
+        assert result["skipped"] == 1
+
+    def test_completed_status_when_no_errors(self, tmp_path: Path) -> None:
+        """Response uses completed when IndexResult has no errors."""
+        from ragling.config import Config
+        import ragling.document.chunker  # noqa: F401 — break circular import
+        from ragling.indexers.base import IndexResult
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"mycode": (repo,)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        mock_result = IndexResult(indexed=10, skipped=5, skipped_empty=2, pruned=1)
+        with (
+            patch("ragling.tools.index.check_connection"),
+            patch("ragling.sync.sync_directory_source", return_value=mock_result),
+            patch("ragling.db.get_connection", return_value=MagicMock()),
+            patch("ragling.db.init_db"),
+        ):
+            result: dict[str, Any] = rag_index_fn(collection="mycode")
+
+        assert result["status"] == "completed"
+        assert result["indexed"] == 10
+        assert result["skipped"] == 5
+        assert result["skipped_empty"] == 2
+        assert result["pruned"] == 1
+        assert result["errors"] == 0
+
+    def test_aggregates_results_across_multiple_paths(self, tmp_path: Path) -> None:
+        """Multiple watch paths have their IndexResults summed."""
+        from ragling.config import Config
+        import ragling.document.chunker  # noqa: F401 — break circular import
+        from ragling.indexers.base import IndexResult
+        from ragling.indexing_queue import IndexingQueue
+        from ragling.indexing_status import IndexingStatus
+        from ragling.mcp_server import create_server
+
+        repo1 = tmp_path / "repo1"
+        repo2 = tmp_path / "repo2"
+        repo1.mkdir()
+        repo2.mkdir()
+
+        config = Config(
+            db_path=tmp_path / "test.db",
+            shared_db_path=tmp_path / "doc_store.sqlite",
+            embedding_dimensions=4,
+            watch=MappingProxyType({"mycode": (repo1, repo2)}),
+        )
+
+        status = IndexingStatus()
+        queue = MagicMock(spec=IndexingQueue)
+
+        server = create_server(
+            group_name="default",
+            config=config,
+            indexing_status=status,
+            indexing_queue=queue,
+        )
+
+        tools = server._tool_manager._tools
+        rag_index_fn = tools["rag_index"].fn
+
+        results = [
+            IndexResult(indexed=5, skipped=2, errors=1, error_messages=["/tmp/bad.py"]),
+            IndexResult(indexed=3, skipped=1, errors=0),
+        ]
+        with (
+            patch("ragling.tools.index.check_connection"),
+            patch("ragling.sync.sync_directory_source", side_effect=results),
+            patch("ragling.db.get_connection", return_value=MagicMock()),
+            patch("ragling.db.init_db"),
+        ):
+            result: dict[str, Any] = rag_index_fn(collection="mycode")
+
+        assert result["status"] == "completed_with_errors"
+        assert result["indexed"] == 8
+        assert result["skipped"] == 3
+        assert result["errors"] == 1
+        assert result["error_messages"] == ["/tmp/bad.py"]
 
 
 class TestRagIndexFollowerMode:

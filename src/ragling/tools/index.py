@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ragling.embeddings import OllamaConnectionError, check_connection
+
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
@@ -148,10 +150,21 @@ def _rag_index_dispatch(
         from ragling.db import get_connection, init_db
         from ragling.sync import sync_directory_source
 
+        # Upfront connectivity check — fail fast if Ollama is unreachable
+        try:
+            check_connection(config)
+        except OllamaConnectionError as e:
+            return {"error": str(e)}
+
         conn = get_connection(config)
         init_db(conn, config)
         try:
             total_indexed = 0
+            total_skipped = 0
+            total_skipped_empty = 0
+            total_errors = 0
+            total_pruned = 0
+            all_error_messages: list[str] = []
             for watch_path in config.watch[collection]:
                 if not watch_path.is_dir():
                     continue
@@ -159,13 +172,25 @@ def _rag_index_dispatch(
                     conn, config, collection, watch_path, status=indexing_status
                 )
                 total_indexed += result.indexed
+                total_skipped += result.skipped
+                total_skipped_empty += result.skipped_empty
+                total_errors += result.errors
+                total_pruned += result.pruned
+                all_error_messages.extend(result.error_messages)
         finally:
             conn.close()
+
+        status_str = "completed_with_errors" if total_errors > 0 else "completed"
         return {
-            "status": "completed",
+            "status": status_str,
             "collection": collection,
             "paths": len(config.watch[collection]),
             "indexed": total_indexed,
+            "skipped": total_skipped,
+            "skipped_empty": total_skipped_empty,
+            "errors": total_errors,
+            "pruned": total_pruned,
+            "error_messages": all_error_messages,
             "indexing": indexing_status.to_dict() if indexing_status else None,
         }
 
