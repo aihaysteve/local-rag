@@ -65,7 +65,7 @@ class TestRateLimiting:
         )
         return RaglingTokenVerifier(config)
 
-    def test_failures_below_threshold_are_not_rate_limited(self):
+    def test_failures_below_threshold_are_not_rate_limited(self):  # Tests Auth FAIL-7
         """Fewer than MAX_FAILURES attempts should not trigger rate limiting."""
         verifier = self._make_verifier()
         # 5 failures should still allow attempts (threshold is >5)
@@ -115,7 +115,7 @@ class TestRateLimiting:
             assert count == 7
             assert next_allowed == fake_time + 2**7  # 128 seconds
 
-    def test_backoff_capped_at_300_seconds(self):
+    def test_backoff_capped_at_300_seconds(self):  # Tests Auth INV-12
         """Backoff should never exceed 300 seconds."""
         verifier = self._make_verifier()
 
@@ -157,7 +157,7 @@ class TestRateLimiting:
         # Failure record should be cleared after success
         assert _hk("rag_kitchen_key") not in verifier._failures
 
-    def test_rate_limit_expires_after_backoff_period(self):
+    def test_rate_limit_expires_after_backoff_period(self):  # Tests Auth INV-12
         """Once the backoff period passes, the token should be allowed again."""
         verifier = self._make_verifier()
         from ragling.auth.token_verifier import RateLimitedError

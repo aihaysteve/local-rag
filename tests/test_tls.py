@@ -133,26 +133,6 @@ class TestCAGeneration:
 class TestECKeyType:
     """Tests for ECDSA P-256 key generation."""
 
-    def test_ca_key_is_ec(self, tmp_path: Path) -> None:
-        """CA private key should be an EC key, not RSA."""
-        from cryptography.hazmat.primitives import serialization
-
-        from ragling.auth.tls import ensure_tls_certs
-
-        cfg = ensure_tls_certs(tmp_path / "tls")
-        ca_key = serialization.load_pem_private_key(cfg.ca_key.read_bytes(), password=None)
-        assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
-
-    def test_server_key_is_ec(self, tmp_path: Path) -> None:
-        """Server private key should be an EC key, not RSA."""
-        from cryptography.hazmat.primitives import serialization
-
-        from ragling.auth.tls import ensure_tls_certs
-
-        cfg = ensure_tls_certs(tmp_path / "tls")
-        server_key = serialization.load_pem_private_key(cfg.server_key.read_bytes(), password=None)
-        assert isinstance(server_key, ec.EllipticCurvePrivateKey)
-
     def test_ca_key_uses_secp256r1(self, tmp_path: Path) -> None:
         """CA key should use SECP256R1 (P-256) curve."""
         from cryptography.hazmat.primitives import serialization
