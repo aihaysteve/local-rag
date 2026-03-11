@@ -521,6 +521,52 @@ class TestWatchConfig:
         config = load_config(config_file)
         assert "~" not in str(config.watch["proj"][0])
 
+    def test_watch_relative_dot_resolves_to_config_dir(self, tmp_path: Path) -> None:
+        """Relative '.' in watch should resolve against config file directory, not CWD."""
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        config_file = project_dir / "ragling.json"
+        config_file.write_text(json.dumps({"watch": {"my-project": "."}}))
+        config = load_config(config_file)
+        assert config.watch["my-project"][0] == project_dir.resolve()
+
+    def test_watch_relative_subdir_resolves_to_config_dir(self, tmp_path: Path) -> None:
+        """Relative subdir in watch should resolve against config file directory."""
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        config_file = project_dir / "ragling.json"
+        config_file.write_text(json.dumps({"watch": {"docs": "docs"}}))
+        config = load_config(config_file)
+        assert config.watch["docs"][0] == (project_dir / "docs").resolve()
+
+    def test_watch_absolute_path_unchanged(self, tmp_path: Path) -> None:
+        """Absolute paths should remain unchanged regardless of config location."""
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        config_file = project_dir / "ragling.json"
+        abs_path = tmp_path / "other-dir"
+        config_file.write_text(json.dumps({"watch": {"other": str(abs_path)}}))
+        config = load_config(config_file)
+        assert config.watch["other"][0] == abs_path
+
+    def test_obsidian_vaults_relative_resolves_to_config_dir(self, tmp_path: Path) -> None:
+        """Relative paths in obsidian_vaults should resolve against config dir."""
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        config_file = project_dir / "ragling.json"
+        config_file.write_text(json.dumps({"obsidian_vaults": ["vault"]}))
+        config = load_config(config_file)
+        assert config.obsidian_vaults[0] == (project_dir / "vault").resolve()
+
+    def test_global_paths_relative_resolves_to_config_dir(self, tmp_path: Path) -> None:
+        """Relative paths in global_paths should resolve against config dir."""
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        config_file = project_dir / "ragling.json"
+        config_file.write_text(json.dumps({"global_paths": ["shared"]}))
+        config = load_config(config_file)
+        assert config.global_paths[0] == (project_dir / "shared").resolve()
+
     def test_missing_watch_uses_empty_default(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"embedding_model": "bge-m3"}))
