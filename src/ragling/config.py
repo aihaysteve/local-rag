@@ -153,14 +153,21 @@ class Config:
         return replace(self, **kwargs)
 
 
-def _expand_path(p: str | Path) -> Path:
-    """Expand ~ and resolve a path."""
-    return Path(p).expanduser()
+def _expand_path(p: str | Path, config_dir: Path | None = None) -> Path:
+    """Expand ~ and resolve a path relative to *config_dir*.
+
+    Absolute paths and ``~`` paths are returned as-is (after expansion).
+    Relative paths are resolved against *config_dir* when provided.
+    """
+    path = Path(p).expanduser()
+    if not path.is_absolute() and config_dir is not None:
+        path = (config_dir / path).resolve()
+    return path
 
 
-def _expand_path_str(p: str) -> str:
+def _expand_path_str(p: str, config_dir: Path | None = None) -> str:
     """Expand ~ in a string path, preserving trailing slashes."""
-    expanded = str(Path(p).expanduser())
+    expanded = str(_expand_path(p, config_dir))
     if p.endswith("/") and not expanded.endswith("/"):
         expanded += "/"
     return expanded
@@ -242,6 +249,8 @@ def load_config(path: Path | None = None) -> Config:
         else:
             config_path = DEFAULT_CONFIG_PATH
 
+    config_dir = config_path.parent.resolve()
+
     # Ensure config directory exists
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -281,30 +290,30 @@ def load_config(path: Path | None = None) -> Config:
     # obsidian_vaults: still populated for URI construction (obsidian:// links),
     # but indexing now goes through the watch pipeline.
     obsidian_vaults_raw = data.get("obsidian_vaults", [])
-    obsidian_vaults = tuple(_expand_path(v) for v in obsidian_vaults_raw)
+    obsidian_vaults = tuple(_expand_path(v, config_dir) for v in obsidian_vaults_raw)
     obsidian_exclude_folders = tuple(data.get("obsidian_exclude_folders", []))
 
     calibre_raw = data.get("calibre_libraries", [])
-    calibre_libraries = tuple(_expand_path(v) for v in calibre_raw)
+    calibre_libraries = tuple(_expand_path(v, config_dir) for v in calibre_raw)
 
     watch_raw: dict[str, tuple[Path, ...]] = {}
     for w_name, w_paths in data.get("watch", {}).items():
         if w_name in RESERVED_COLLECTION_NAMES:
             raise ValueError(f"watch name '{w_name}' conflicts with system collection name")
         if isinstance(w_paths, str):
-            watch_raw[w_name] = (_expand_path(w_paths),)
+            watch_raw[w_name] = (_expand_path(w_paths, config_dir),)
         else:
-            watch_raw[w_name] = tuple(_expand_path(p) for p in w_paths)
+            watch_raw[w_name] = tuple(_expand_path(p, config_dir) for p in w_paths)
     watch: MappingProxyType[str, tuple[Path, ...]] = MappingProxyType(watch_raw)
 
     disabled_collections = frozenset(data.get("disabled_collections", []))
 
     # Parse home
     home_raw = data.get("home")
-    home = _expand_path(home_raw) if home_raw is not None else None
+    home = _expand_path(home_raw, config_dir) if home_raw is not None else None
 
     # Parse global_paths
-    global_paths = tuple(_expand_path(p) for p in data.get("global_paths", []))
+    global_paths = tuple(_expand_path(p, config_dir) for p in data.get("global_paths", []))
 
     # Parse users
     users: dict[str, UserConfig] = {}
@@ -312,7 +321,7 @@ def load_config(path: Path | None = None) -> Config:
         if "api_key" not in user_data:
             raise ValueError(f"User '{user_name}' missing required 'api_key' field in config")
         raw_mappings = user_data.get("path_mappings", {})
-        expanded_mappings = {_expand_path_str(k): v for k, v in raw_mappings.items()}
+        expanded_mappings = {_expand_path_str(k, config_dir): v for k, v in raw_mappings.items()}
         users[user_name] = UserConfig(
             api_key=user_data["api_key"],
             system_collections=user_data.get("system_collections", []),
@@ -326,7 +335,9 @@ def load_config(path: Path | None = None) -> Config:
         else system_sources.get("emclient_db_path")
     )
     emclient_default = str(Path.home() / "Library" / "Application Support" / "eM Client")
-    emclient_db_path = _expand_path(emclient_raw if emclient_raw is not None else emclient_default)
+    emclient_db_path = _expand_path(
+        emclient_raw if emclient_raw is not None else emclient_default, config_dir
+    )
 
     # netnewswire_db_path: top-level > system_sources > default
     nnw_raw = (
@@ -345,7 +356,7 @@ def load_config(path: Path | None = None) -> Config:
         / "NetNewsWire"
         / "Accounts"
     )
-    netnewswire_db_path = _expand_path(nnw_raw if nnw_raw is not None else nnw_default)
+    netnewswire_db_path = _expand_path(nnw_raw if nnw_raw is not None else nnw_default, config_dir)
 
     asr_data = data.get("asr", {})
     asr_config = AsrConfig(
@@ -361,12 +372,12 @@ def load_config(path: Path | None = None) -> Config:
         table_structure=enrichments_data.get("table_structure", True),
     )
 
-    db_path = _expand_path(data.get("db_path", str(DEFAULT_DB_PATH)))
+    db_path = _expand_path(data.get("db_path", str(DEFAULT_DB_PATH)), config_dir)
 
     # query_log_path: absent → default alongside db, null → disabled, string → use it
     if "query_log_path" in data:
         qlp_raw = data["query_log_path"]
-        query_log_path = _expand_path(qlp_raw) if qlp_raw is not None else None
+        query_log_path = _expand_path(qlp_raw, config_dir) if qlp_raw is not None else None
     else:
         query_log_path = db_path.parent / "query_log.jsonl"
 
@@ -388,9 +399,11 @@ def load_config(path: Path | None = None) -> Config:
         search_defaults=search_defaults,
         asr=asr_config,
         enrichments=enrichments_config,
-        shared_db_path=_expand_path(data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH))),
+        shared_db_path=_expand_path(
+            data.get("shared_db_path", str(DEFAULT_SHARED_DB_PATH)), config_dir
+        ),
         group_name=data.get("group_name", "default"),
-        group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR))),
+        group_db_dir=_expand_path(data.get("group_db_dir", str(DEFAULT_GROUP_DB_DIR)), config_dir),
         home=home,
         global_paths=global_paths,
         users=MappingProxyType(users),
