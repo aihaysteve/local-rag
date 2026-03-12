@@ -53,6 +53,16 @@ class SearchDefaults:
 
 
 @dataclass
+class RerankerConfig:
+    """Configuration for cross-encoder rescoring after RRF."""
+
+    model: str = "mixedbread-ai/mxbai-rerank-xsmall-v1"
+    min_score: float = 0.0
+    enabled: bool = False
+    endpoint: str | None = None
+
+
+@dataclass
 class UserConfig:
     """Per-user configuration for SSE access control."""
 
@@ -106,6 +116,7 @@ class Config:
     git_history_in_months: int = 6
     git_commit_subject_blacklist: tuple[str, ...] = ()
     search_defaults: SearchDefaults = field(default_factory=SearchDefaults)
+    reranker: RerankerConfig = field(default_factory=RerankerConfig)
     asr: AsrConfig = field(default_factory=AsrConfig)
     enrichments: EnrichmentConfig = field(default_factory=EnrichmentConfig)
     shared_db_path: Path = field(default_factory=lambda: DEFAULT_SHARED_DB_PATH)
@@ -287,6 +298,15 @@ def load_config(path: Path | None = None) -> Config:
         fts_weight=search_data.get("fts_weight", 0.3),
     )
 
+    reranker_data = data.get("reranker", {})
+    reranker_endpoint = reranker_data.get("endpoint")
+    reranker_config = RerankerConfig(
+        model=reranker_data.get("model", "mixedbread-ai/mxbai-rerank-xsmall-v1"),
+        min_score=reranker_data.get("min_score", 0.0),
+        enabled=reranker_data.get("enabled", reranker_endpoint is not None),
+        endpoint=reranker_endpoint,
+    )
+
     # obsidian_vaults: still populated for URI construction (obsidian:// links),
     # but indexing now goes through the watch pipeline.
     obsidian_vaults_raw = data.get("obsidian_vaults", [])
@@ -397,6 +417,7 @@ def load_config(path: Path | None = None) -> Config:
         git_history_in_months=data.get("git_history_in_months", 6),
         git_commit_subject_blacklist=tuple(data.get("git_commit_subject_blacklist", [])),
         search_defaults=search_defaults,
+        reranker=reranker_config,
         asr=asr_config,
         enrichments=enrichments_config,
         shared_db_path=_expand_path(

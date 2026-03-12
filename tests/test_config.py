@@ -619,6 +619,65 @@ class TestWatchConfig:
         assert watch_dir in config.watch["my-org"]
 
 
+class TestRerankerConfig:
+    """Tests for RerankerConfig parsing."""
+
+    def test_reranker_config_defaults(self) -> None:
+        """RerankerConfig has sensible defaults when no reranker section in config."""
+        from ragling.config import RerankerConfig
+
+        rc = RerankerConfig()
+        assert rc.model == "mixedbread-ai/mxbai-rerank-xsmall-v1"
+        assert rc.min_score == 0.0
+        assert rc.enabled is False
+        assert rc.endpoint is None
+
+    def test_reranker_config_from_json(self, tmp_path: Path) -> None:
+        """load_config() parses reranker section from config JSON."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "reranker": {
+                        "model": "BAAI/bge-reranker-v2-m3",
+                        "min_score": 0.3,
+                        "enabled": True,
+                        "endpoint": "https://infinity.example.com",
+                    }
+                }
+            )
+        )
+        cfg = load_config(config_file)
+        assert cfg.reranker.model == "BAAI/bge-reranker-v2-m3"
+        assert cfg.reranker.min_score == 0.3
+        assert cfg.reranker.enabled is True
+        assert cfg.reranker.endpoint == "https://infinity.example.com"
+
+    def test_reranker_config_absent_means_disabled(self, tmp_path: Path) -> None:
+        """When reranker section is absent, reranker is disabled."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({}))
+        cfg = load_config(config_file)
+        assert cfg.reranker.enabled is False
+        assert cfg.reranker.endpoint is None
+
+    def test_reranker_enabled_auto_true_when_endpoint_set(self, tmp_path: Path) -> None:
+        """enabled defaults to True when endpoint is provided."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "reranker": {
+                        "endpoint": "https://infinity.example.com",
+                    }
+                }
+            )
+        )
+        cfg = load_config(config_file)
+        assert cfg.reranker.enabled is True
+        assert cfg.reranker.endpoint == "https://infinity.example.com"
+
+
 class TestConfigAutoDiscovery:
     """Tests for ragling.json auto-discovery in CWD."""
 
