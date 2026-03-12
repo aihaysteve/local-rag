@@ -94,6 +94,9 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                 rerank=rerank,
                 min_score=min_score,
             )
+            # All-or-nothing: reranked is True only when every query was
+            # successfully reranked.  If any single query's rescore failed
+            # (graceful degradation), the batch reports reranked=False.
             reranked = bool(reranked_flags) and all(reranked_flags)
         except OllamaConnectionError as e:
             return _build_search_response([{"error": str(e)}], ctx.indexing_status)
