@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from ragling.config import Config, RerankerConfig
+from ragling.config import Config
 from ragling.search.search import SearchResult
 from ragling.tools.helpers import _build_search_response
 

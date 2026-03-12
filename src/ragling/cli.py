@@ -447,7 +447,9 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
 @click.option("--after", help="Only results after this date (YYYY-MM-DD).")
 @click.option("--before", help="Only results before this date (YYYY-MM-DD).")
 @click.option("--top", default=10, show_default=True, help="Number of results to return.")
-@click.option("--rerank/--no-rerank", default=True, show_default=True, help="Apply cross-encoder rescoring.")
+@click.option(
+    "--rerank/--no-rerank", default=True, show_default=True, help="Apply cross-encoder rescoring."
+)
 @click.option("--min-score", type=float, default=None, help="Minimum relevance score threshold.")
 @click.pass_context
 def search(
