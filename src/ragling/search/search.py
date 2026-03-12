@@ -514,6 +514,10 @@ def perform_search(
             section_type=section_type,
         )
 
+        # When rescoring, oversample by _RESCORE_OVERSAMPLE (3x) to give the
+        # cross-encoder more candidates. Note: _candidate_limit() inside search()
+        # applies its own _UNFILTERED_OVERSAMPLING (3x) for vector/FTS retrieval,
+        # so the effective candidate count is up to 9x top_k for unfiltered queries.
         search_top_k = top_k * _RESCORE_OVERSAMPLE if should_rescore else top_k
         results = search(
             conn,
@@ -610,6 +614,7 @@ def perform_batch_search(
                 subsystem=q.subsystem,
                 section_type=q.section_type,
             )
+            # See perform_search for explanation of compound oversampling.
             search_top_k = q.top_k * _RESCORE_OVERSAMPLE if should_rescore else q.top_k
             query_results = search(
                 conn,
