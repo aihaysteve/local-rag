@@ -55,7 +55,7 @@ class SearchDefaults:
 DEFAULT_RERANKER_MODEL = "mixedbread-ai/mxbai-rerank-xsmall-v1"
 
 
-@dataclass
+@dataclass(frozen=True)
 class RerankerConfig:
     """Configuration for cross-encoder rescoring after RRF."""
 
