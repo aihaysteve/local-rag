@@ -414,7 +414,8 @@ Config file: `~/.ragling/config.json`
     "model": "mixedbread-ai/mxbai-rerank-xsmall-v1",
     "min_score": 0,
     "enabled": true,
-    "endpoint": "https://infinity.example.com"
+    "endpoint": "https://infinity.example.com",
+    "verify_tls": true
   },
   "users": {
     "alice": {

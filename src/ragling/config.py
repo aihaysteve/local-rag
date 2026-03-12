@@ -63,6 +63,7 @@ class RerankerConfig:
     min_score: float = 0.0
     enabled: bool = False
     endpoint: str | None = None
+    verify_tls: bool = True
 
 
 @dataclass
@@ -308,6 +309,7 @@ def load_config(path: Path | None = None) -> Config:
         min_score=reranker_data.get("min_score", 0.0),
         enabled=reranker_data.get("enabled", reranker_endpoint is not None),
         endpoint=reranker_endpoint,
+        verify_tls=reranker_data.get("verify_tls", True),
     )
 
     # obsidian_vaults: still populated for URI construction (obsidian:// links),

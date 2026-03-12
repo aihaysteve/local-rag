@@ -13,13 +13,20 @@ from ragling.search.search import SearchResult
 logger = logging.getLogger(__name__)
 
 _client: httpx.Client | None = None
+_client_verify: bool | None = None
 
 
-def _get_client() -> httpx.Client:
-    """Return a reusable HTTP client for connection pooling."""
-    global _client  # noqa: PLW0603
-    if _client is None:
-        _client = httpx.Client(timeout=10.0)
+def _get_client(*, verify: bool = True) -> httpx.Client:
+    """Return a reusable HTTP client for connection pooling.
+
+    Recreates the client if the ``verify`` setting changes.
+    """
+    global _client, _client_verify  # noqa: PLW0603
+    if _client is None or _client_verify != verify:
+        if _client is not None:
+            _client.close()
+        _client = httpx.Client(timeout=10.0, verify=verify)
+        _client_verify = verify
     return _client
 
 
@@ -54,7 +61,7 @@ def rescore(
     threshold = min_score if min_score is not None else config.min_score
 
     try:
-        response = _get_client().post(
+        response = _get_client(verify=config.verify_tls).post(
             f"{config.endpoint}/rerank",
             json={
                 "model": config.model,
