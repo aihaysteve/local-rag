@@ -41,7 +41,7 @@ degrades gracefully — on any failure, original RRF scores are preserved.
 | `BatchQuery` | MCP server | Dataclass wrapping query + filters for batch search |
 | `rrf_merge(vector_results, fts_results, ...)` | Tests, search.py | Merges two ranked lists by Reciprocal Rank Fusion |
 | `escape_fts_query(query)` | search.py | Wraps query in quotes, doubles internal quotes per FTS5 spec |
-| `rescore(query, results, config, min_score)` | search.py, MCP tools | Rescores results via cross-encoder; returns `(results, reranked_flag)` |
+| `rescore(query, results, config, min_score)` | search.py | Rescores results via cross-encoder; returns `(results, reranked_flag)` |
 
 ## Invariants
 

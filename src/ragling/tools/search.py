@@ -145,7 +145,8 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
 
         Returns:
             Dict with ``results`` (list of matched chunks, each with title, content,
-            collection, source_type, source_path, source_uri, score, and metadata)
+            collection, source_type, source_path, source_uri, score, and metadata),
+            ``reranked`` (bool, whether cross-encoder rescoring was applied),
             and optional ``indexing_status`` when background indexing is active.
         """
         import time
