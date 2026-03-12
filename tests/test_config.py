@@ -677,6 +677,23 @@ class TestRerankerConfig:
         assert cfg.reranker.enabled is True
         assert cfg.reranker.endpoint == "https://infinity.example.com"
 
+    def test_reranker_partial_config_without_endpoint(self, tmp_path: Path) -> None:
+        """min_score set without endpoint results in disabled reranker."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "reranker": {
+                        "min_score": 0.5,
+                    }
+                }
+            )
+        )
+        cfg = load_config(config_file)
+        assert cfg.reranker.enabled is False
+        assert cfg.reranker.endpoint is None
+        assert cfg.reranker.min_score == 0.5
+
 
 class TestConfigAutoDiscovery:
     """Tests for ragling.json auto-discovery in CWD."""
