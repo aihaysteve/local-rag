@@ -12,6 +12,8 @@ from ragling.db import get_connection, init_db
 from ragling.embeddings import get_embedding, get_embeddings, serialize_float32
 from ragling.search.search_utils import escape_fts_query
 
+_RESCORE_OVERSAMPLE = 3
+
 logger = logging.getLogger(__name__)
 
 
@@ -512,7 +514,7 @@ def perform_search(
             section_type=section_type,
         )
 
-        search_top_k = top_k * 3 if should_rescore else top_k
+        search_top_k = top_k * _RESCORE_OVERSAMPLE if should_rescore else top_k
         results = search(
             conn,
             query_embedding,
@@ -608,7 +610,7 @@ def perform_batch_search(
                 subsystem=q.subsystem,
                 section_type=q.section_type,
             )
-            search_top_k = q.top_k * 3 if should_rescore else q.top_k
+            search_top_k = q.top_k * _RESCORE_OVERSAMPLE if should_rescore else q.top_k
             query_results = search(
                 conn,
                 embedding,

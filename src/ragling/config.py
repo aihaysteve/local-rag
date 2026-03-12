@@ -52,11 +52,14 @@ class SearchDefaults:
     fts_weight: float = 0.3
 
 
+DEFAULT_RERANKER_MODEL = "mixedbread-ai/mxbai-rerank-xsmall-v1"
+
+
 @dataclass
 class RerankerConfig:
     """Configuration for cross-encoder rescoring after RRF."""
 
-    model: str = "mixedbread-ai/mxbai-rerank-xsmall-v1"
+    model: str = DEFAULT_RERANKER_MODEL
     min_score: float = 0.0
     enabled: bool = False
     endpoint: str | None = None
@@ -301,7 +304,7 @@ def load_config(path: Path | None = None) -> Config:
     reranker_data = data.get("reranker", {})
     reranker_endpoint = reranker_data.get("endpoint")
     reranker_config = RerankerConfig(
-        model=reranker_data.get("model", "mixedbread-ai/mxbai-rerank-xsmall-v1"),
+        model=reranker_data.get("model", DEFAULT_RERANKER_MODEL),
         min_score=reranker_data.get("min_score", 0.0),
         enabled=reranker_data.get("enabled", reranker_endpoint is not None),
         endpoint=reranker_endpoint,
