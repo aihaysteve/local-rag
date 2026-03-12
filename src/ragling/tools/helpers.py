@@ -137,6 +137,8 @@ def _apply_user_context_to_results(
 def _build_search_response(
     results: list[dict[str, Any]] | list[list[dict[str, Any]]],
     indexing_status: IndexingStatus | None = None,
+    *,
+    reranked: bool = False,
 ) -> dict[str, Any]:
     """Build search response with optional indexing status.
 
@@ -144,12 +146,14 @@ def _build_search_response(
         results: List of search result dicts (single search) or list of
             per-query result lists (batch search).
         indexing_status: Optional indexing status tracker.
+        reranked: Whether results were reranked by a cross-encoder model.
 
     Returns:
-        Response dict with 'results' and 'indexing' keys.
+        Response dict with 'results', 'reranked', and 'indexing' keys.
     """
     return {
         "results": results,
+        "reranked": reranked,
         "indexing": indexing_status.to_dict() if indexing_status else None,
     }
 

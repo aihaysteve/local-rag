@@ -25,6 +25,8 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         author: str | None = None,
         subsystem: str | None = None,
         section_type: str | None = None,
+        rerank: bool = True,
+        min_score: float | None = None,
     ) -> dict[str, Any]:
         """Search personal knowledge using hybrid vector + full-text search with Reciprocal Rank Fusion.
 
@@ -136,6 +138,10 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                 Use with source_type="spec" to retrieve specs for a specific subsystem.
             section_type: Filter by SPEC.md section type (e.g., 'decision_framework',
                 'invariants', 'public_interface'). Use with source_type="spec".
+            rerank: Whether to apply cross-encoder rescoring (default True).
+                Set to False to skip reranking and use raw RRF scores.
+            min_score: Minimum score threshold for results. Only results with
+                a score >= this value are returned. None means no threshold.
 
         Returns:
             Dict with ``results`` (list of matched chunks, each with title, content,
@@ -160,7 +166,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
 
         t0 = time.monotonic()
         try:
-            results, _reranked = perform_search(
+            results, reranked = perform_search(
                 query=query,
                 collection=collection,
                 top_k=top_k,
@@ -174,6 +180,8 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                 group_name=ctx.group_name,
                 config=ctx.server_config,
                 visible_collections=visible,
+                rerank=rerank,
+                min_score=min_score,
             )
         except OllamaConnectionError as e:
             return _build_search_response([{"error": str(e)}], ctx.indexing_status)
@@ -210,4 +218,4 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         if user_ctx:
             result_dicts = _apply_user_context_to_results(result_dicts, user_ctx)
 
-        return _build_search_response(result_dicts, ctx.indexing_status)
+        return _build_search_response(result_dicts, ctx.indexing_status, reranked=reranked)
