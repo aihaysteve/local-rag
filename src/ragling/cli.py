@@ -447,6 +447,8 @@ def index_all(ctx: click.Context, force: bool, background: bool) -> None:
 @click.option("--after", help="Only results after this date (YYYY-MM-DD).")
 @click.option("--before", help="Only results before this date (YYYY-MM-DD).")
 @click.option("--top", default=10, show_default=True, help="Number of results to return.")
+@click.option("--rerank/--no-rerank", default=True, show_default=True, help="Apply cross-encoder rescoring.")
+@click.option("--min-score", type=float, default=None, help="Minimum relevance score threshold.")
 @click.pass_context
 def search(
     ctx: click.Context,
@@ -458,6 +460,8 @@ def search(
     after: str | None,
     before: str | None,
     top: int,
+    rerank: bool,
+    min_score: float | None,
 ) -> None:
     """Search across indexed collections."""
     from ragling.embeddings import OllamaConnectionError
@@ -478,6 +482,8 @@ def search(
             author=author,
             group_name=group,
             config=config,
+            rerank=rerank,
+            min_score=min_score,
         )
     except OllamaConnectionError as e:
         click.echo(f"Error: {e}", err=True)
