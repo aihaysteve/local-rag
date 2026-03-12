@@ -160,7 +160,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
 
         t0 = time.monotonic()
         try:
-            results = perform_search(
+            results, _reranked = perform_search(
                 query=query,
                 collection=collection,
                 top_k=top_k,

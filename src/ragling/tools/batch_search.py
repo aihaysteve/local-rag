@@ -80,7 +80,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
             )
 
         try:
-            all_results = perform_batch_search(
+            all_results, _reranked_flags = perform_batch_search(
                 queries=batch_queries,
                 group_name=ctx.group_name,
                 config=ctx.server_config,

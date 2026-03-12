@@ -942,7 +942,7 @@ class TestPerformSearchParams:
     def test_uses_provided_config(self, mock_load, mock_search, mock_init, mock_conn, mock_embed):
         """perform_search uses provided config instead of calling load_config."""
         custom_config = Config(embedding_dimensions=4)
-        perform_search("test query", config=custom_config)
+        _results, _reranked = perform_search("test query", config=custom_config)
         mock_load.assert_not_called()
 
     @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
@@ -951,7 +951,7 @@ class TestPerformSearchParams:
     @patch("ragling.search.search.search", return_value=[])
     def test_passes_visible_collections(self, mock_search, mock_init, mock_conn, mock_embed):
         """perform_search passes visible_collections through to search."""
-        perform_search(
+        _results, _reranked = perform_search(
             "test query",
             visible_collections=["kitchen", "global"],
             config=Config(embedding_dimensions=4),
@@ -967,7 +967,7 @@ class TestPerformSearchParams:
         self, mock_search, mock_init, mock_conn, mock_embed
     ):
         """perform_search defaults visible_collections to None (full access)."""
-        perform_search("test query", config=Config(embedding_dimensions=4))
+        _results, _reranked = perform_search("test query", config=Config(embedding_dimensions=4))
         _, kwargs = mock_search.call_args
         assert kwargs["visible_collections"] is None
 
@@ -1356,7 +1356,7 @@ class TestPerformBatchSearch:
             BatchQuery(query="first"),
             BatchQuery(query="second", collection="code", top_k=5),
         ]
-        results = perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        results, flags = perform_batch_search(queries, config=Config(embedding_dimensions=4))
         assert len(results) == 2
         assert mock_search.call_count == 2
 
@@ -1373,12 +1373,13 @@ class TestPerformBatchSearch:
             BatchQuery(query="alpha"),
             BatchQuery(query="beta"),
         ]
-        perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        _results, _flags = perform_batch_search(queries, config=Config(embedding_dimensions=4))
         mock_embed.assert_called_once_with(["alpha", "beta"], mock_embed.call_args[0][1])
 
     def test_empty_queries_returns_empty(self):
-        result = perform_batch_search([])
-        assert result == []
+        results, flags = perform_batch_search([])
+        assert results == []
+        assert flags == []
 
     @patch("ragling.search.search.get_embeddings", return_value=[[1.0, 0.0, 0.0, 0.0]])
     @patch("ragling.search.search.get_connection")
@@ -1388,7 +1389,7 @@ class TestPerformBatchSearch:
         queries = [
             BatchQuery(query="test", collection="obsidian", source_type="pdf"),
         ]
-        perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        _results, _flags = perform_batch_search(queries, config=Config(embedding_dimensions=4))
         call_args = mock_search.call_args
         filters = call_args[0][4]  # 5th positional arg
         assert filters.collection == "obsidian"
@@ -1412,5 +1413,161 @@ class TestPerformBatchSearch:
     def test_shares_single_connection(self, mock_search, mock_init, mock_conn, mock_embed):
         """All queries use the same DB connection."""
         queries = [BatchQuery(query="a"), BatchQuery(query="b")]
-        perform_batch_search(queries, config=Config(embedding_dimensions=4))
+        results, _flags = perform_batch_search(queries, config=Config(embedding_dimensions=4))
         mock_conn.assert_called_once()  # Only one connection created
+
+
+class TestRescoreIntegration:
+    """Tests for rescore integration in perform_search and perform_batch_search."""
+
+    def _make_result(self, content: str = "chunk", score: float = 0.5) -> SearchResult:
+        return SearchResult(
+            content=content,
+            title="T",
+            metadata={},
+            score=score,
+            collection="col",
+            source_path="/tmp/x.md",
+            source_type="markdown",
+        )
+
+    @patch("ragling.search.rescore.rescore")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search")
+    def test_perform_search_calls_rescore_when_configured(
+        self, mock_search, mock_init, mock_conn, mock_embed, mock_rescore
+    ):
+        """Rescore is called when reranker is enabled and has an endpoint."""
+        from ragling.config import RerankerConfig
+
+        raw = [self._make_result("a", 0.3), self._make_result("b", 0.2)]
+        mock_search.return_value = raw
+        rescored = [self._make_result("a", 0.9), self._make_result("b", 0.1)]
+        mock_rescore.return_value = (rescored, True)
+
+        config = Config(
+            embedding_dimensions=4,
+            reranker=RerankerConfig(enabled=True, endpoint="http://localhost:7997"),
+        )
+        results, reranked = perform_search("hello", config=config)
+
+        mock_rescore.assert_called_once()
+        assert reranked is True
+        assert results == rescored
+
+    @patch("ragling.search.rescore.rescore")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
+    def test_perform_search_skips_rescore_when_disabled(
+        self, mock_search, mock_init, mock_conn, mock_embed, mock_rescore
+    ):
+        """Rescore is not called when reranker is not enabled."""
+        config = Config(embedding_dimensions=4)  # reranker.enabled=False by default
+        results, reranked = perform_search("hello", config=config)
+
+        mock_rescore.assert_not_called()
+        assert reranked is False
+
+    @patch("ragling.search.rescore.rescore")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search", return_value=[])
+    def test_perform_search_skips_rescore_when_rerank_false(
+        self, mock_search, mock_init, mock_conn, mock_embed, mock_rescore
+    ):
+        """Rescore is skipped when rerank=False even if reranker is configured."""
+        from ragling.config import RerankerConfig
+
+        config = Config(
+            embedding_dimensions=4,
+            reranker=RerankerConfig(enabled=True, endpoint="http://localhost:7997"),
+        )
+        results, reranked = perform_search("hello", config=config, rerank=False)
+
+        mock_rescore.assert_not_called()
+        assert reranked is False
+
+    @patch("ragling.search.rescore.rescore")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search")
+    def test_perform_search_oversamples_for_rescoring(
+        self, mock_search, mock_init, mock_conn, mock_embed, mock_rescore
+    ):
+        """When rescoring, search() receives 3 * top_k."""
+        from ragling.config import RerankerConfig
+
+        mock_search.return_value = []
+        mock_rescore.return_value = ([], True)
+
+        config = Config(
+            embedding_dimensions=4,
+            reranker=RerankerConfig(enabled=True, endpoint="http://localhost:7997"),
+        )
+        perform_search("hello", top_k=5, config=config)
+
+        # search() should have been called with top_k=15 (3 * 5)
+        call_args = mock_search.call_args
+        assert call_args[0][3] == 15  # 4th positional arg is top_k
+
+    @patch("ragling.search.rescore.rescore")
+    @patch("ragling.search.search.get_embedding", return_value=[1.0, 0.0, 0.0, 0.0])
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search")
+    def test_perform_search_degrades_on_reranker_failure(
+        self, mock_search, mock_init, mock_conn, mock_embed, mock_rescore
+    ):
+        """When rescore returns reranked=False, perform_search propagates that."""
+        from ragling.config import RerankerConfig
+
+        raw = [self._make_result("a", 0.3)]
+        mock_search.return_value = raw
+        mock_rescore.return_value = (raw, False)
+
+        config = Config(
+            embedding_dimensions=4,
+            reranker=RerankerConfig(enabled=True, endpoint="http://localhost:7997"),
+        )
+        results, reranked = perform_search("hello", config=config)
+
+        assert reranked is False
+
+    @patch("ragling.search.rescore.rescore")
+    @patch(
+        "ragling.search.search.get_embeddings",
+        return_value=[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
+    )
+    @patch("ragling.search.search.get_connection")
+    @patch("ragling.search.search.init_db")
+    @patch("ragling.search.search.search")
+    def test_perform_batch_search_rescores_each_query(
+        self, mock_search, mock_init, mock_conn, mock_embed, mock_rescore
+    ):
+        """Batch search calls rescore for each query when configured."""
+        from ragling.config import RerankerConfig
+
+        r1 = [self._make_result("a", 0.5)]
+        r2 = [self._make_result("b", 0.4)]
+        mock_search.side_effect = [r1, r2]
+        mock_rescore.side_effect = [
+            ([self._make_result("a", 0.9)], True),
+            ([self._make_result("b", 0.8)], True),
+        ]
+
+        config = Config(
+            embedding_dimensions=4,
+            reranker=RerankerConfig(enabled=True, endpoint="http://localhost:7997"),
+        )
+        queries = [BatchQuery(query="q1"), BatchQuery(query="q2")]
+        results, flags = perform_batch_search(queries, config=config)
+
+        assert mock_rescore.call_count == 2
+        assert len(results) == 2
+        assert flags == [True, True]

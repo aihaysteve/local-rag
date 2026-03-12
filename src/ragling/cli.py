@@ -467,7 +467,7 @@ def search(
     config = load_config(ctx.obj.get("config_path"))
 
     try:
-        results = perform_search(
+        results, _reranked = perform_search(
             query=query,
             collection=collection,
             top_k=top,

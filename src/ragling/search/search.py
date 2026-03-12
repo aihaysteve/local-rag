@@ -453,7 +453,9 @@ def perform_search(
     group_name: str = "default",
     config: Config | None = None,
     visible_collections: list[str] | None = None,
-) -> list[SearchResult]:
+    rerank: bool = True,
+    min_score: float | None = None,
+) -> tuple[list[SearchResult], bool]:
     """Run a full hybrid search: load config, connect, embed, search, cleanup.
 
     This is a high-level convenience wrapper that handles the complete
@@ -475,14 +477,18 @@ def perform_search(
         config: Optional pre-loaded Config. If None, calls load_config().
         visible_collections: Optional list of collection names to restrict results to.
             None means no restriction (all collections visible).
+        rerank: Whether to apply cross-encoder rescoring (default True).
+        min_score: Override minimum relevance score for rescoring. None uses config default.
 
     Returns:
-        List of SearchResult objects sorted by relevance.
+        Tuple of (results, reranked). ``reranked`` is True only when rescoring
+        succeeded and scores were replaced.
 
     Raises:
         ragling.embeddings.OllamaConnectionError: If Ollama is not reachable.
     """
     config = (config or load_config()).with_overrides(group_name=group_name)
+    should_rescore = rerank and config.reranker.enabled and bool(config.reranker.endpoint)
     conn = get_connection(config)
     init_db(conn, config)
 
@@ -506,15 +512,24 @@ def perform_search(
             section_type=section_type,
         )
 
-        return search(
+        search_top_k = top_k * 3 if should_rescore else top_k
+        results = search(
             conn,
             query_embedding,
             query,
-            top_k,
+            search_top_k,
             filters,
             config,
             visible_collections=visible_collections,
         )
+
+        if should_rescore:
+            from ragling.search.rescore import rescore
+
+            results, reranked = rescore(query, results, config.reranker, min_score=min_score)
+            return results[:top_k], reranked
+
+        return results, False
     finally:
         conn.close()
 
@@ -540,7 +555,9 @@ def perform_batch_search(
     group_name: str = "default",
     config: Config | None = None,
     visible_collections: list[str] | None = None,
-) -> list[list[SearchResult]]:
+    rerank: bool = True,
+    min_score: float | None = None,
+) -> tuple[list[list[SearchResult]], list[bool]]:
     """Run multiple searches sharing one DB connection and one embedding call.
 
     Args:
@@ -548,17 +565,22 @@ def perform_batch_search(
         group_name: Group name for per-group indexes.
         config: Optional pre-loaded Config.
         visible_collections: Optional collection visibility filter.
+        rerank: Whether to apply cross-encoder rescoring (default True).
+        min_score: Override minimum relevance score for rescoring. None uses config default.
 
     Returns:
-        List of result lists, one per query in the same order.
+        Tuple of (result_lists, reranked_flags). Each list entry corresponds to
+        the same-index query. ``reranked_flags[i]`` is True only when rescoring
+        succeeded for query *i*.
 
     Raises:
         ragling.embeddings.OllamaConnectionError: If Ollama is not reachable.
     """
     if not queries:
-        return []
+        return [], []
 
     config = (config or load_config()).with_overrides(group_name=group_name)
+    should_rescore = rerank and config.reranker.enabled and bool(config.reranker.endpoint)
     conn = get_connection(config)
     init_db(conn, config)
 
@@ -574,6 +596,7 @@ def perform_batch_search(
                 )
 
         results: list[list[SearchResult]] = []
+        reranked_flags: list[bool] = []
         for q, embedding in zip(queries, all_embeddings):
             filters = SearchFilters(
                 collection=q.collection,
@@ -585,18 +608,29 @@ def perform_batch_search(
                 subsystem=q.subsystem,
                 section_type=q.section_type,
             )
-            results.append(
-                search(
-                    conn,
-                    embedding,
-                    q.query,
-                    q.top_k,
-                    filters,
-                    config,
-                    visible_collections=visible_collections,
-                )
+            search_top_k = q.top_k * 3 if should_rescore else q.top_k
+            query_results = search(
+                conn,
+                embedding,
+                q.query,
+                search_top_k,
+                filters,
+                config,
+                visible_collections=visible_collections,
             )
 
-        return results
+            if should_rescore:
+                from ragling.search.rescore import rescore
+
+                query_results, reranked = rescore(
+                    q.query, query_results, config.reranker, min_score=min_score
+                )
+                results.append(query_results[: q.top_k])
+                reranked_flags.append(reranked)
+            else:
+                results.append(query_results)
+                reranked_flags.append(False)
+
+        return results, reranked_flags
     finally:
         conn.close()

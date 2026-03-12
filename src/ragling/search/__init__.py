@@ -5,6 +5,7 @@ directly (e.g. ``from ragling.search.search import ...``) so that test
 ``patch()`` targets resolve to the defining module.
 """
 
+from ragling.search.rescore import rescore
 from ragling.search.search import (
     BatchQuery,
     SearchFilters,
@@ -23,6 +24,7 @@ __all__ = [
     "escape_fts_query",
     "perform_batch_search",
     "perform_search",
+    "rescore",
     "rrf_merge",
     "search",
 ]
