@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 
@@ -41,6 +41,20 @@ def _reranker_config(
     )
 
 
+def _mock_client_with_response(response: httpx.Response) -> MagicMock:
+    """Create a mock HTTP client that returns the given response from .post()."""
+    client = MagicMock()
+    client.post.return_value = response
+    return client
+
+
+def _mock_client_with_error(error: Exception) -> MagicMock:
+    """Create a mock HTTP client whose .post() raises the given error."""
+    client = MagicMock()
+    client.post.side_effect = error
+    return client
+
+
 class TestRescore:
     """Tests for rescore() function."""
 
@@ -63,7 +77,10 @@ class TestRescore:
             request=_DUMMY_REQUEST,
         )
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             rescored, reranked = rescore("test query", results, config)
 
         assert reranked is True
@@ -89,7 +106,10 @@ class TestRescore:
             request=_DUMMY_REQUEST,
         )
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             rescored, reranked = rescore("test query", results, config)
 
         assert len(rescored) == 3
@@ -115,7 +135,10 @@ class TestRescore:
             request=_DUMMY_REQUEST,
         )
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             rescored, reranked = rescore("test query", results, config)
 
         assert len(rescored) == 2
@@ -140,7 +163,10 @@ class TestRescore:
             request=_DUMMY_REQUEST,
         )
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             rescored, reranked = rescore("test query", results, config, min_score=0.5)
 
         assert len(rescored) == 1
@@ -155,8 +181,8 @@ class TestRescore:
         config = _reranker_config()
 
         with patch(
-            "ragling.search.rescore.httpx.post",
-            side_effect=httpx.ConnectError("connection refused"),
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_error(httpx.ConnectError("connection refused")),
         ):
             rescored, reranked = rescore("test query", results, config)
 
@@ -171,8 +197,8 @@ class TestRescore:
         config = _reranker_config()
 
         with patch(
-            "ragling.search.rescore.httpx.post",
-            side_effect=httpx.TimeoutException("timed out"),
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_error(httpx.TimeoutException("timed out")),
         ):
             rescored, reranked = rescore("test query", results, config)
 
@@ -188,7 +214,10 @@ class TestRescore:
 
         mock_response = httpx.Response(200, json={"unexpected": "format"}, request=_DUMMY_REQUEST)
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             rescored, reranked = rescore("test query", results, config)
 
         assert reranked is False
@@ -202,7 +231,10 @@ class TestRescore:
 
         mock_response = httpx.Response(500, text="Internal Server Error", request=_DUMMY_REQUEST)
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             rescored, reranked = rescore("test query", results, config)
 
         assert reranked is False
@@ -220,14 +252,17 @@ class TestRescore:
             json={"results": [{"index": 0, "relevance_score": 0.80}]},
             request=_DUMMY_REQUEST,
         )
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response):
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
             _, reranked = rescore("test query", results, config)
         assert reranked is True
 
         # Failure case
         with patch(
-            "ragling.search.rescore.httpx.post",
-            side_effect=httpx.ConnectError("down"),
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_error(httpx.ConnectError("down")),
         ):
             _, reranked = rescore("test query", results, config)
         assert reranked is False
@@ -238,10 +273,10 @@ class TestRescore:
 
         config = _reranker_config()
 
-        with patch("ragling.search.rescore.httpx.post") as mock_post:
+        with patch("ragling.search.rescore._get_client") as mock_get_client:
             rescored, reranked = rescore("test query", [], config)
 
-        mock_post.assert_not_called()
+        mock_get_client.assert_not_called()
         assert rescored == []
         assert reranked is False
 
@@ -266,10 +301,11 @@ class TestRescore:
             request=_DUMMY_REQUEST,
         )
 
-        with patch("ragling.search.rescore.httpx.post", return_value=mock_response) as mock_post:
+        mock_client = _mock_client_with_response(mock_response)
+        with patch("ragling.search.rescore._get_client", return_value=mock_client):
             rescore("my query", results, config)
 
-        mock_post.assert_called_once_with(
+        mock_client.post.assert_called_once_with(
             "https://infinity.example.com/rerank",
             json={
                 "model": "test-model",
@@ -280,5 +316,32 @@ class TestRescore:
                 ],
                 "return_documents": False,
             },
-            timeout=10.0,
         )
+
+    def test_out_of_bounds_index_returns_original(self):
+        """Out-of-bounds index in reranker response falls back gracefully."""
+        from ragling.search.rescore import rescore
+
+        results = _make_results([0.016, 0.014])
+        config = _reranker_config()
+
+        mock_response = httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"index": 0, "relevance_score": 0.9},
+                    {"index": 999, "relevance_score": 0.5},
+                ]
+            },
+            request=_DUMMY_REQUEST,
+        )
+
+        with patch(
+            "ragling.search.rescore._get_client",
+            return_value=_mock_client_with_response(mock_response),
+        ):
+            rescored, reranked = rescore("test query", results, config)
+
+        assert reranked is False
+        assert len(rescored) == 2
+        assert rescored[0].score == 0.016

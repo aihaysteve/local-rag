@@ -12,6 +12,16 @@ from ragling.search.search import SearchResult
 
 logger = logging.getLogger(__name__)
 
+_client: httpx.Client | None = None
+
+
+def _get_client() -> httpx.Client:
+    """Return a reusable HTTP client for connection pooling."""
+    global _client  # noqa: PLW0603
+    if _client is None:
+        _client = httpx.Client(timeout=10.0)
+    return _client
+
 
 def rescore(
     query: str,
@@ -44,7 +54,7 @@ def rescore(
     threshold = min_score if min_score is not None else config.min_score
 
     try:
-        response = httpx.post(
+        response = _get_client().post(
             f"{config.endpoint}/rerank",
             json={
                 "model": config.model,
@@ -52,7 +62,6 @@ def rescore(
                 "documents": [r.content for r in results],
                 "return_documents": False,
             },
-            timeout=10.0,
         )
         response.raise_for_status()
         data = response.json()
