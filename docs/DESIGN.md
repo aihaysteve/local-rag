@@ -467,24 +467,23 @@ requires models trained with binary cross-entropy.
 
 #### Model selection: `mxbai-rerank-xsmall-v1`
 
-The default model is `mixedbread-ai/mxbai-rerank-xsmall-v1` (35M params,
-33-layer MiniLM architecture). Selection criteria:
+The default model is `mixedbread-ai/mxbai-rerank-xsmall-v1` (~71M params,
+12-layer DeBERTa-v2 architecture). Selection criteria:
 
 | Criterion | mxbai-rerank-xsmall-v1 | bge-reranker-v2-m3 | mxbai-rerank-base-v1 |
 |-----------|------------------------|--------------------|----------------------|
-| Params | 35M | 568M | 184M |
-| Latency (30 docs, Infinity) | ~60ms | ~400ms | ~180ms |
-| Training loss | Binary cross-entropy | Binary cross-entropy | Binary cross-entropy |
-| NDCG@10 (BEIR avg) | 52.4 | 68.0 | 59.2 |
+| Params | ~71M | 568M | ~200M |
+| Latency (30 docs, batched, CPU) | ~890ms | — | — |
+| NDCG@10 (BEIR avg) | 43.9 | 68.0 | 59.2 |
 | Score separation | Good (0.0–1.0 spread) | Good | Good |
 
 `mxbai-rerank-xsmall-v1` wins on three axes:
 
-1. **Latency budget.** Rescoring 30 candidates takes ~60ms — negligible overhead
-   for interactive search. Larger models (400ms+) visibly degrade response time.
-2. **Score calibration quality.** Binary cross-entropy training spreads scores
-   across the full 0.0–1.0 range, making `min_score` thresholds meaningful.
-3. **Resource footprint.** 35M params fits comfortably alongside Ollama's
+1. **Latency budget.** Rescoring 30 candidates takes ~890ms on CPU (batched).
+   Infinity adds HTTP overhead but provides native batch inference.
+2. **Score calibration quality.** The model produces scores spread across the
+   full 0.0–1.0 range, making `min_score` thresholds meaningful.
+3. **Resource footprint.** ~71M params fits comfortably alongside Ollama's
    embedding model on machines without a dedicated GPU. Larger rerankers compete
    for VRAM with the embedding model.
 4. **Sufficient ranking quality.** NDCG@10 trails larger models, but RRF already
@@ -499,15 +498,18 @@ Users who want higher ranking accuracy at the cost of latency can set
 Cross-encoders require paired (query, document) inference — they cannot encode
 documents independently. For N candidates, the model runs N forward passes.
 
-| Runtime | 30 candidates | Batching | Notes |
-|---------|--------------|----------|-------|
-| Infinity | ~60ms | Native batch inference | Purpose-built for reranking workloads |
-| Ollama | ~4,500ms | Sequential generation | Designed for autoregressive LLMs, not cross-encoders |
+Benchmarked on CPU with `mxbai-rerank-xsmall-v1` (30 candidates, ~200 tokens
+each):
 
-Infinity achieves 75x speedup through native batch inference on the cross-
-encoder architecture. Ollama processes candidates sequentially through its
-generation pipeline, optimized for token-by-token autoregressive output rather
-than the single-pass classification that cross-encoders perform.
+| Mode | 30 candidates | Notes |
+|------|--------------|-------|
+| Batched (as Infinity does) | ~890ms | Single forward pass with batch dimension |
+| Sequential (as Ollama would) | ~2,500ms | 30 individual forward passes |
+
+Batching provides a ~2.8x speedup on CPU. Infinity serves the model with native
+batch inference through its `/rerank` endpoint. Ollama lacks cross-encoder
+support — its generation pipeline is optimized for token-by-token autoregressive
+output, not single-pass classification.
 
 #### Compound oversampling
 
@@ -541,8 +543,10 @@ index — rescoring preserves the original RRF scores and marks the response
 `reranked` flag appears in every search response; consumers never need to check
 for key existence.
 
-For batch search, the `reranked` flag uses all-or-nothing aggregation: it is
-`true` only when every query in the batch rescored successfully.
+The `perform_batch_search` function returns per-query reranked flags
+(`list[bool]`), allowing each query to succeed or fail independently. The MCP
+tool layer (`batch_search.py`) aggregates these into a single all-or-nothing
+flag for the response: `true` only when every query rescored successfully.
 
 Key files: `src/ragling/search/search.py`, `src/ragling/search/rescore.py`.
 

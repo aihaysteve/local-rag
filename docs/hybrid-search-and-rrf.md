@@ -170,4 +170,4 @@ The search pipeline lives in `src/ragling/search/search.py`:
 - `search()` — orchestrates the full pipeline: run both searches, merge, apply filters, fetch full document data
 - `rescore()` (in `src/ragling/search/rescore.py`) — sends candidates to an Infinity cross-encoder, replaces RRF scores with calibrated relevance scores
 
-All filtering (by collection, source type, date range, sender) happens after RRF merge but before rescoring. Rescoring runs after filtering, before the final `top_k` truncation.
+Filtering (by collection, source type, date range, sender) happens inside the vector and FTS retrieval steps, before RRF merge. Each retrieval path oversamples candidates, filters in-memory, then passes the filtered lists to `rrf_merge()`. Rescoring runs after the merge, before the final `top_k` truncation.
