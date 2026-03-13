@@ -34,8 +34,8 @@ degrades gracefully — on any failure, original RRF scores are preserved.
 | Export | Used By | Contract |
 |---|---|---|
 | `search(conn, query, config, ...)` | MCP server, CLI | Returns `list[SearchResult]` with RRF-merged hybrid results |
-| `perform_search(query, filters, config)` | MCP server | High-level search across groups; returns `list[SearchResult]` |
-| `perform_batch_search(queries, config)` | MCP server | Batch search; returns `list[list[SearchResult]]` |
+| `perform_search(query, filters, config)` | MCP server, CLI | High-level search across groups; returns `tuple[list[SearchResult], bool]` (results, reranked flag) |
+| `perform_batch_search(queries, config)` | MCP server | Batch search; returns `tuple[list[list[SearchResult]], list[bool]]` (results per query, reranked flags per query) |
 | `SearchResult` | MCP server | Dataclass for search output with score, stale flag, metadata |
 | `SearchFilters` | MCP server | Dataclass for search input filters (collection, source_type, dates, etc.) |
 | `BatchQuery` | MCP server | Dataclass wrapping query + filters for batch search |

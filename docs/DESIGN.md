@@ -388,8 +388,8 @@ Module-internal constants use `_UPPER_CASE` with a leading underscore (e.g.,
 `_TIMEOUT`, `_WAL_RETRIES`, `_FILTERED_OVERSAMPLING`).
 
 Frozen dataclasses represent thread-shared configuration (`Config`,
-`EnrichmentConfig`, `IndexJob`); plain dataclasses represent mutable state
-(`IndexResult`, `IndexRequest`, `ToolContext`). This convention signals
+`EnrichmentConfig`, `RerankerConfig`, `IndexJob`); plain dataclasses
+represent mutable state (`IndexResult`, `IndexRequest`, `ToolContext`). This convention signals
 thread-safety guarantees at the type level.
 
 Type hints use `from __future__ import annotations` for PEP 604 syntax
@@ -439,23 +439,114 @@ in `SearchResult`, letting clients display warnings.
 
 ### Cross-Encoder Rescoring
 
-RRF produces well-ordered results but compressed scores (typically 0.001–0.016)
-unsuitable for confidence thresholding. When a reranker endpoint is configured,
-`rescore()` in `src/ragling/search/rescore.py` sends the top `3 × top_k`
-candidates (controlled by `_RESCORE_OVERSAMPLE`) to an Infinity cross-encoder
-server. The cross-encoder produces calibrated relevance scores (0.0–1.0) that
-replace the RRF scores, enabling consumers to filter by score quality.
+RRF produces well-ordered results but compresses scores (typically 0.001–0.016),
+making them useless for confidence thresholding. When a reranker endpoint is
+configured, `rescore()` in `src/ragling/search/rescore.py` sends the top
+`3 × top_k` candidates (controlled by `_RESCORE_OVERSAMPLE`) to an Infinity
+cross-encoder server. The cross-encoder returns calibrated relevance scores
+(0.0–1.0) that replace the RRF scores, enabling consumers to filter by score
+quality.
 
-The design chose **scoring over ranking**: models trained with binary
-cross-entropy (classification loss) produce calibrated probabilities suitable
-for thresholding, while models trained with ranking losses produce good ordering
-but uncalibrated scores. The default model (`mxbai-rerank-xsmall-v1`, 35M
-params) was selected for score separation quality, not ranking metrics. See the
-[design doc](plans/2026-03-12-rescoring-after-rrf-design.md) for benchmarks.
+#### Why scoring over ranking
 
-Rescoring degrades gracefully: on any failure (connection error, timeout,
-malformed response), original RRF scores are preserved and the response includes
-`"reranked": false` so consumers know whether scores are calibrated.
+Cross-encoder models fall into two categories by training objective:
+
+- **Ranking losses** (contrastive, triplet, listwise) optimize relative ordering
+  metrics like NDCG@10. Scores reflect "better than" relationships but carry no
+  absolute meaning — a score of 0.7 from one query says nothing about 0.7 from
+  another.
+- **Classification losses** (binary cross-entropy) train the model to predict
+  P(relevant | query, document). Scores approximate calibrated probabilities:
+  0.9 means "very likely relevant" regardless of query. This enables threshold-
+  based filtering (e.g., `min_score=0.3` to drop noise).
+
+Ragling uses rescoring for **score calibration**, not re-ranking. RRF already
+orders results well from two independent signals. What RRF lacks is a
+calibrated confidence score that consumers can threshold. The design therefore
+requires models trained with binary cross-entropy.
+
+#### Model selection: `mxbai-rerank-xsmall-v1`
+
+The default model is `mixedbread-ai/mxbai-rerank-xsmall-v1` (~71M params,
+12-layer DeBERTa-v2 architecture). Selection criteria:
+
+| Criterion | mxbai-rerank-xsmall-v1 | bge-reranker-v2-m3 | mxbai-rerank-base-v1 |
+|-----------|------------------------|--------------------|----------------------|
+| Params | ~71M | 568M | ~200M |
+| Latency (30 docs, batched, CPU) | ~850ms | — | — |
+| NDCG@10 (BEIR avg) | 43.9 | 68.0 | 59.2 |
+| Score separation | Good (0.0–1.0 spread) | Good | Good |
+
+`mxbai-rerank-xsmall-v1` wins on three axes:
+
+1. **Latency budget.** Rescoring 30 candidates takes ~850ms on CPU (batched).
+   Infinity adds HTTP overhead but provides native batch inference.
+2. **Score calibration quality.** The model produces scores spread across the
+   full 0.0–1.0 range, making `min_score` thresholds meaningful.
+3. **Resource footprint.** ~71M params fits comfortably alongside Ollama's
+   embedding model on machines without a dedicated GPU. Larger rerankers compete
+   for VRAM with the embedding model.
+4. **Sufficient ranking quality.** NDCG@10 trails larger models, but RRF already
+   provides strong ordering from two independent signals. The cross-encoder
+   calibrates scores rather than fundamentally reorders.
+
+Users who want higher ranking accuracy at the cost of latency can set
+`reranker.model` to a larger model in their config.
+
+#### Why Infinity over Ollama
+
+Cross-encoders require paired (query, document) inference — they cannot encode
+documents independently. For N candidates, the model runs N forward passes.
+
+Benchmarked on CPU with `mxbai-rerank-xsmall-v1` (30 candidates, ~200 tokens
+each):
+
+| Mode | 30 candidates | Notes |
+|------|--------------|-------|
+| Batched (as Infinity does) | ~850ms | Single forward pass with batch dimension |
+| Sequential (as Ollama would) | ~2,900ms | 30 individual forward passes |
+
+Batching provides a ~3.4x speedup on CPU. Infinity serves the model with native
+batch inference through its `/rerank` endpoint. Ollama lacks cross-encoder
+support — its generation pipeline is optimized for token-by-token autoregressive
+output, not single-pass classification.
+
+#### Compound oversampling
+
+When rescoring is active, `perform_search` requests `3 × top_k` results from
+the `search()` function (`_RESCORE_OVERSAMPLE = 3`). Inside `search()`, the
+vector and FTS retrieval paths apply their own `_UNFILTERED_OVERSAMPLING = 3`
+(or `_FILTERED_OVERSAMPLING = 50` for filtered queries). The effective
+candidate count for unfiltered queries reaches `top_k × 3 × 3 = 9×`.
+
+This compound oversampling serves two distinct purposes: the outer 3x gives the
+cross-encoder enough candidates for meaningful score discrimination, while the
+inner 3x gives RRF merge enough candidates from each retrieval path. For
+filtered queries the inner multiplier rises to 50x to compensate for
+post-retrieval filtering.
+
+#### Connection pooling and TLS
+
+`rescore.py` maintains a module-level `httpx.Client` singleton (`_get_client()`)
+for TCP connection reuse across calls. In batch search, this avoids creating
+N separate TCP connections for N queries. The client initializes lazily and
+recreates itself when the `verify_tls` setting changes.
+
+For local Infinity deployments using self-signed TLS certificates, set
+`reranker.verify_tls` to `false` in the config.
+
+#### Graceful degradation
+
+On any failure — connection error, timeout, malformed response, out-of-bounds
+index — rescoring preserves the original RRF scores and marks the response
+`"reranked": false` so consumers know the scores lack calibration. The
+`reranked` flag appears in every search response; consumers never need to check
+for key existence.
+
+The `perform_batch_search` function returns per-query reranked flags
+(`list[bool]`), allowing each query to succeed or fail independently. The MCP
+tool layer (`batch_search.py`) aggregates these into a single all-or-nothing
+flag for the response: `true` only when every query rescored successfully.
 
 Key files: `src/ragling/search/search.py`, `src/ragling/search/rescore.py`.
 

@@ -110,7 +110,7 @@ The `k` parameter controls how much rank position matters. A higher `k` shrinks 
 
 The default weights favor semantic search (0.7) over keyword search (0.3) because most queries are natural language questions where meaning matters more than exact words. If you primarily search for exact phrases or identifiers, increase `fts_weight` in the config.
 
-These values are configurable in `~/.local-rag/config.json`:
+These values are configurable in `~/.ragling/config.json`:
 
 ```json
 {
@@ -123,13 +123,51 @@ These values are configurable in `~/.local-rag/config.json`:
 }
 ```
 
+## Optional Cross-Encoder Rescoring
+
+RRF ranks well but thresholds poorly. Its scores cluster in a narrow range (typically 0.001–0.016) because the `1/(k + rank)` formula compresses differences. A score of 0.016 may signal high relevance while 0.012 signals noise, yet no principled cutoff exists.
+
+When a reranker endpoint is configured, ragling sends the top candidates to a cross-encoder model that produces calibrated relevance scores between 0.0 and 1.0. These scores replace the RRF scores, letting consumers filter by quality (e.g., `min_score=0.3` drops low-confidence results).
+
+### How it works
+
+1. **Oversample.** `perform_search` requests `3 × top_k` results from the RRF merge, giving the cross-encoder more candidates to evaluate.
+2. **Rescore.** The Infinity `/rerank` endpoint receives these candidates along with the original query. The cross-encoder evaluates each (query, document) pair and returns a relevance score.
+3. **Replace and filter.** Cross-encoder scores replace RRF scores. The pipeline re-sorts results by their new scores and drops any below `min_score`.
+4. **Truncate.** The pipeline truncates the final list to the original `top_k`.
+
+### Worked example (continuing from above)
+
+Starting with the RRF results: C (0.0160), A (0.0115), B (0.0113), D (0.0048), E (0.0048).
+
+The cross-encoder evaluates each document against "kubernetes deployment strategy":
+
+| Document | RRF Score | Cross-Encoder Score | Interpretation |
+|----------|-----------|---------------------|----------------|
+| Doc C    | 0.0160    | 0.92                | Highly relevant — direct match |
+| Doc A    | 0.0115    | 0.78                | Relevant — covers the topic |
+| Doc D    | 0.0048    | 0.65                | Moderately relevant |
+| Doc B    | 0.0113    | 0.31                | Tangentially related |
+| Doc E    | 0.0048    | 0.08                | Irrelevant |
+
+**New ranking:** C (0.92), A (0.78), D (0.65), B (0.31), E (0.08)
+
+With `min_score=0.3`: the pipeline returns C, A, D, and B. Doc E falls below the threshold.
+
+Doc D jumped from 4th to 3rd — the cross-encoder recognized its relevance as greater than Doc B's, overriding the RRF order. The scores now carry clear meaning: 0.92 marks confident relevance, 0.08 marks confident irrelevance.
+
+### Graceful degradation
+
+When the reranker endpoint fails (down, timed out, or returning an error), the pipeline preserves the original RRF scores unchanged. The response includes a `"reranked": false` flag so consumers know whether the scores reflect calibrated cross-encoder judgments or compressed RRF ranks.
+
 ## Implementation Reference
 
-The search pipeline lives in `src/local_rag/search.py`:
+The search pipeline lives in `src/ragling/search/search.py`:
 
 - `_vector_search()` — runs the sqlite-vec nearest-neighbor query
 - `_fts_search()` — runs the FTS5 keyword query
 - `rrf_merge()` — combines both ranked lists using the formula above
 - `search()` — orchestrates the full pipeline: run both searches, merge, apply filters, fetch full document data
+- `rescore()` (in `src/ragling/search/rescore.py`) — sends candidates to an Infinity cross-encoder, replaces RRF scores with calibrated relevance scores
 
-All filtering (by collection, source type, date range, sender) happens after the initial search but before final ranking, so filters don't affect the ranking logic.
+Filtering (by collection, source type, date range, sender) happens inside the vector and FTS retrieval steps, before RRF merge. Each retrieval path oversamples candidates, filters in-memory, then passes the filtered lists to `rrf_merge()`. Rescoring runs after the merge, before the final `top_k` truncation.
