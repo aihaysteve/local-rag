@@ -125,16 +125,16 @@ These values are configurable in `~/.ragling/config.json`:
 
 ## Optional Cross-Encoder Rescoring
 
-RRF scores are good for ranking but poor for thresholding. The scores cluster in a narrow range (typically 0.001–0.016) because the `1/(k + rank)` formula compresses differences. A score of 0.016 might be highly relevant while 0.012 is noise — but there's no principled way to set a cutoff.
+RRF ranks well but thresholds poorly. Its scores cluster in a narrow range (typically 0.001–0.016) because the `1/(k + rank)` formula compresses differences. A score of 0.016 may signal high relevance while 0.012 signals noise, yet no principled cutoff exists.
 
-When a reranker endpoint is configured, ragling sends the top candidates to a cross-encoder model that produces calibrated relevance scores between 0.0 and 1.0. These replace the RRF scores, enabling consumers to filter by score quality (e.g., `min_score=0.3` to drop low-confidence results).
+When a reranker endpoint is configured, ragling sends the top candidates to a cross-encoder model that produces calibrated relevance scores between 0.0 and 1.0. These scores replace the RRF scores, letting consumers filter by quality (e.g., `min_score=0.3` drops low-confidence results).
 
 ### How it works
 
-1. **Oversample.** `perform_search` requests `3 × top_k` results from the RRF merge instead of `top_k`, giving the cross-encoder more candidates to evaluate.
-2. **Rescore.** The top `3 × top_k` candidates are sent to the Infinity `/rerank` endpoint along with the original query. The cross-encoder evaluates each (query, document) pair and returns a relevance score.
-3. **Replace and filter.** RRF scores are replaced with cross-encoder scores. Results are re-sorted by the new scores and filtered by `min_score`.
-4. **Truncate.** The final list is truncated to the originally requested `top_k`.
+1. **Oversample.** `perform_search` requests `3 × top_k` results from the RRF merge, giving the cross-encoder more candidates to evaluate.
+2. **Rescore.** The Infinity `/rerank` endpoint receives these candidates along with the original query. The cross-encoder evaluates each (query, document) pair and returns a relevance score.
+3. **Replace and filter.** Cross-encoder scores replace RRF scores. The pipeline re-sorts results by their new scores and drops any below `min_score`.
+4. **Truncate.** The pipeline truncates the final list to the original `top_k`.
 
 ### Worked example (continuing from above)
 
@@ -148,17 +148,17 @@ The cross-encoder evaluates each document against "kubernetes deployment strateg
 | Doc A    | 0.0115    | 0.78                | Relevant — covers the topic |
 | Doc D    | 0.0048    | 0.65                | Moderately relevant |
 | Doc B    | 0.0113    | 0.31                | Tangentially related |
-| Doc E    | 0.0048    | 0.08                | Not relevant |
+| Doc E    | 0.0048    | 0.08                | Irrelevant |
 
 **New ranking:** C (0.92), A (0.78), D (0.65), B (0.31), E (0.08)
 
-With `min_score=0.3`: C, A, D, B are returned. Doc E is filtered out.
+With `min_score=0.3`: the pipeline returns C, A, D, and B. Doc E falls below the threshold.
 
-Notice that Doc D jumped from 4th to 3rd — the cross-encoder recognized it as more relevant than Doc B despite RRF ranking them differently. And the scores now have clear semantic meaning: 0.92 is confidently relevant, 0.08 is confidently irrelevant.
+Doc D jumped from 4th to 3rd — the cross-encoder recognized its relevance as greater than Doc B's, overriding the RRF order. The scores now carry clear meaning: 0.92 marks confident relevance, 0.08 marks confident irrelevance.
 
 ### Graceful degradation
 
-If the reranker endpoint is unavailable (down, timed out, returns an error), the original RRF scores are preserved unchanged. The response includes a `"reranked": false` flag so consumers know whether scores are calibrated cross-encoder scores or compressed RRF scores.
+When the reranker endpoint fails (down, timed out, or returning an error), the pipeline preserves the original RRF scores unchanged. The response includes a `"reranked": false` flag so consumers know whether the scores reflect calibrated cross-encoder judgments or compressed RRF ranks.
 
 ## Implementation Reference
 

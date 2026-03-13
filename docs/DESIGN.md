@@ -439,30 +439,31 @@ in `SearchResult`, letting clients display warnings.
 
 ### Cross-Encoder Rescoring
 
-RRF produces well-ordered results but compressed scores (typically 0.001–0.016)
-unsuitable for confidence thresholding. When a reranker endpoint is configured,
-`rescore()` in `src/ragling/search/rescore.py` sends the top `3 × top_k`
-candidates (controlled by `_RESCORE_OVERSAMPLE`) to an Infinity cross-encoder
-server. The cross-encoder produces calibrated relevance scores (0.0–1.0) that
-replace the RRF scores, enabling consumers to filter by score quality.
+RRF produces well-ordered results but compresses scores (typically 0.001–0.016),
+making them useless for confidence thresholding. When a reranker endpoint is
+configured, `rescore()` in `src/ragling/search/rescore.py` sends the top
+`3 × top_k` candidates (controlled by `_RESCORE_OVERSAMPLE`) to an Infinity
+cross-encoder server. The cross-encoder returns calibrated relevance scores
+(0.0–1.0) that replace the RRF scores, enabling consumers to filter by score
+quality.
 
 #### Why scoring over ranking
 
 Cross-encoder models fall into two categories by training objective:
 
 - **Ranking losses** (contrastive, triplet, listwise) optimize relative ordering
-  metrics like NDCG@10. Scores reflect "better than" relationships but have no
-  absolute meaning — a score of 0.7 from one query is not comparable to 0.7 from
+  metrics like NDCG@10. Scores reflect "better than" relationships but carry no
+  absolute meaning — a score of 0.7 from one query says nothing about 0.7 from
   another.
 - **Classification losses** (binary cross-entropy) train the model to predict
   P(relevant | query, document). Scores approximate calibrated probabilities:
   0.9 means "very likely relevant" regardless of query. This enables threshold-
   based filtering (e.g., `min_score=0.3` to drop noise).
 
-Ragling uses rescoring primarily for **score calibration**, not re-ranking.
-RRF already produces good ordering from two independent signals. What RRF
-cannot provide is a calibrated confidence score that consumers can threshold.
-The design therefore selects models trained with binary cross-entropy.
+Ragling uses rescoring for **score calibration**, not re-ranking. RRF already
+orders results well from two independent signals. What RRF lacks is a
+calibrated confidence score that consumers can threshold. The design therefore
+requires models trained with binary cross-entropy.
 
 #### Model selection: `mxbai-rerank-xsmall-v1`
 
@@ -477,29 +478,26 @@ The default model is `mixedbread-ai/mxbai-rerank-xsmall-v1` (35M params,
 | NDCG@10 (BEIR avg) | 52.4 | 68.0 | 59.2 |
 | Score separation | Good (0.0–1.0 spread) | Good | Good |
 
-`mxbai-rerank-xsmall-v1` was chosen because:
+`mxbai-rerank-xsmall-v1` wins on three axes:
 
-1. **Latency budget.** At ~60ms for 30 candidates, rescoring adds negligible
-   overhead to the search pipeline. Larger models (400ms+) would noticeably
-   degrade interactive search.
-2. **Score calibration quality.** Binary cross-entropy training produces well-
-   separated scores across the 0.0–1.0 range, enabling meaningful `min_score`
-   thresholds.
+1. **Latency budget.** Rescoring 30 candidates takes ~60ms — negligible overhead
+   for interactive search. Larger models (400ms+) visibly degrade response time.
+2. **Score calibration quality.** Binary cross-entropy training spreads scores
+   across the full 0.0–1.0 range, making `min_score` thresholds meaningful.
 3. **Resource footprint.** 35M params fits comfortably alongside Ollama's
-   embedding model on machines without dedicated GPU. Larger rerankers compete
+   embedding model on machines without a dedicated GPU. Larger rerankers compete
    for VRAM with the embedding model.
-4. **Sufficient ranking quality.** While NDCG@10 is lower than larger models,
-   the RRF stage already provides strong ordering from two independent signals.
-   The cross-encoder's job is calibrating scores, not fundamentally reordering.
+4. **Sufficient ranking quality.** NDCG@10 trails larger models, but RRF already
+   provides strong ordering from two independent signals. The cross-encoder
+   calibrates scores rather than fundamentally reorders.
 
 Users who want higher ranking accuracy at the cost of latency can set
 `reranker.model` to a larger model in their config.
 
 #### Why Infinity over Ollama
 
-Cross-encoders require paired (query, document) inference — unlike embedding
-models, they cannot encode documents independently. For N candidates, the model
-runs N forward passes.
+Cross-encoders require paired (query, document) inference — they cannot encode
+documents independently. For N candidates, the model runs N forward passes.
 
 | Runtime | 30 candidates | Batching | Notes |
 |---------|--------------|----------|-------|
@@ -508,8 +506,8 @@ runs N forward passes.
 
 Infinity achieves 75x speedup through native batch inference on the cross-
 encoder architecture. Ollama processes candidates sequentially through its
-generation pipeline, which is optimized for token-by-token autoregressive
-output, not the single-pass classification that cross-encoders perform.
+generation pipeline, optimized for token-by-token autoregressive output rather
+than the single-pass classification that cross-encoders perform.
 
 #### Compound oversampling
 
@@ -517,34 +515,34 @@ When rescoring is active, `perform_search` requests `3 × top_k` results from
 the `search()` function (`_RESCORE_OVERSAMPLE = 3`). Inside `search()`, the
 vector and FTS retrieval paths apply their own `_UNFILTERED_OVERSAMPLING = 3`
 (or `_FILTERED_OVERSAMPLING = 50` for filtered queries). The effective
-candidate count for unfiltered queries is therefore `top_k × 3 × 3 = 9×`.
+candidate count for unfiltered queries reaches `top_k × 3 × 3 = 9×`.
 
-This compound oversampling is intentional: the first 3× ensures the cross-
-encoder sees enough candidates to produce meaningful score discrimination,
-while the inner 3× ensures RRF merge receives enough candidates from each
-retrieval path. For filtered queries the inner multiplier rises to 50× to
-compensate for post-retrieval filtering.
+This compound oversampling serves two distinct purposes: the outer 3x gives the
+cross-encoder enough candidates for meaningful score discrimination, while the
+inner 3x gives RRF merge enough candidates from each retrieval path. For
+filtered queries the inner multiplier rises to 50x to compensate for
+post-retrieval filtering.
 
 #### Connection pooling and TLS
 
-`rescore.py` uses a module-level `httpx.Client` singleton (`_get_client()`)
+`rescore.py` maintains a module-level `httpx.Client` singleton (`_get_client()`)
 for TCP connection reuse across calls. In batch search, this avoids creating
-N separate TCP connections for N queries. The client is lazily initialized
-and recreated if the `verify_tls` setting changes.
+N separate TCP connections for N queries. The client initializes lazily and
+recreates itself when the `verify_tls` setting changes.
 
 For local Infinity deployments using self-signed TLS certificates, set
 `reranker.verify_tls` to `false` in the config.
 
 #### Graceful degradation
 
-Rescoring degrades gracefully: on any failure (connection error, timeout,
-malformed response, out-of-bounds index), original RRF scores are preserved
-and the response includes `"reranked": false` so consumers know whether
-scores are calibrated. The `reranked` flag is always present in search
-responses — consumers never need to check for key existence.
+On any failure — connection error, timeout, malformed response, out-of-bounds
+index — rescoring preserves the original RRF scores and marks the response
+`"reranked": false` so consumers know the scores lack calibration. The
+`reranked` flag appears in every search response; consumers never need to check
+for key existence.
 
-For batch search, the `reranked` flag uses all-or-nothing aggregation:
-it is `true` only when every query in the batch was successfully rescored.
+For batch search, the `reranked` flag uses all-or-nothing aggregation: it is
+`true` only when every query in the batch rescored successfully.
 
 Key files: `src/ragling/search/search.py`, `src/ragling/search/rescore.py`.
 
