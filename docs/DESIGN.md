@@ -473,13 +473,13 @@ The default model is `mixedbread-ai/mxbai-rerank-xsmall-v1` (~71M params,
 | Criterion | mxbai-rerank-xsmall-v1 | bge-reranker-v2-m3 | mxbai-rerank-base-v1 |
 |-----------|------------------------|--------------------|----------------------|
 | Params | ~71M | 568M | ~200M |
-| Latency (30 docs, batched, CPU) | ~890ms | — | — |
+| Latency (30 docs, batched, CPU) | ~850ms | — | — |
 | NDCG@10 (BEIR avg) | 43.9 | 68.0 | 59.2 |
 | Score separation | Good (0.0–1.0 spread) | Good | Good |
 
 `mxbai-rerank-xsmall-v1` wins on three axes:
 
-1. **Latency budget.** Rescoring 30 candidates takes ~890ms on CPU (batched).
+1. **Latency budget.** Rescoring 30 candidates takes ~850ms on CPU (batched).
    Infinity adds HTTP overhead but provides native batch inference.
 2. **Score calibration quality.** The model produces scores spread across the
    full 0.0–1.0 range, making `min_score` thresholds meaningful.
@@ -503,10 +503,10 @@ each):
 
 | Mode | 30 candidates | Notes |
 |------|--------------|-------|
-| Batched (as Infinity does) | ~890ms | Single forward pass with batch dimension |
-| Sequential (as Ollama would) | ~2,500ms | 30 individual forward passes |
+| Batched (as Infinity does) | ~850ms | Single forward pass with batch dimension |
+| Sequential (as Ollama would) | ~2,900ms | 30 individual forward passes |
 
-Batching provides a ~2.8x speedup on CPU. Infinity serves the model with native
+Batching provides a ~3.4x speedup on CPU. Infinity serves the model with native
 batch inference through its `/rerank` endpoint. Ollama lacks cross-encoder
 support — its generation pipeline is optimized for token-by-token autoregressive
 output, not single-pass classification.
