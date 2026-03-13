@@ -454,6 +454,7 @@ Key settings:
 | `reranker.model` | `"mixedbread-ai/mxbai-rerank-xsmall-v1"` | Cross-encoder model served by the reranking endpoint |
 | `reranker.min_score` | `0` | Minimum relevance score threshold (0 = no filtering) |
 | `reranker.enabled` | auto | Master switch; defaults to `true` when `endpoint` is set |
+| `reranker.verify_tls` | `true` | TLS certificate verification; set `false` for self-signed certs |
 | `disabled_collections` | `[]` | Collections to skip during indexing |
 
 ## Project Structure
