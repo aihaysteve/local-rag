@@ -264,6 +264,12 @@ score(doc) = vector_weight / (k + vec_rank) + fts_weight / (k + fts_rank)
 
 Default parameters: `k=60`, `vector_weight=0.7`, `fts_weight=0.3`.
 
+### Optional Cross-Encoder Rescoring
+
+When a reranker endpoint is configured, RRF results are rescored through a cross-encoder model served by [Infinity](https://github.com/michaelfeil/infinity). The `rescore()` function in `src/ragling/search/rescore.py` sends the top `3 × top_k` RRF candidates to the `/rerank` endpoint, replaces compressed RRF scores with calibrated relevance scores (0.0–1.0), and filters by `min_score`. This enables consumers to threshold on score quality rather than relying on rank alone.
+
+Default model: `mixedbread-ai/mxbai-rerank-xsmall-v1` (35M params, ~60ms for 30 candidates). Rescoring degrades gracefully -- if the endpoint is unavailable, original RRF scores are preserved and the response includes `"reranked": false`.
+
 For a detailed explanation of the algorithm with worked examples, see [Hybrid Search and RRF](hybrid-search-and-rrf.md).
 
 ## SSE Transport and Authentication
@@ -357,6 +363,9 @@ Query string
                           Apply filters (collection, type, date, sender, author)
                                    |
                                    v
+                          Cross-encoder rescore (optional, via Infinity)
+                                   |
+                                   v
                           visible_collections filtering (SSE users only)
                                    |
                                    v
@@ -401,6 +410,13 @@ Config file: `~/.ragling/config.json`
     "vector_weight": 0.7,
     "fts_weight": 0.3
   },
+  "reranker": {
+    "model": "mixedbread-ai/mxbai-rerank-xsmall-v1",
+    "min_score": 0,
+    "enabled": true,
+    "endpoint": "https://infinity.example.com",
+    "verify_tls": true
+  },
   "users": {
     "alice": {
       "api_key": "sk-alice-secret-key",
@@ -434,6 +450,10 @@ Key settings:
 | `chunk_size_tokens` | `256` | Maximum tokens per chunk |
 | `obsidian_vaults` | `[]` | Obsidian vault paths |
 | `code_groups` | `{}` | Map of group name to list of git repo paths |
+| `reranker.endpoint` | `null` | Infinity reranking server URL; enables rescoring when set |
+| `reranker.model` | `"mixedbread-ai/mxbai-rerank-xsmall-v1"` | Cross-encoder model served by the reranking endpoint |
+| `reranker.min_score` | `0` | Minimum relevance score threshold (0 = no filtering) |
+| `reranker.enabled` | auto | Master switch; defaults to `true` when `endpoint` is set |
 | `disabled_collections` | `[]` | Collections to skip during indexing |
 
 ## Project Structure

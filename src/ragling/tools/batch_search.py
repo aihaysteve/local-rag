@@ -16,6 +16,8 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
     @mcp.tool()
     def rag_batch_search(
         queries: list[dict[str, Any]],
+        rerank: bool = True,
+        min_score: float | None = None,
     ) -> dict[str, Any]:
         """Run multiple searches in a single call, returning all results at once.
 
@@ -38,6 +40,10 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
         Args:
             queries: List of search query dicts. Each must have a "query" key.
                 Other keys match rag_search parameters.
+            rerank: Whether to apply cross-encoder rescoring (default True).
+                Set to False to skip reranking and use raw RRF scores.
+            min_score: Minimum score threshold for results. Only results with
+                a score >= this value are returned. None means no threshold.
 
         Returns:
             Dict with ``results`` (list of per-query result lists, same order as
@@ -80,12 +86,18 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
             )
 
         try:
-            all_results = perform_batch_search(
+            all_results, reranked_flags = perform_batch_search(
                 queries=batch_queries,
                 group_name=ctx.group_name,
                 config=ctx.server_config,
                 visible_collections=visible,
+                rerank=rerank,
+                min_score=min_score,
             )
+            # All-or-nothing: reranked is True only when every query was
+            # successfully reranked.  If any single query's rescore failed
+            # (graceful degradation), the batch reports reranked=False.
+            reranked = bool(reranked_flags) and all(reranked_flags)
         except OllamaConnectionError as e:
             return _build_search_response([{"error": str(e)}], ctx.indexing_status)
 
@@ -98,4 +110,4 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                 result_dicts = _apply_user_context_to_results(result_dicts, user_ctx)
             all_result_dicts.append(result_dicts)
 
-        return _build_search_response(all_result_dicts, ctx.indexing_status)
+        return _build_search_response(all_result_dicts, ctx.indexing_status, reranked=reranked)

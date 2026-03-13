@@ -79,7 +79,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
             reformulated_query = f"{query} invariant"
 
         # --- Step 1: Generic spec search ---
-        generic_results = perform_search(
+        generic_results, _reranked = perform_search(
             query=reformulated_query,
             source_type="spec",
             top_k=10,
@@ -110,7 +110,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                     )
                     for s in missing
                 ]
-                per_sub_results = perform_batch_search(
+                per_sub_results, _flags = perform_batch_search(
                     batch,
                     group_name=ctx.group_name,
                     config=ctx.server_config,
@@ -144,7 +144,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                     )
                     for s in found_subsystems
                 ]
-                dep_results = perform_batch_search(
+                dep_results, _dep_flags = perform_batch_search(
                     dep_batch,
                     group_name=ctx.group_name,
                     config=ctx.server_config,
@@ -171,7 +171,7 @@ def register(mcp: FastMCP, ctx: ToolContext) -> None:
                     )
                     for s in expansion_targets
                 ]
-                exp_results = perform_batch_search(
+                exp_results, _exp_flags = perform_batch_search(
                     exp_batch,
                     group_name=ctx.group_name,
                     config=ctx.server_config,

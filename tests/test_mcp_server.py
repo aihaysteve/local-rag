@@ -1537,7 +1537,9 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.search.perform_batch_search", return_value=[[], []]) as mock_pbs:
+        with patch(
+            "ragling.search.search.perform_batch_search", return_value=([[], []], [False, False])
+        ) as mock_pbs:
             result = fn(
                 queries=[
                     {"query": "hello"},
@@ -1594,7 +1596,10 @@ class TestRagBatchSearch:
             ],
         ]
 
-        with patch("ragling.search.search.perform_batch_search", return_value=mock_results):
+        with patch(
+            "ragling.search.search.perform_batch_search",
+            return_value=(mock_results, [False, False]),
+        ):
             result = fn(
                 queries=[
                     {"query": "first"},
@@ -1644,7 +1649,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.search.perform_batch_search", return_value=[[]]):
+        with patch("ragling.search.search.perform_batch_search", return_value=([[]], [False])):
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is not None
@@ -1673,7 +1678,7 @@ class TestRagBatchSearch:
         tools = server._tool_manager._tools
         fn = tools["rag_batch_search"].fn
 
-        with patch("ragling.search.search.perform_batch_search", return_value=[[]]):
+        with patch("ragling.search.search.perform_batch_search", return_value=([[]], [False])):
             result = fn(queries=[{"query": "test"}])
 
         assert result["indexing"] is None

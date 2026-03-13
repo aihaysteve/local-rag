@@ -437,7 +437,27 @@ backing file still exists. Stat results are cached per unique source path
 within a search request. Results from deleted files are marked `stale=True`
 in `SearchResult`, letting clients display warnings.
 
-Key file: `src/ragling/search/search.py`.
+### Cross-Encoder Rescoring
+
+RRF produces well-ordered results but compressed scores (typically 0.001–0.016)
+unsuitable for confidence thresholding. When a reranker endpoint is configured,
+`rescore()` in `src/ragling/search/rescore.py` sends the top `3 × top_k`
+candidates (controlled by `_RESCORE_OVERSAMPLE`) to an Infinity cross-encoder
+server. The cross-encoder produces calibrated relevance scores (0.0–1.0) that
+replace the RRF scores, enabling consumers to filter by score quality.
+
+The design chose **scoring over ranking**: models trained with binary
+cross-entropy (classification loss) produce calibrated probabilities suitable
+for thresholding, while models trained with ranking losses produce good ordering
+but uncalibrated scores. The default model (`mxbai-rerank-xsmall-v1`, 35M
+params) was selected for score separation quality, not ranking metrics. See the
+[design doc](plans/2026-03-12-rescoring-after-rrf-design.md) for benchmarks.
+
+Rescoring degrades gracefully: on any failure (connection error, timeout,
+malformed response), original RRF scores are preserved and the response includes
+`"reranked": false` so consumers know whether scores are calibrated.
+
+Key files: `src/ragling/search/search.py`, `src/ragling/search/rescore.py`.
 
 ---
 
