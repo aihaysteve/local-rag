@@ -388,8 +388,8 @@ Module-internal constants use `_UPPER_CASE` with a leading underscore (e.g.,
 `_TIMEOUT`, `_WAL_RETRIES`, `_FILTERED_OVERSAMPLING`).
 
 Frozen dataclasses represent thread-shared configuration (`Config`,
-`EnrichmentConfig`, `IndexJob`); plain dataclasses represent mutable state
-(`IndexResult`, `IndexRequest`, `ToolContext`). This convention signals
+`EnrichmentConfig`, `RerankerConfig`, `IndexJob`); plain dataclasses
+represent mutable state (`IndexResult`, `IndexRequest`, `ToolContext`). This convention signals
 thread-safety guarantees at the type level.
 
 Type hints use `from __future__ import annotations` for PEP 604 syntax
